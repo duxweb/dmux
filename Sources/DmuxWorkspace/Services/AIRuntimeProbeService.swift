@@ -370,14 +370,15 @@ func parseGeminiSessionRuntimeState(fileURL: URL) -> GeminiParsedRuntimeState? {
         }
 
         let tokens = message["tokens"] as? [String: Any] ?? [:]
-        let messageTotal = (tokens["total"] as? NSNumber)?.intValue
-            ?? ((tokens["input"] as? NSNumber)?.intValue ?? 0)
-            + ((tokens["output"] as? NSNumber)?.intValue ?? 0)
-            + ((tokens["cached"] as? NSNumber)?.intValue ?? 0)
-            + ((tokens["thoughts"] as? NSNumber)?.intValue ?? 0)
-            + ((tokens["tool"] as? NSNumber)?.intValue ?? 0)
+        let totalValue = (tokens["total"] as? NSNumber)?.intValue
+        let inputValue = (tokens["input"] as? NSNumber)?.intValue ?? 0
+        let outputValue = (tokens["output"] as? NSNumber)?.intValue ?? 0
+        let cachedValue = (tokens["cached"] as? NSNumber)?.intValue ?? 0
+        let thoughtsValue = (tokens["thoughts"] as? NSNumber)?.intValue ?? 0
+        let toolValue = (tokens["tool"] as? NSNumber)?.intValue ?? 0
+        let messageTotal = totalValue ?? (inputValue + outputValue + cachedValue + thoughtsValue + toolValue)
         totalTokens += max(0, messageTotal)
-        outputTokens += max(0, (tokens["output"] as? NSNumber)?.intValue ?? 0)
+        outputTokens += max(0, outputValue)
     }
 
     let inputTokens = max(0, totalTokens - outputTokens)
