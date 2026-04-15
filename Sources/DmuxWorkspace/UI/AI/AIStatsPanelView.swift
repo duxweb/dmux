@@ -36,8 +36,8 @@ struct AIStatsPanelView: View {
                         )
                         AIStatsTodayUsageBarChart(model: model, buckets: store.state.todayTimeBuckets)
                         AIStatsHeatmapCard(model: model, days: store.state.heatmap)
-                        AIStatsBreakdownCard(model: model, title: model.i18n("ai.breakdown.tool_ranking", fallback: "Tool Ranking"), items: store.state.toolBreakdown)
-                        AIStatsBreakdownCard(model: model, title: model.i18n("ai.breakdown.model_ranking", fallback: "Model Ranking"), items: store.state.modelBreakdown)
+                        AIStatsBreakdownCard(model: model, title: String(localized: "ai.breakdown.tool_ranking", defaultValue: "Tool Ranking", bundle: .module), items: store.state.toolBreakdown)
+                        AIStatsBreakdownCard(model: model, title: String(localized: "ai.breakdown.model_ranking", defaultValue: "Model Ranking", bundle: .module), items: store.state.modelBreakdown)
                         AIStatsSessionsCard(model: model, sessions: store.state.sessions)
                     }
                     .padding(.horizontal, 16)
@@ -80,7 +80,7 @@ struct AIStatsPanelView: View {
         if stateMatchesCurrentProject {
             return store.state.indexingStatus
         }
-        return .indexing(progress: 0.0, detail: model.i18n("ai.state.switching_current_project", fallback: "Switching to Current Project"))
+        return .indexing(progress: 0.0, detail: String(localized: "ai.state.switching_current_project", defaultValue: "Switching to Current Project", bundle: .module))
     }
 }
 
@@ -96,11 +96,11 @@ private struct AIStatsEmptyView: View {
                 .foregroundStyle(AppTheme.textMuted)
 
             VStack(spacing: 6) {
-                Text(model.i18n("ai.empty.no_stats", fallback: "No AI Stats Yet"))
+                Text(String(localized: "ai.empty.no_stats", defaultValue: "No AI Stats Yet", bundle: .module))
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(AppTheme.textPrimary)
 
-                Text(model.i18n("ai.empty.description", fallback: "There are no AI tool usage records yet in this project's workspace terminals."))
+                Text(String(localized: "ai.empty.description", defaultValue: "There are no AI tool usage records yet in this project's workspace terminals.", bundle: .module))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(AppTheme.textMuted)
                     .multilineTextAlignment(.center)
@@ -118,7 +118,7 @@ private struct AIStatsHeader: View {
 
     var body: some View {
         HStack {
-            Text(model.i18n("ai.panel.title", fallback: "AI Assistant"))
+            Text(String(localized: "ai.panel.title", defaultValue: "AI Assistant", bundle: .module))
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(AppTheme.textPrimary)
 
@@ -141,12 +141,12 @@ private struct AIStatsSummaryCards: View {
     var body: some View {
         HStack(spacing: 10) {
             metricCard(
-                title: model.i18n("ai.summary.current_project", fallback: "Current Project"),
+                title: String(localized: "ai.summary.current_project", defaultValue: "Current Project", bundle: .module),
                 value: formatCompactToken(summary.projectTotalTokens),
                 accent: AppTheme.focus
             )
             metricCard(
-                title: model.i18n("ai.summary.today_total", fallback: "Today's Total"),
+                title: String(localized: "ai.summary.today_total", defaultValue: "Today's Total", bundle: .module),
                 value: formatCompactToken(displayedTodayTotalTokens),
                 accent: AppTheme.success
             )
@@ -202,12 +202,12 @@ private struct AIStatsLiveSessionsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.i18n("ai.live_sessions", fallback: "Live Sessions"))
+            Text(String(localized: "ai.live_sessions", defaultValue: "Live Sessions", bundle: .module))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
 
             if snapshots.isEmpty {
-                Text(model.i18n("ai.live_sessions.empty", fallback: "There are no active AI sessions right now"))
+                Text(String(localized: "ai.live_sessions.empty", defaultValue: "There are no active AI sessions right now", bundle: .module))
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .center)
@@ -234,7 +234,7 @@ private struct AIStatsLiveSessionsCard: View {
                                 .font(.system(size: 16, weight: .bold, design: .rounded))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
-                            Text(model.i18n("ai.metric.token", fallback: "Token"))
+                            Text(String(localized: "ai.metric.token", defaultValue: "Token", bundle: .module))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
@@ -262,7 +262,7 @@ private struct AIStatsHeatmapCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.i18n("ai.recent_usage", fallback: "Recent Usage"))
+            Text(String(localized: "ai.recent_usage", defaultValue: "Recent Usage", bundle: .module))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
 
@@ -274,9 +274,9 @@ private struct AIStatsHeatmapCard: View {
             GeometryReader { proxy in
                 if let hoveredDay {
                     AIChartTooltip(
-                        title: formattedNumericDate(hoveredDay.day, language: model.appSettings.language),
-                        primary: "\(model.i18n("ai.metric.token", fallback: "Token")) \(formatCompactToken(hoveredDay.totalTokens))",
-                        secondary: String(format: model.i18n("common.requests_format", fallback: "Requests %@"), "\(hoveredDay.requestCount)")
+                        title: formattedNumericDate(hoveredDay.day, language: model.displayLanguage),
+                        primary: "\(String(localized: "ai.metric.token", defaultValue: "Token", bundle: .module)) \(formatCompactToken(hoveredDay.totalTokens))",
+                        secondary: String(format: String(localized: "common.requests_format", defaultValue: "Requests %@", bundle: .module), "\(hoveredDay.requestCount)")
                     )
                     .position(chartTooltipPosition(anchor: hoveredDayAnchor, containerSize: proxy.size, tooltipSize: CGSize(width: 150, height: 72)))
                 }
@@ -387,7 +387,7 @@ private struct AIStatsTodayUsageBarChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.i18n("ai.today_usage", fallback: "Today's Usage"))
+            Text(String(localized: "ai.today_usage", defaultValue: "Today's Usage", bundle: .module))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
 
@@ -454,8 +454,8 @@ private struct AIStatsTodayUsageBarChart: View {
                 if let hoveredBucket {
                     AIChartTooltip(
                         title: bucketRangeLabel(hoveredBucket.start, hoveredBucket.end),
-                        primary: "\(model.i18n("ai.metric.token", fallback: "Token")) \(formatCompactToken(hoveredBucket.totalTokens))",
-                        secondary: String(format: model.i18n("common.requests_format", fallback: "Requests %@"), "\(hoveredBucket.requestCount)")
+                        primary: "\(String(localized: "ai.metric.token", defaultValue: "Token", bundle: .module)) \(formatCompactToken(hoveredBucket.totalTokens))",
+                        secondary: String(format: String(localized: "common.requests_format", defaultValue: "Requests %@", bundle: .module), "\(hoveredBucket.requestCount)")
                     )
                     .position(chartTooltipPosition(anchor: hoveredBucketAnchor, containerSize: proxy.size, tooltipSize: CGSize(width: 172, height: 72)))
                 }
@@ -467,7 +467,7 @@ private struct AIStatsTodayUsageBarChart: View {
     private func bucketRangeLabel(_ start: Date, _ end: Date) -> String {
         let formatter = DateFormatter()
         formatter.timeZone = .autoupdatingCurrent
-        formatter.locale = locale(for: model.appSettings.language.resolved)
+        formatter.locale = locale(for: model.displayLanguage)
         formatter.dateFormat = "HH:mm"
         return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
     }
@@ -585,7 +585,7 @@ private struct AIStatsBreakdownCard: View {
                 .foregroundStyle(.secondary)
 
             if items.isEmpty {
-                Text(model.i18n("common.no_data", fallback: "No Data"))
+                Text(String(localized: "common.no_data", defaultValue: "No Data", bundle: .module))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.tertiary)
             } else {
@@ -644,12 +644,12 @@ private struct AIStatsSessionsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(model.i18n("ai.sessions.history", fallback: "Session History"))
+            Text(String(localized: "ai.sessions.history", defaultValue: "Session History", bundle: .module))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
 
             if sessions.isEmpty {
-                Text(model.i18n("ai.sessions.empty", fallback: "No Session History"))
+                Text(String(localized: "ai.sessions.empty", defaultValue: "No Session History", bundle: .module))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.tertiary)
             } else {
@@ -684,7 +684,7 @@ private struct AIStatsSessionsCard: View {
                                 Text(formatCompactToken(session.totalTokens))
                                     .font(.system(size: 14, weight: .medium, design: .rounded))
                                     .foregroundStyle(.primary)
-                                Text(String(format: model.i18n("common.today_format", fallback: "Today %@"), formatCompactToken(session.todayTokens)))
+                                Text(String(format: String(localized: "common.today_format", defaultValue: "Today %@", bundle: .module), formatCompactToken(session.todayTokens)))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(.tertiary)
                             }
@@ -719,19 +719,19 @@ private struct AIStatsSessionsCard: View {
                             )
                         }
                         .contextMenu {
-                            Button(model.i18n("ai.session.open.title", fallback: "Open Session")) {
+                            Button(String(localized: "ai.session.open.title", defaultValue: "Open Session", bundle: .module)) {
                                 model.openAISession(session)
                             }
                             .disabled(!capabilities.canOpen)
 
-                            Button(model.i18n("ai.session.rename.title", fallback: "Rename Session")) {
+                            Button(String(localized: "ai.session.rename.title", defaultValue: "Rename Session", bundle: .module)) {
                                 model.renameAISession(session)
                             }
                             .disabled(!capabilities.canRename)
 
                             Divider()
 
-                            Button(model.i18n("ai.session.remove.title", fallback: "Remove Session"), role: .destructive) {
+                            Button(String(localized: "ai.session.remove.title", defaultValue: "Remove Session", bundle: .module), role: .destructive) {
                                 model.removeAISession(session)
                             }
                             .disabled(!capabilities.canRemove)
@@ -756,13 +756,13 @@ private struct AIStatsSessionsCard: View {
         guard date.timeIntervalSince1970 > 0 else {
             return "-"
         }
-        return String(format: model.i18n("common.last_format", fallback: "Last %@"), relativeSessionTime(date))
+        return String(format: String(localized: "common.last_format", defaultValue: "Last %@", bundle: .module), relativeSessionTime(date))
     }
 
     private func relativeSessionTime(_ date: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
-        formatter.locale = locale(for: model.appSettings.language.resolved)
+        formatter.locale = locale(for: model.displayLanguage)
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
@@ -861,15 +861,15 @@ private struct AIStatsIndexingBar: View {
             case let .cancelled(detail):
                 return detail
             case .idle, .indexing:
-                return model.i18n("ai.status.ready", fallback: "AI Stats Ready")
+                return String(localized: "ai.status.ready", defaultValue: "AI Stats Ready", bundle: .module)
             }
         }
         if isShowingCachedState, case .indexing = status {
-            return model.i18n("ai.status.cached_refreshing", fallback: "Showing recent results, updating in background")
+            return String(localized: "ai.status.cached_refreshing", defaultValue: "Showing recent results, updating in background", bundle: .module)
         }
         switch status {
         case .idle:
-            return model.i18n("ai.status.ready", fallback: "AI Stats Ready")
+            return String(localized: "ai.status.ready", defaultValue: "AI Stats Ready", bundle: .module)
         case let .indexing(_, detail):
             return detail
         case let .completed(detail):
@@ -940,8 +940,8 @@ private struct AIStatsIndexingBar: View {
 
             actionButton(
                 action: .refresh,
-                title: canRetry ? model.i18n("common.retry", fallback: "Retry") : model.i18n("common.refresh", fallback: "Refresh"),
-                help: canRetry ? model.i18n("ai.action.reload_current_project", fallback: "Reload AI stats for the current project.") : model.i18n("ai.action.refresh_current_project", fallback: "Refresh AI stats for the current project."),
+                title: canRetry ? String(localized: "common.retry", defaultValue: "Retry", bundle: .module) : String(localized: "common.refresh", defaultValue: "Refresh", bundle: .module),
+                help: canRetry ? String(localized: "ai.action.reload_current_project", defaultValue: "Reload AI stats for the current project.", bundle: .module) : String(localized: "ai.action.refresh_current_project", defaultValue: "Refresh AI stats for the current project.", bundle: .module),
                 systemImage: "arrow.clockwise",
                 buttonAction: onRefresh
             )
@@ -949,8 +949,8 @@ private struct AIStatsIndexingBar: View {
             if isManualRunning {
                 actionButton(
                     action: .cancel,
-                    title: model.i18n("common.stop", fallback: "Stop"),
-                    help: model.i18n("ai.action.stop_refresh", fallback: "Stop the current AI stats refresh."),
+                    title: String(localized: "common.stop", defaultValue: "Stop", bundle: .module),
+                    help: String(localized: "ai.action.stop_refresh", defaultValue: "Stop the current AI stats refresh.", bundle: .module),
                     systemImage: "stop.fill",
                     buttonAction: onCancel
                 )

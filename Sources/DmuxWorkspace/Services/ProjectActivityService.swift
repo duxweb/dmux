@@ -127,10 +127,10 @@ struct ProjectActivityService: @unchecked Sendable {
 
     private func enqueueNotification(projectName: String, tool: String, exitCode: Int?) {
         let content = UNMutableNotificationContent()
-        content.title = String(format: appI18n("project.activity.completed_format", fallback: "%@ completed"), tool)
+        content.title = String(format: String(localized: "project.activity.completed_format", defaultValue: "%@ completed", bundle: .module), tool)
         content.body = exitCode == nil || exitCode == 0
-            ? String(format: appI18n("project.activity.finished_successfully_format", fallback: "%@ finished successfully"), projectName)
-            : String(format: appI18n("project.activity.finished_with_exit_code_format", fallback: "%@ finished with exit code %@"), projectName, "\(exitCode ?? -1)")
+            ? String(format: String(localized: "project.activity.finished_successfully_format", defaultValue: "%@ finished successfully", bundle: .module), projectName)
+            : String(format: String(localized: "project.activity.finished_with_exit_code_format", defaultValue: "%@ finished with exit code %@", bundle: .module), projectName, "\(exitCode ?? -1)")
         content.sound = .default
 
         let request = UNNotificationRequest(
@@ -149,10 +149,10 @@ struct ProjectActivityService: @unchecked Sendable {
     }
 
     private func fallbackNotifyIfNeeded(projectName: String, tool: String, exitCode: Int?, reason: String) {
-        let title = String(format: appI18n("project.activity.completed_format", fallback: "%@ completed"), tool)
+        let title = String(format: String(localized: "project.activity.completed_format", defaultValue: "%@ completed", bundle: .module), tool)
         let body = exitCode == nil || exitCode == 0
-            ? String(format: appI18n("project.activity.finished_successfully_format", fallback: "%@ finished successfully"), projectName)
-            : String(format: appI18n("project.activity.finished_with_exit_code_format", fallback: "%@ finished with exit code %@"), projectName, "\(exitCode ?? -1)")
+            ? String(format: String(localized: "project.activity.finished_successfully_format", defaultValue: "%@ finished successfully", bundle: .module), projectName)
+            : String(format: String(localized: "project.activity.finished_with_exit_code_format", defaultValue: "%@ finished with exit code %@", bundle: .module), projectName, "\(exitCode ?? -1)")
 
         if sendBundledNotificationHelper(title: title, body: body) {
             AppDebugLog.shared.log("notifications", "fallback success transport=dmux-notify-helper reason=\(reason) project=\(projectName) tool=\(tool)")

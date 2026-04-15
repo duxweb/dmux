@@ -426,22 +426,22 @@ final class SwiftTermTerminalContainerView: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
 
-        let copyItem = NSMenuItem(title: appI18n("common.copy", fallback: "Copy"), action: #selector(copySelection), keyEquivalent: "")
+        let copyItem = NSMenuItem(title: String(localized: "common.copy", defaultValue: "Copy", bundle: .module), action: #selector(copySelection), keyEquivalent: "")
         copyItem.target = self
         copyItem.isEnabled = terminalView.selectionActive
         menu.addItem(copyItem)
 
-        let pasteItem = NSMenuItem(title: appI18n("common.paste", fallback: "Paste"), action: #selector(pasteClipboard), keyEquivalent: "")
+        let pasteItem = NSMenuItem(title: String(localized: "common.paste", defaultValue: "Paste", bundle: .module), action: #selector(pasteClipboard), keyEquivalent: "")
         pasteItem.target = self
         menu.addItem(pasteItem)
 
         menu.addItem(.separator())
 
-        let clearItem = NSMenuItem(title: appI18n("common.clear_screen", fallback: "Clear Screen"), action: #selector(clearScreen), keyEquivalent: "")
+        let clearItem = NSMenuItem(title: String(localized: "common.clear_screen", defaultValue: "Clear Screen", bundle: .module), action: #selector(clearScreen), keyEquivalent: "")
         clearItem.target = self
         menu.addItem(clearItem)
 
-        let selectAllItem = NSMenuItem(title: appI18n("common.select_all", fallback: "Select All"), action: #selector(selectAllText), keyEquivalent: "")
+        let selectAllItem = NSMenuItem(title: String(localized: "common.select_all", defaultValue: "Select All", bundle: .module), action: #selector(selectAllText), keyEquivalent: "")
         selectAllItem.target = self
         menu.addItem(selectAllItem)
 

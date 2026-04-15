@@ -27,25 +27,25 @@ struct SettingsView: View {
         TabView(selection: $selectedTab) {
             GeneralSettingsPane(model: model)
                 .tabItem {
-                    Label(model.i18n("settings.tab.general", fallback: "General"), systemImage: SettingsSectionTab.general.symbol)
+                    Label(String(localized: "settings.tab.general", defaultValue: "General", bundle: .module), systemImage: SettingsSectionTab.general.symbol)
                 }
                 .tag(SettingsSectionTab.general)
 
             AppearanceSettingsPane(model: model)
                 .tabItem {
-                    Label(model.i18n("settings.tab.appearance", fallback: "Appearance"), systemImage: SettingsSectionTab.appearance.symbol)
+                    Label(String(localized: "settings.tab.appearance", defaultValue: "Appearance", bundle: .module), systemImage: SettingsSectionTab.appearance.symbol)
                 }
                 .tag(SettingsSectionTab.appearance)
 
             ShortcutSettingsPane(model: model)
                 .tabItem {
-                    Label(model.i18n("settings.tab.shortcuts", fallback: "Shortcuts"), systemImage: SettingsSectionTab.shortcuts.symbol)
+                    Label(String(localized: "settings.tab.shortcuts", defaultValue: "Shortcuts", bundle: .module), systemImage: SettingsSectionTab.shortcuts.symbol)
                 }
                 .tag(SettingsSectionTab.shortcuts)
 
             DeveloperSettingsPane(model: model)
                 .tabItem {
-                    Label(model.i18n("settings.tab.developer", fallback: "Developer"), systemImage: SettingsSectionTab.developer.symbol)
+                    Label(String(localized: "settings.tab.developer", defaultValue: "Developer", bundle: .module), systemImage: SettingsSectionTab.developer.symbol)
                 }
                 .tag(SettingsSectionTab.developer)
         }
@@ -62,16 +62,16 @@ private struct GeneralSettingsPane: View {
 
     var body: some View {
         Form {
-            Picker(model.i18n("settings.language", fallback: "Language"), selection: Binding(
+            Picker(String(localized: "settings.language", defaultValue: "Language", bundle: .module), selection: Binding(
                 get: { model.appSettings.language },
                 set: { model.updateLanguage($0) }
             )) {
                 ForEach(AppLanguage.allCases) { language in
-                    Text(language.title(for: model.appSettings.language.resolved)).tag(language)
+                    Text(language.title).tag(language)
                 }
             }
 
-            Picker(model.i18n("settings.default_shell", fallback: "Default Shell"), selection: Binding(
+            Picker(String(localized: "settings.default_shell", defaultValue: "Default Shell", bundle: .module), selection: Binding(
                 get: { model.appSettings.defaultTerminal },
                 set: { model.updateDefaultTerminal($0) }
             )) {
@@ -80,12 +80,12 @@ private struct GeneralSettingsPane: View {
                 }
             }
 
-            Toggle(model.i18n("settings.dock_badge", fallback: "Dock Badge"), isOn: Binding(
+            Toggle(String(localized: "settings.dock_badge", defaultValue: "Dock Badge", bundle: .module), isOn: Binding(
                 get: { model.appSettings.showsDockBadge },
                 set: { model.updateDockBadgeEnabled($0) }
             ))
 
-            Picker(model.i18n("settings.git_auto_refresh", fallback: "Git Auto Refresh"), selection: Binding(
+            Picker(String(localized: "settings.git_auto_refresh", defaultValue: "Git Auto Refresh", bundle: .module), selection: Binding(
                 get: { model.appSettings.gitAutoRefreshInterval },
                 set: { model.updateGitAutoRefreshInterval($0) }
             )) {
@@ -94,7 +94,7 @@ private struct GeneralSettingsPane: View {
                 }
             }
 
-            Picker(model.i18n("settings.ai_auto_refresh", fallback: "AI Auto Refresh"), selection: Binding(
+            Picker(String(localized: "settings.ai_auto_refresh", defaultValue: "AI Auto Refresh", bundle: .module), selection: Binding(
                 get: { model.appSettings.aiAutoRefreshInterval },
                 set: { model.updateAIAutomaticRefreshInterval($0) }
             )) {
@@ -103,7 +103,7 @@ private struct GeneralSettingsPane: View {
                 }
             }
 
-            Picker(model.i18n("settings.ai_background_refresh", fallback: "AI Background Refresh"), selection: Binding(
+            Picker(String(localized: "settings.ai_background_refresh", defaultValue: "AI Background Refresh", bundle: .module), selection: Binding(
                 get: { model.appSettings.aiBackgroundRefreshInterval },
                 set: { model.updateAIBackgroundRefreshInterval($0) }
             )) {
@@ -125,7 +125,7 @@ private struct AppearanceSettingsPane: View {
 
     var body: some View {
         Form {
-            Section(model.i18n("settings.theme", fallback: "Theme")) {
+            Section(String(localized: "settings.theme", defaultValue: "Theme", bundle: .module)) {
                 HStack(spacing: 16) {
                     ForEach(AppThemeMode.allCases) { mode in
                         ThemeModePreviewCard(
@@ -140,12 +140,12 @@ private struct AppearanceSettingsPane: View {
                 .padding(.vertical, 4)
             }
 
-            Section(model.i18n("settings.terminal_background", fallback: "Terminal Background")) {
+            Section(String(localized: "settings.terminal_background", defaultValue: "Terminal Background", bundle: .module)) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(AppTerminalBackgroundPreset.allCases) { preset in
                             TerminalBackgroundPreviewCard(
-                                title: preset.title(for: model.appSettings.language.resolved),
+                                title: preset.title,
                                 preset: preset,
                                 isSelected: model.appSettings.terminalBackgroundPreset == preset
                             ) {
@@ -157,11 +157,11 @@ private struct AppearanceSettingsPane: View {
                 .padding(.vertical, 4)
             }
 
-            Section(model.i18n("settings.app_icon", fallback: "App Icon")) {
+            Section(String(localized: "settings.app_icon", defaultValue: "App Icon", bundle: .module)) {
                 HStack(spacing: 16) {
                     ForEach(AppIconStyle.allCases) { style in
                         AppIconPreviewCard(
-                            title: style.title(for: model.appSettings.language.resolved),
+                            title: style.title,
                             style: style,
                             isSelected: model.appSettings.iconStyle == style
                         ) {
@@ -179,9 +179,9 @@ private struct AppearanceSettingsPane: View {
 
     private func themeModeTitle(_ mode: AppThemeMode) -> String {
         switch mode {
-        case .system: return model.i18n("settings.theme.auto", fallback: "Auto")
-        case .light: return model.i18n("settings.theme.light", fallback: "Light")
-        case .dark: return model.i18n("settings.theme.dark", fallback: "Dark")
+        case .system: return String(localized: "settings.theme.auto", defaultValue: "Auto", bundle: .module)
+        case .light: return String(localized: "settings.theme.light", defaultValue: "Light", bundle: .module)
+        case .dark: return String(localized: "settings.theme.dark", defaultValue: "Dark", bundle: .module)
         }
     }
 }
@@ -194,14 +194,14 @@ private struct ShortcutSettingsPane: View {
     var body: some View {
         Form {
             Section {
-                shortcutRow(model.i18n("settings.shortcut.create_split", fallback: "Create Split"), target: .splitPane, value: model.appSettings.shortcuts.splitPane)
-                shortcutRow(model.i18n("settings.shortcut.create_tab", fallback: "Create Tab"), target: .createTab, value: model.appSettings.shortcuts.createTab)
-                shortcutRow(model.i18n("settings.shortcut.open_git_panel", fallback: "Git Panel"), target: .toggleGitPanel, value: model.appSettings.shortcuts.toggleGitPanel)
-                shortcutRow(model.i18n("settings.shortcut.open_ai_panel", fallback: "AI Panel"), target: .toggleAIPanel, value: model.appSettings.shortcuts.toggleAIPanel)
+                shortcutRow(String(localized: "settings.shortcut.create_split", defaultValue: "Create Split", bundle: .module), target: .splitPane, value: model.appSettings.shortcuts.splitPane)
+                shortcutRow(String(localized: "settings.shortcut.create_tab", defaultValue: "Create Tab", bundle: .module), target: .createTab, value: model.appSettings.shortcuts.createTab)
+                shortcutRow(String(localized: "settings.shortcut.open_git_panel", defaultValue: "Git Panel", bundle: .module), target: .toggleGitPanel, value: model.appSettings.shortcuts.toggleGitPanel)
+                shortcutRow(String(localized: "settings.shortcut.open_ai_panel", defaultValue: "AI Panel", bundle: .module), target: .toggleAIPanel, value: model.appSettings.shortcuts.toggleAIPanel)
             }
 
-            Section(model.i18n("settings.shortcut.project_switch", fallback: "Project Switch Shortcuts")) {
-                Text(model.i18n("settings.shortcut.project_switch_hint", fallback: "Use ⌘1-⌘9 to switch projects in sidebar order."))
+            Section(String(localized: "settings.shortcut.project_switch", defaultValue: "Project Switch Shortcuts", bundle: .module)) {
+                Text(String(localized: "settings.shortcut.project_switch_hint", defaultValue: "Use ⌘1-⌘9 to switch projects in sidebar order.", bundle: .module))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -216,7 +216,7 @@ private struct ShortcutSettingsPane: View {
         LabeledContent(title) {
             ShortcutRecorderField(
                 value: value,
-                placeholder: model.i18n("settings.shortcut.record", fallback: "Record Shortcut")
+                placeholder: String(localized: "settings.shortcut.record", defaultValue: "Record Shortcut", bundle: .module)
             ) { shortcut in
                 model.updateShortcut(shortcut, for: target)
             }
@@ -229,12 +229,12 @@ private struct DeveloperSettingsPane: View {
 
     var body: some View {
         Form {
-            Toggle(model.i18n("settings.developer.notification_test", fallback: "Notification Test Button"), isOn: Binding(
+            Toggle(String(localized: "settings.developer.notification_test", defaultValue: "Notification Test Button", bundle: .module), isOn: Binding(
                 get: { model.appSettings.developer.showsNotificationTestButton },
                 set: { model.updateDeveloperNotificationTestButtonEnabled($0) }
             ))
 
-            Toggle(model.i18n("settings.developer.debug_log", fallback: "Debug Log Button"), isOn: Binding(
+            Toggle(String(localized: "settings.developer.debug_log", defaultValue: "Debug Log Button", bundle: .module), isOn: Binding(
                 get: { model.appSettings.developer.showsDebugLogButton },
                 set: { model.updateDeveloperDebugLogButtonEnabled($0) }
             ))
@@ -253,9 +253,9 @@ private struct RefreshIntervalOption {
         let intValue = Int(seconds)
         if intValue % 60 == 0 {
             let minutes = intValue / 60
-            return String(format: model.i18n("settings.interval.minutes_format", fallback: "%@ min"), "\(minutes)")
+            return String(format: String(localized: "settings.interval.minutes_format", defaultValue: "%@ min", bundle: .module), "\(minutes)")
         }
-        return String(format: model.i18n("settings.interval.seconds_format", fallback: "%@ sec"), "\(intValue)")
+        return String(format: String(localized: "settings.interval.seconds_format", defaultValue: "%@ sec", bundle: .module), "\(intValue)")
     }
 
     static let gitOptions = [30, 60, 120, 300, 600].map { RefreshIntervalOption(seconds: TimeInterval($0)) }

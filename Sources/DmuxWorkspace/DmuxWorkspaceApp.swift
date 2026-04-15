@@ -51,33 +51,25 @@ func applyImmersiveWindowChrome(_ window: NSWindow) {
     window.toolbar = nil
 }
 
-@main
 struct DmuxWorkspaceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel.bootstrap()
 
     var body: some Scene {
         let _ = appDelegate.configure(model: model)
-        let languageToken = "\(model.appSettings.language.rawValue)-\(model.appSettings.language.resolved.rawValue)"
-        let appLocale = Locale(identifier: model.appSettings.language.localeIdentifier)
 
         WindowGroup {
             RootView(model: model)
-                .id(languageToken)
-                .environment(\.locale, appLocale)
                 .preferredColorScheme(model.appSettings.themeMode.colorScheme)
         }
         .defaultSize(width: 1460, height: 920)
         .windowStyle(.hiddenTitleBar)
         .commands {
-            let _ = languageToken
             AppCommands(model: model)
         }
 
         Settings {
             SettingsView(model: model)
-                .id(languageToken)
-                .environment(\.locale, appLocale)
                 .preferredColorScheme(model.appSettings.themeMode.colorScheme)
         }
         .windowResizability(.contentSize)
@@ -85,9 +77,29 @@ struct DmuxWorkspaceApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    @MainActor
+    private static var isRelaunching = false
     private var trafficLightBaseY: [ObjectIdentifier: CGFloat] = [:]
     private weak var model: AppModel?
     private var localKeyMonitor: Any?
+
+    @MainActor
+    static func scheduleRelaunch(at url: URL) {
+        guard !isRelaunching else { return }
+        isRelaunching = true
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 1 && /usr/bin/open -n -- \"$RELAUNCH_PATH\""]
+        task.environment = ["RELAUNCH_PATH": url.path]
+
+        do {
+            try task.run()
+            NSApp.terminate(nil)
+        } catch {
+            isRelaunching = false
+        }
+    }
 
     @MainActor
     func configure(model: AppModel) {
@@ -111,6 +123,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for window in NSApp.windows {
             configure(window)
         }
+    }
+
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldSaveApplicationState(_ app: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldRestoreApplicationState(_ app: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        false
     }
 
     func userNotificationCenter(
@@ -196,6 +224,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !(window is NSPanel) else {
             return
         }
+
+        window.isRestorable = false
 
         if isStandardChromeWindow(window) {
             return

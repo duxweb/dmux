@@ -10,7 +10,7 @@ struct SidebarView: View {
 
         VStack(spacing: 0) {
             if model.isSidebarExpanded {
-                Text(model.i18n("sidebar.workspace", fallback: "Workspace"))
+                Text(String(localized: "sidebar.workspace", defaultValue: "Workspace", bundle: .module))
                     .font(.system(size: 17, weight: .bold, design: .rounded))
                     .foregroundStyle(AppTheme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -31,18 +31,18 @@ struct SidebarView: View {
                             model.selectProject(project.id)
                         }
                         .contextMenu {
-                            Button(model.i18n("sidebar.project.open_folder", fallback: "Open Folder")) {
+                            Button(String(localized: "sidebar.project.open_folder", defaultValue: "Open Folder", bundle: .module)) {
                                 model.openProjectDirectory(project.id)
                             }
                             Divider()
-                            Button(model.i18n("common.rename", fallback: "Rename")) {
+                            Button(String(localized: "common.rename", defaultValue: "Rename", bundle: .module)) {
                                 model.editProject(project.id)
                             }
-                            Button(model.i18n("sidebar.project.edit", fallback: "Edit Project")) {
+                            Button(String(localized: "sidebar.project.edit", defaultValue: "Edit Project", bundle: .module)) {
                                 model.editProject(project.id)
                             }
                             Divider()
-                            Button(model.i18n("sidebar.project.remove", fallback: "Remove Project"), role: .destructive) {
+                            Button(String(localized: "sidebar.project.remove", defaultValue: "Remove Project", bundle: .module), role: .destructive) {
                                 model.removeProject(project.id)
                             }
                         }
@@ -57,7 +57,7 @@ struct SidebarView: View {
             VStack(spacing: 6) {
                 SidebarFooterButton(
                     symbol: "plus",
-                    title: model.i18n("sidebar.footer.add_project", fallback: "Add Project"),
+                    title: String(localized: "sidebar.footer.add_project", defaultValue: "Add Project", bundle: .module),
                     isExpanded: model.isSidebarExpanded
                 ) {
                     model.addProject()
@@ -65,7 +65,7 @@ struct SidebarView: View {
 
                 SidebarFooterButton(
                     symbol: "gearshape",
-                    title: model.i18n("sidebar.footer.settings", fallback: "Settings"),
+                    title: String(localized: "sidebar.footer.settings", defaultValue: "Settings", bundle: .module),
                     isExpanded: model.isSidebarExpanded
                 ) {
                     openSettings()
@@ -73,7 +73,7 @@ struct SidebarView: View {
 
                 SidebarHelpMenuButton(
                     model: model,
-                    title: model.i18n("sidebar.footer.help", fallback: "Help"),
+                    title: String(localized: "sidebar.footer.help", defaultValue: "Help", bundle: .module),
                     isExpanded: model.isSidebarExpanded
                 ) {
                     AboutWindowPresenter.show(model: model)
@@ -143,11 +143,11 @@ private struct SidebarHelpMenuButton: View {
             menu.addItem(item)
         }
 
-        addItem(model.i18n("common.about", fallback: "About"), action: showAbout)
+        addItem(String(localized: "common.about", defaultValue: "About", bundle: .module), action: showAbout)
         menu.addItem(.separator())
-        addItem(model.i18n("menu.help.github", fallback: "GitHub"), action: openGitHub)
-        addItem(model.i18n("menu.help.github_issue", fallback: "GitHub Issue"), action: openIssues)
-        addItem(model.i18n("menu.help.website", fallback: "Official Website"), action: openWebsite)
+        addItem(String(localized: "menu.help.github", defaultValue: "GitHub", bundle: .module), action: openGitHub)
+        addItem(String(localized: "menu.help.github_issue", defaultValue: "GitHub Issue", bundle: .module), action: openIssues)
+        addItem(String(localized: "menu.help.website", defaultValue: "Official Website", bundle: .module), action: openWebsite)
 
         objc_setAssociatedObject(anchorView, Unmanaged.passUnretained(anchorView).toOpaque(), handlers, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchorView.bounds.height + 4), in: anchorView)

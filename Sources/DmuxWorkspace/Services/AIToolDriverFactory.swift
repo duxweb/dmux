@@ -18,11 +18,11 @@ enum AIToolSessionControlError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedOperation:
-            return appI18n("ai.session.action.unsupported", fallback: "This action is not supported by the current tool.")
+            return String(localized: "ai.session.action.unsupported", defaultValue: "This action is not supported by the current tool.", bundle: .module)
         case .missingSessionID:
-            return appI18n("ai.session.identifier.missing", fallback: "Missing session identifier.")
+            return String(localized: "ai.session.identifier.missing", defaultValue: "Missing session identifier.", bundle: .module)
         case .sessionNotFound:
-            return appI18n("ai.session.record.not_found", fallback: "Matching session record was not found.")
+            return String(localized: "ai.session.record.not_found", defaultValue: "Matching session record was not found.", bundle: .module)
         case let .storageFailure(message):
             return message
         }
@@ -429,7 +429,7 @@ private func withSQLiteDatabase(path: String, body: (OpaquePointer) throws -> Vo
                 sqlite3_close(db)
             }
         }
-        throw AIToolSessionControlError.storageFailure(appI18n("ai.session.storage.open_failed", fallback: "Unable to open session storage."))
+        throw AIToolSessionControlError.storageFailure(String(localized: "ai.session.storage.open_failed", defaultValue: "Unable to open session storage.", bundle: .module))
     }
     defer { sqlite3_close(db) }
     try body(db)

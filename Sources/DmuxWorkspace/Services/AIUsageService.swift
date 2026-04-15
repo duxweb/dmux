@@ -32,7 +32,7 @@ struct AIUsageService: Sendable {
                 project: project,
                 liveSnapshots: liveSnapshots,
                 currentSnapshot: currentSnapshot,
-                status: .indexing(progress: 0.0, detail: appI18n("ai.indexing.starting", fallback: "Starting index."))
+                status: .indexing(progress: 0.0, detail: String(localized: "ai.indexing.starting", defaultValue: "Starting index.", bundle: .module))
             )
         }
 
@@ -41,7 +41,7 @@ struct AIUsageService: Sendable {
             indexed: nil,
             liveSnapshots: liveSnapshots,
             currentSnapshot: currentSnapshot,
-            status: .indexing(progress: 0.0, detail: appI18n("ai.indexing.starting", fallback: "Starting index."))
+            status: .indexing(progress: 0.0, detail: String(localized: "ai.indexing.starting", defaultValue: "Starting index.", bundle: .module))
         )
     }
 
@@ -135,7 +135,7 @@ struct AIUsageService: Sendable {
     func panelState(project: Project, liveEnvelopes: [AIToolUsageEnvelope], selectedSessionID: UUID?, onProgress: @Sendable @escaping (AIIndexingStatus) async -> Void) async -> AIStatsPanelState {
         do {
             try Task.checkCancellation()
-            await onProgress(.indexing(progress: 0.05, detail: appI18n("ai.indexing.preparing", fallback: "Preparing usage data.")))
+            await onProgress(.indexing(progress: 0.05, detail: String(localized: "ai.indexing.preparing", defaultValue: "Preparing usage data.", bundle: .module)))
             let directorySummary = try await loadDirectoryDrivenSummary(project: project, onProgress: onProgress)
             try Task.checkCancellation()
             let liveSnapshots = snapshots(from: liveEnvelopes)
@@ -185,7 +185,7 @@ struct AIUsageService: Sendable {
                     project: project,
                     liveSnapshots: liveSnapshots,
                     currentSnapshot: currentSnapshot,
-                    status: .completed(detail: appI18n("ai.indexing.complete", fallback: "Index complete."))
+                    status: .completed(detail: String(localized: "ai.indexing.complete", defaultValue: "Index complete.", bundle: .module))
                 )
             }
 
@@ -195,7 +195,7 @@ struct AIUsageService: Sendable {
                     project: project,
                     liveSnapshots: liveSnapshots,
                     currentSnapshot: liveSnapshot,
-                    status: .completed(detail: appI18n("ai.indexing.complete", fallback: "Index complete."))
+                    status: .completed(detail: String(localized: "ai.indexing.complete", defaultValue: "Index complete.", bundle: .module))
                 )
             }
 
@@ -204,10 +204,10 @@ struct AIUsageService: Sendable {
                 indexed: nil,
                 liveSnapshots: liveSnapshots,
                 currentSnapshot: liveSnapshot,
-                status: .completed(detail: appI18n("ai.indexing.complete", fallback: "Index complete."))
+                status: .completed(detail: String(localized: "ai.indexing.complete", defaultValue: "Index complete.", bundle: .module))
             )
         } catch is CancellationError {
-            return snapshotBackedPanelState(project: project, liveEnvelopes: liveEnvelopes, selectedSessionID: selectedSessionID, status: .cancelled(detail: appI18n("ai.indexing.stopped", fallback: "Indexing stopped.")))
+            return snapshotBackedPanelState(project: project, liveEnvelopes: liveEnvelopes, selectedSessionID: selectedSessionID, status: .cancelled(detail: String(localized: "ai.indexing.stopped", defaultValue: "Indexing stopped.", bundle: .module)))
         } catch {
             let detail = (error as NSError).localizedDescription
             return snapshotBackedPanelState(project: project, liveEnvelopes: liveEnvelopes, selectedSessionID: selectedSessionID, status: .failed(detail: detail))
@@ -384,22 +384,22 @@ struct AIUsageService: Sendable {
             return cached
         }
 
-        await onProgress(.indexing(progress: 0.12, detail: appI18n("ai.indexing.reading_sources", fallback: "Reading AI usage sources in parallel.")))
+        await onProgress(.indexing(progress: 0.12, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading AI usage sources in parallel.", bundle: .module)))
         async let opencodeSessionsTask = loadOpencodeSource(project: project)
         async let codexSessionsTask = loadCodexSource(project: project)
         async let claudeSessionsTask = loadClaudeSource(project: project)
         async let geminiSessionsTask = loadGeminiSource(project: project)
 
         let opencodeResult = await opencodeSessionsTask
-        await onProgress(.indexing(progress: 0.38, detail: appI18n("ai.indexing.loaded_opencode", fallback: "Loaded OpenCode usage.")))
+        await onProgress(.indexing(progress: 0.38, detail: String(localized: "ai.indexing.loaded_opencode", defaultValue: "Loaded OpenCode usage.", bundle: .module)))
         try Task.checkCancellation()
 
         let codexResult = await codexSessionsTask
-        await onProgress(.indexing(progress: 0.64, detail: appI18n("ai.indexing.loaded_codex", fallback: "Indexed Codex sessions.")))
+        await onProgress(.indexing(progress: 0.64, detail: String(localized: "ai.indexing.loaded_codex", defaultValue: "Indexed Codex sessions.", bundle: .module)))
         try Task.checkCancellation()
 
         let claudeResult = await claudeSessionsTask
-        await onProgress(.indexing(progress: 0.8, detail: appI18n("ai.indexing.loaded_claude", fallback: "Loaded Claude usage.")))
+        await onProgress(.indexing(progress: 0.8, detail: String(localized: "ai.indexing.loaded_claude", defaultValue: "Loaded Claude usage.", bundle: .module)))
         try Task.checkCancellation()
         let geminiResult = await geminiSessionsTask
         let externalSummaries = opencodeResult.summaries + codexResult.summaries + claudeResult.summaries + geminiResult.summaries
@@ -409,15 +409,15 @@ struct AIUsageService: Sendable {
         let geminiSessions = geminiResult.sessions
         let sessions = sortSessions(opencodeSessions + codexSessions + claudeSessions + geminiSessions)
 
-        let toolBreakdown = breakdown(items: sessions.map { ($0.lastTool ?? appI18n("ai.unknown_tool", fallback: "Unknown Tool"), $0.totalTokens, 1) })
+        let toolBreakdown = breakdown(items: sessions.map { ($0.lastTool ?? String(localized: "ai.unknown_tool", defaultValue: "Unknown Tool", bundle: .module), $0.totalTokens, 1) })
         let modelBreakdown = breakdown(items: sessions.compactMap {
             guard let model = $0.lastModel, !model.isEmpty else {
                 return nil
             }
             return (model, $0.totalTokens, 1)
         })
-        await onProgress(.indexing(progress: 0.84, detail: appI18n("ai.indexing.summarized_sessions", fallback: "Summarized sessions and rankings.")))
-        await onProgress(.indexing(progress: 0.9, detail: appI18n("ai.indexing.summarizing_recent", fallback: "Summarizing recent usage.")))
+        await onProgress(.indexing(progress: 0.84, detail: String(localized: "ai.indexing.summarized_sessions", defaultValue: "Summarized sessions and rankings.", bundle: .module)))
+        await onProgress(.indexing(progress: 0.9, detail: String(localized: "ai.indexing.summarizing_recent", defaultValue: "Summarizing recent usage.", bundle: .module)))
         let heatmap = buildHeatmap(from: externalSummaries, fallbackSessions: sessions)
         let todayTimeBuckets = buildTodayTimeBuckets(from: externalSummaries)
         try Task.checkCancellation()

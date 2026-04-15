@@ -43,6 +43,20 @@ checksums_path="${dist_dir}/SHA256SUMS.txt"
 iconset_dir="${dist_dir}/AppIcon.iconset"
 icns_path="${resources_dir}/AppIcon.icns"
 localizations=(en zh-Hans zh-Hant de es fr ja ko pt-BR ru)
+icon_generator_bin="$(mktemp "${TMPDIR:-/tmp}/dmux-generate-app-icon.XXXXXX")"
+
+cleanup() {
+  rm -f "${icon_generator_bin}"
+}
+trap cleanup EXIT
+
+compile_bundle_string_catalogs() {
+  local bundle_dir="$1"
+  local catalog_path="${bundle_dir}/Localizable.xcstrings"
+  [[ -f "${catalog_path}" ]] || return 0
+
+  xcrun xcstringstool compile "${catalog_path}" --output-directory "${bundle_dir}" --serialization-format text
+}
 
 function build_dir_for_arch() {
   local arch="$1"
@@ -151,27 +165,22 @@ chmod +x "${launcher_path}"
 for bundle_path in "${build_product_dirs[0]}"/*.bundle; do
   if [[ -d "${bundle_path}" ]]; then
     cp -R "${bundle_path}" "${resources_dir}/"
+    copied_bundle="${resources_dir}/$(basename "${bundle_path}")"
+    compile_bundle_string_catalogs "${copied_bundle}"
   fi
 done
 
 echo "[package] app binary: $(lipo -info "${binary_path}")"
 echo "[package] notify helper: $(lipo -info "${helper_binary_path}")"
 
-swift "${root_dir}/scripts/release/generate-app-icon.swift" "${iconset_dir}" >/dev/null
+swiftc -framework AppKit "${root_dir}/scripts/release/generate-app-icon.swift" -o "${icon_generator_bin}"
+"${icon_generator_bin}" "${iconset_dir}" >/dev/null
 iconutil -c icns "${iconset_dir}" -o "${icns_path}"
 rm -rf "${iconset_dir}"
 cp -f "${icns_path}" "${helper_resources_dir}/AppIcon.icns"
 
 cp -f "${root_dir}/Package.swift" "${runtime_root}/Package.swift"
 cp -R "${root_dir}/scripts" "${runtime_root}/scripts"
-
-for localization in "${localizations[@]}"; do
-  mkdir -p "${resources_dir}/${localization}.lproj"
-  cat > "${resources_dir}/${localization}.lproj/InfoPlist.strings" <<'EOF'
-"CFBundleDisplayName" = "dmux";
-"CFBundleName" = "dmux";
-EOF
-done
 
 cat > "${plist_path}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

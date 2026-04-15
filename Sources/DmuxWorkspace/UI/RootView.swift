@@ -47,17 +47,17 @@ private struct TitlebarOverlayView: View {
 
             HStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    TitlebarGlyphButton(symbol: model.isSidebarExpanded ? "sidebar.left" : "sidebar.right", help: model.i18n("titlebar.projects", fallback: "Projects")) {
+                    TitlebarGlyphButton(symbol: model.isSidebarExpanded ? "sidebar.left" : "sidebar.right", help: String(localized: "titlebar.projects", defaultValue: "Projects", bundle: .module)) {
                         model.toggleSidebarExpansion()
                     }
 
                     if model.appSettings.developer.showsNotificationTestButton {
-                        TitlebarGlyphButton(symbol: "waveform.badge.magnifyingglass", help: model.i18n("titlebar.notification_test", fallback: "Notification Test")) {
+                        TitlebarGlyphButton(symbol: "waveform.badge.magnifyingglass", help: String(localized: "titlebar.notification_test", defaultValue: "Notification Test", bundle: .module)) {
                             model.triggerActivityTest()
                         }
                     }
 
-                    TitlebarGlyphButton(symbol: "rectangle.split.2x1", help: model.i18n("titlebar.split", fallback: "Split")) {
+                    TitlebarGlyphButton(symbol: "rectangle.split.2x1", help: String(localized: "titlebar.split", defaultValue: "Split", bundle: .module)) {
                         model.splitSelectedPane(axis: .horizontal)
                     }
                 }
@@ -97,20 +97,20 @@ private struct TitlebarOverlayView: View {
                     )
 
                     if model.appSettings.developer.showsDebugLogButton {
-                        TitlebarGlyphButton(symbol: "scroll", help: model.i18n("titlebar.debug_log", fallback: "Debug Log")) {
+                        TitlebarGlyphButton(symbol: "scroll", help: String(localized: "titlebar.debug_log", defaultValue: "Debug Log", bundle: .module)) {
                             model.openDebugLog()
                         }
                     }
 
-                    TitlebarGlyphButton(symbol: "terminal", help: model.i18n("titlebar.tab", fallback: "Tab")) {
+                    TitlebarGlyphButton(symbol: "terminal", help: String(localized: "titlebar.tab", defaultValue: "Tab", bundle: .module)) {
                         model.createBottomTab()
                     }
 
-                    TitlebarGlyphButton(symbol: "chart.bar.xaxis", help: model.i18n("titlebar.ai_assistant", fallback: "AI Assistant")) {
+                    TitlebarGlyphButton(symbol: "chart.bar.xaxis", help: String(localized: "titlebar.ai_assistant", defaultValue: "AI Assistant", bundle: .module)) {
                         model.toggleRightPanel(.aiStats)
                     }
 
-                    TitlebarGlyphButton(symbol: "point.3.filled.connected.trianglepath.dotted", help: model.i18n("titlebar.git", fallback: "Git")) {
+                    TitlebarGlyphButton(symbol: "point.3.filled.connected.trianglepath.dotted", help: String(localized: "titlebar.git", defaultValue: "Git", bundle: .module)) {
                         model.toggleRightPanel(.git)
                     }
                 }
@@ -457,7 +457,7 @@ private struct TitlebarOpenSplitButton: View {
                     openInVSCode()
                 } label: {
                     AppLauncherMenuLabel(
-                        title: model.i18n("open.vscode", fallback: "Open in VS Code"),
+                        title: String(localized: "open.vscode", defaultValue: "Open in VS Code", bundle: .module),
                         icon: .bundle("com.microsoft.VSCode", fallbackSystemName: "chevron.left.forwardslash.chevron.right")
                     )
                 }
@@ -466,7 +466,7 @@ private struct TitlebarOpenSplitButton: View {
                     revealInFinder()
                 } label: {
                     AppLauncherMenuLabel(
-                        title: model.i18n("open.finder", fallback: "Open in Finder"),
+                        title: String(localized: "open.finder", defaultValue: "Open in Finder", bundle: .module),
                         icon: .bundle("com.apple.finder", fallbackSystemName: "folder")
                     )
                 }
@@ -475,7 +475,7 @@ private struct TitlebarOpenSplitButton: View {
                     openInTerminal()
                 } label: {
                     AppLauncherMenuLabel(
-                        title: model.i18n("open.terminal", fallback: "Open in Terminal"),
+                        title: String(localized: "open.terminal", defaultValue: "Open in Terminal", bundle: .module),
                         icon: .bundle("com.apple.Terminal", fallbackSystemName: "terminal")
                     )
                 }
@@ -484,7 +484,7 @@ private struct TitlebarOpenSplitButton: View {
                     openInITerm2()
                 } label: {
                     AppLauncherMenuLabel(
-                        title: model.i18n("open.iterm2", fallback: "Open in iTerm2"),
+                        title: String(localized: "open.iterm2", defaultValue: "Open in iTerm2", bundle: .module),
                         icon: .bundle("com.googlecode.iterm2", fallbackSystemName: "terminal")
                     )
                 }
@@ -493,7 +493,7 @@ private struct TitlebarOpenSplitButton: View {
                     openInGhostty()
                 } label: {
                     AppLauncherMenuLabel(
-                        title: model.i18n("open.ghostty", fallback: "Open in Ghostty"),
+                        title: String(localized: "open.ghostty", defaultValue: "Open in Ghostty", bundle: .module),
                         icon: .bundle("com.mitchellh.ghostty", fallbackSystemName: "terminal")
                     )
                 }
@@ -502,7 +502,7 @@ private struct TitlebarOpenSplitButton: View {
                     openInXcode()
                 } label: {
                     AppLauncherMenuLabel(
-                        title: model.i18n("open.xcode", fallback: "Open in Xcode"),
+                        title: String(localized: "open.xcode", defaultValue: "Open in Xcode", bundle: .module),
                         icon: .bundle("com.apple.dt.Xcode", fallbackSystemName: "hammer")
                     )
                 }
@@ -530,8 +530,8 @@ private struct TitlebarOpenSplitButton: View {
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .floatingTooltip(
             prefersVSCode
-            ? model.i18n("open.project.vscode", fallback: "Open Project in VS Code")
-            : model.i18n("open.project.finder", fallback: "Open Project in Finder"),
+            ? String(localized: "open.project.vscode", defaultValue: "Open Project in VS Code", bundle: .module)
+            : String(localized: "open.project.finder", defaultValue: "Open Project in Finder", bundle: .module),
             placement: .below
         )
         .onHover { hovering in
@@ -589,7 +589,7 @@ private struct TitlebarAITodayLevelButton: View {
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
-        .floatingTooltip(model.i18n("ai.today_level", fallback: "Today's Level"), enabled: !isShowingPopover, placement: .below)
+        .floatingTooltip(String(localized: "ai.today_level", defaultValue: "Today's Level", bundle: .module), enabled: !isShowingPopover, placement: .below)
         .popover(isPresented: $isShowingPopover, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
             AITodayLevelPopover(model: model, tokens: tokens, currentLevel: level)
         }
@@ -610,7 +610,7 @@ private struct AITodayLevelPopover: View {
                 AITodayLevelBadge(level: currentLevel, size: 34)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.i18n("ai.today_level", fallback: "Today's Level"))
+                    Text(String(localized: "ai.today_level", defaultValue: "Today's Level", bundle: .module))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.tertiary)
 
@@ -622,7 +622,7 @@ private struct AITodayLevelPopover: View {
                 Spacer(minLength: 12)
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(model.i18n("ai.today_tokens", fallback: "Today's Tokens"))
+                    Text(String(localized: "ai.today_tokens", defaultValue: "Today's Tokens", bundle: .module))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.tertiary)
 
@@ -644,7 +644,7 @@ private struct AITodayLevelPopover: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(.primary)
 
-                            Text(String(format: model.i18n("common.need_format", fallback: "Need %@"), formatCompactToken(level.minimumTokens)))
+                            Text(String(format: String(localized: "common.need_format", defaultValue: "Need %@", bundle: .module), formatCompactToken(level.minimumTokens)))
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.tertiary)
                         }
@@ -652,7 +652,7 @@ private struct AITodayLevelPopover: View {
                         Spacer(minLength: 12)
 
                         if isCurrent {
-                            Text(model.i18n("common.current", fallback: "Current"))
+                            Text(String(localized: "common.current", defaultValue: "Current", bundle: .module))
                                 .font(.system(size: 11, weight: .bold, design: .rounded))
                                 .foregroundStyle(level.accent)
                                 .padding(.horizontal, 8)
@@ -718,14 +718,14 @@ private enum AITodayLevelTier: String, CaseIterable, Identifiable {
     @MainActor
     func localizedTitle(using model: AppModel) -> String {
         switch self {
-        case .blankSlate: return model.i18n("rank.iron", fallback: "Iron")
-        case .bronze: return model.i18n("rank.bronze", fallback: "Bronze")
-        case .silver: return model.i18n("rank.silver", fallback: "Silver")
-        case .gold: return model.i18n("rank.gold", fallback: "Gold")
-        case .platinum: return model.i18n("rank.platinum", fallback: "Platinum")
-        case .diamond: return model.i18n("rank.diamond", fallback: "Diamond")
-        case .master: return model.i18n("rank.master", fallback: "Master")
-        case .grandmaster: return model.i18n("rank.grandmaster", fallback: "Grandmaster")
+        case .blankSlate: return String(localized: "rank.iron", defaultValue: "Iron", bundle: .module)
+        case .bronze: return String(localized: "rank.bronze", defaultValue: "Bronze", bundle: .module)
+        case .silver: return String(localized: "rank.silver", defaultValue: "Silver", bundle: .module)
+        case .gold: return String(localized: "rank.gold", defaultValue: "Gold", bundle: .module)
+        case .platinum: return String(localized: "rank.platinum", defaultValue: "Platinum", bundle: .module)
+        case .diamond: return String(localized: "rank.diamond", defaultValue: "Diamond", bundle: .module)
+        case .master: return String(localized: "rank.master", defaultValue: "Master", bundle: .module)
+        case .grandmaster: return String(localized: "rank.grandmaster", defaultValue: "Grandmaster", bundle: .module)
         }
     }
 

@@ -16,11 +16,11 @@ struct WorkspaceEmptyStateView: View {
                     .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
 
                 VStack(spacing: 6) {
-                    Text(String(format: model.i18n("welcome.title_format", fallback: "Welcome to %@"), model.appDisplayName))
+                    Text(String(format: String(localized: "welcome.title_format", defaultValue: "Welcome to %@", bundle: .module), model.appDisplayName))
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(.primary)
 
-                    Text(model.i18n("welcome.subtitle", fallback: "Create a project in the sidebar to get started"))
+                    Text(String(localized: "welcome.subtitle", defaultValue: "Create a project in the sidebar to get started", bundle: .module))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 }
@@ -28,7 +28,7 @@ struct WorkspaceEmptyStateView: View {
                 Button {
                     model.addProject()
                 } label: {
-                    Label(model.i18n("menu.file.new_project", fallback: "New Project"), systemImage: "plus")
+                    Label(String(localized: "menu.file.new_project", defaultValue: "New Project", bundle: .module), systemImage: "plus")
                         .font(.system(size: 14, weight: .semibold))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)
@@ -54,28 +54,28 @@ private struct WelcomeShortcutHintsView: View {
             if let shortcut = model.appSettings.shortcuts.splitPane {
                 shortcutHint(
                     symbol: "rectangle.split.2x1",
-                    label: model.i18n("titlebar.split", fallback: "Split"),
+                    label: String(localized: "titlebar.split", defaultValue: "Split", bundle: .module),
                     keys: shortcut.title
                 )
             }
             if let shortcut = model.appSettings.shortcuts.createTab {
                 shortcutHint(
                     symbol: "plus.rectangle.on.rectangle",
-                    label: model.i18n("titlebar.tab", fallback: "Tab"),
+                    label: String(localized: "titlebar.tab", defaultValue: "Tab", bundle: .module),
                     keys: shortcut.title
                 )
             }
             if let shortcut = model.appSettings.shortcuts.toggleGitPanel {
                 shortcutHint(
                     symbol: "arrow.triangle.branch",
-                    label: model.i18n("titlebar.git", fallback: "Git"),
+                    label: String(localized: "titlebar.git", defaultValue: "Git", bundle: .module),
                     keys: shortcut.title
                 )
             }
             if let shortcut = model.appSettings.shortcuts.toggleAIPanel {
                 shortcutHint(
                     symbol: "sparkles",
-                    label: model.i18n("titlebar.ai", fallback: "AI"),
+                    label: String(localized: "titlebar.ai", defaultValue: "AI", bundle: .module),
                     keys: shortcut.title
                 )
             }

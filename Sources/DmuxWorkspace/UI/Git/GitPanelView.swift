@@ -88,10 +88,10 @@ private struct GitEmptyRepositoryView: View {
                 .foregroundStyle(AppTheme.textMuted)
 
             VStack(spacing: 6) {
-                Text(isCheckingRepository ? model.i18n("git.empty.reading_status", fallback: "Reading Git Status") : model.i18n("git.empty.not_repository", fallback: "Current Directory Is Not a Git Repository"))
+                Text(isCheckingRepository ? String(localized: "git.empty.reading_status", defaultValue: "Reading Git Status", bundle: .module) : String(localized: "git.empty.not_repository", defaultValue: "Current Directory Is Not a Git Repository", bundle: .module))
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(AppTheme.textPrimary)
-                Text(isCheckingRepository ? model.i18n("git.empty.loading_description", fallback: "Keep the current sidebar layout while repository status syncs in the background.") : model.i18n("git.empty.description", fallback: "Initialize a repository or clone a remote repository to view commits, diffs, and branches here."))
+                Text(isCheckingRepository ? String(localized: "git.empty.loading_description", defaultValue: "Keep the current sidebar layout while repository status syncs in the background.", bundle: .module) : String(localized: "git.empty.description", defaultValue: "Initialize a repository or clone a remote repository to view commits, diffs, and branches here.", bundle: .module))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(AppTheme.textMuted)
                     .multilineTextAlignment(.center)
@@ -100,11 +100,11 @@ private struct GitEmptyRepositoryView: View {
 
             if !isCheckingRepository {
                 HStack(spacing: 10) {
-                    Button(model.i18n("git.empty.initialize_repository", fallback: "Initialize Repository"), action: model.initializeGitRepository)
+                    Button(String(localized: "git.empty.initialize_repository", defaultValue: "Initialize Repository", bundle: .module), action: model.initializeGitRepository)
                         .buttonStyle(.borderedProminent)
                         .disabled(model.gitPanelState.isGitLoading)
 
-                    Button(model.i18n("git.empty.clone_remote_repository", fallback: "Clone Remote Repository"), action: model.cloneGitRepository)
+                    Button(String(localized: "git.empty.clone_remote_repository", defaultValue: "Clone Remote Repository", bundle: .module), action: model.cloneGitRepository)
                         .buttonStyle(.bordered)
                         .disabled(model.gitPanelState.isGitLoading)
                 }
@@ -158,7 +158,7 @@ private struct GitRemoteSyncBar: View {
             HStack(spacing: 14) {
                 remoteButton(
                     operation: .pull,
-                    title: model.i18n("git.remote.pull", fallback: "Pull"),
+                    title: String(localized: "git.remote.pull", defaultValue: "Pull", bundle: .module),
                     help: pullHelp,
                     systemImage: "arrow.down",
                     isLoading: model.gitPanelState.activeGitRemoteOperation == .pull,
@@ -168,7 +168,7 @@ private struct GitRemoteSyncBar: View {
 
                 remoteButton(
                     operation: .push,
-                    title: model.i18n("git.remote.push", fallback: "Push"),
+                    title: String(localized: "git.remote.push", defaultValue: "Push", bundle: .module),
                     help: pushHelp,
                     systemImage: "arrow.up",
                     isLoading: model.gitPanelState.activeGitRemoteOperation == .push,
@@ -187,37 +187,37 @@ private struct GitRemoteSyncBar: View {
 
     private var statusText: String {
         if model.gitPanelState.activeGitRemoteOperation == .pull {
-            return model.i18n("git.remote.status.pulling", fallback: "Pulling Remote Updates")
+            return String(localized: "git.remote.status.pulling", defaultValue: "Pulling Remote Updates", bundle: .module)
         }
         if model.gitPanelState.activeGitRemoteOperation == .push {
-            return model.i18n("git.remote.status.pushing", fallback: "Pushing Current Branch")
+            return String(localized: "git.remote.status.pushing", defaultValue: "Pushing Current Branch", bundle: .module)
         }
         if model.gitPanelState.activeGitRemoteOperation == .forcePush {
-            return model.i18n("git.remote.status.force_pushing", fallback: "Force Pushing Current Branch")
+            return String(localized: "git.remote.status.force_pushing", defaultValue: "Force Pushing Current Branch", bundle: .module)
         }
 
         let state = model.gitPanelState.gitRemoteSyncState
         if !state.hasUpstream {
-            return model.i18n("git.remote.status.no_remote_branch", fallback: "No Remote Branch")
+            return String(localized: "git.remote.status.no_remote_branch", defaultValue: "No Remote Branch", bundle: .module)
         }
         if state.incomingCount == 0 && state.outgoingCount == 0 {
-            return model.i18n("git.remote.status.synced", fallback: "Remote Is Synced")
+            return String(localized: "git.remote.status.synced", defaultValue: "Remote Is Synced", bundle: .module)
         }
-        return model.i18n("git.remote.status.has_updates", fallback: "Remote Has Updates")
+        return String(localized: "git.remote.status.has_updates", defaultValue: "Remote Has Updates", bundle: .module)
     }
 
     private var pullHelp: String {
         if !model.gitPanelState.gitRemoteSyncState.hasUpstream {
-            return model.i18n("git.remote.no_upstream_description", fallback: "The current branch does not have a remote branch yet.")
+            return String(localized: "git.remote.no_upstream_description", defaultValue: "The current branch does not have a remote branch yet.", bundle: .module)
         }
-        return model.i18n("git.remote.pull_description", fallback: "Pull remote updates.")
+        return String(localized: "git.remote.pull_description", defaultValue: "Pull remote updates.", bundle: .module)
     }
 
     private var pushHelp: String {
         if !model.gitPanelState.gitRemoteSyncState.hasUpstream {
-            return model.i18n("git.remote.no_upstream_description", fallback: "The current branch does not have a remote branch yet.")
+            return String(localized: "git.remote.no_upstream_description", defaultValue: "The current branch does not have a remote branch yet.", bundle: .module)
         }
-        return model.i18n("git.remote.push_description", fallback: "Push the current branch to remote.")
+        return String(localized: "git.remote.push_description", defaultValue: "Push the current branch to remote.", bundle: .module)
     }
 
     private var statusIcon: String {
@@ -347,7 +347,7 @@ private final class GitBranchMenuButton: NSButton {
 
     override var intrinsicContentSize: NSSize {
         guard let model else { return NSSize(width: 96, height: 24) }
-        let branch = model.gitState?.branch ?? model.i18n("git.empty.no_repository", fallback: "No Repository")
+        let branch = model.gitState?.branch ?? String(localized: "git.empty.no_repository", defaultValue: "No Repository", bundle: .module)
         let width = (branch as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 15, weight: .bold)]).width
         return NSSize(width: width + 26, height: 24)
     }
@@ -357,7 +357,7 @@ private final class GitBranchMenuButton: NSButton {
         dirtyRect.fill()
         guard let model else { return }
 
-        let branch = model.gitState?.branch ?? model.i18n("git.empty.no_repository", fallback: "No Repository")
+        let branch = model.gitState?.branch ?? String(localized: "git.empty.no_repository", defaultValue: "No Repository", bundle: .module)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 15, weight: .bold),
             .foregroundColor: NSColor(AppTheme.warning),
@@ -468,12 +468,12 @@ private final class GitBranchMenuButton: NSButton {
             return title
         }
 
-        addAction(model.i18n("git.branch.new", fallback: "New Branch")) { model.createGitBranch() }
+        addAction(String(localized: "git.branch.new", defaultValue: "New Branch", bundle: .module)) { model.createGitBranch() }
         addSeparator()
 
-        let localMenu = NSMenu(title: model.i18n("git.branch.local", fallback: "Local Branches"))
+        let localMenu = NSMenu(title: String(localized: "git.branch.local", defaultValue: "Local Branches", bundle: .module))
         if model.gitBranches.isEmpty {
-            let item = NSMenuItem(title: model.i18n("git.branch.local.empty", fallback: "No Local Branches"), action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: String(localized: "git.branch.local.empty", defaultValue: "No Local Branches", bundle: .module), action: nil, keyEquivalent: "")
             item.isEnabled = false
             localMenu.addItem(item)
         } else {
@@ -496,14 +496,14 @@ private final class GitBranchMenuButton: NSButton {
                 localMenu.addItem(branchItem)
             }
         }
-        let localItem = NSMenuItem(title: model.i18n("git.branch.local", fallback: "Local Branches"), action: nil, keyEquivalent: "")
+        let localItem = NSMenuItem(title: String(localized: "git.branch.local", defaultValue: "Local Branches", bundle: .module), action: nil, keyEquivalent: "")
         menu.setSubmenu(localMenu, for: localItem)
         menu.addItem(localItem)
 
-        let mergeMenu = NSMenu(title: model.i18n("git.branch.merge_current", fallback: "Merge into Current Branch"))
+        let mergeMenu = NSMenu(title: String(localized: "git.branch.merge_current", defaultValue: "Merge into Current Branch", bundle: .module))
         let mergeCandidates = model.gitBranches.filter { $0 != model.gitState?.branch }
         if mergeCandidates.isEmpty {
-            let item = NSMenuItem(title: model.i18n("git.branch.merge.empty", fallback: "No Branches Available to Merge"), action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: String(localized: "git.branch.merge.empty", defaultValue: "No Branches Available to Merge", bundle: .module), action: nil, keyEquivalent: "")
             item.isEnabled = false
             mergeMenu.addItem(item)
         } else {
@@ -515,21 +515,21 @@ private final class GitBranchMenuButton: NSButton {
                 mergeMenu.addItem(item)
             }
         }
-        let mergeItem = NSMenuItem(title: model.i18n("git.branch.merge_current", fallback: "Merge into Current Branch"), action: nil, keyEquivalent: "")
+        let mergeItem = NSMenuItem(title: String(localized: "git.branch.merge_current", defaultValue: "Merge into Current Branch", bundle: .module), action: nil, keyEquivalent: "")
         menu.setSubmenu(mergeMenu, for: mergeItem)
         menu.addItem(mergeItem)
 
-        let remotesMenu = NSMenu(title: model.i18n("git.remote.remotes", fallback: "Remotes"))
+        let remotesMenu = NSMenu(title: String(localized: "git.remote.remotes", defaultValue: "Remotes", bundle: .module))
         let defaultPushRemoteName = model.selectedProject?.gitDefaultPushRemoteName
         let addRemoteHandler = NativeContextMenuHandler(action: { model.addGitRemote() })
         handlers.append(addRemoteHandler)
-        let addRemoteItem = NSMenuItem(title: model.i18n("git.remote.add", fallback: "Add Remote"), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
+        let addRemoteItem = NSMenuItem(title: String(localized: "git.remote.add", defaultValue: "Add Remote", bundle: .module), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
         addRemoteItem.target = addRemoteHandler
         remotesMenu.addItem(addRemoteItem)
         remotesMenu.addItem(.separator())
 
         if model.gitRemotes.isEmpty {
-            let item = NSMenuItem(title: model.i18n("git.remote.empty", fallback: "No Remotes"), action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: String(localized: "git.remote.empty", defaultValue: "No Remotes", bundle: .module), action: nil, keyEquivalent: "")
             item.isEnabled = false
             remotesMenu.addItem(item)
         } else {
@@ -545,7 +545,7 @@ private final class GitBranchMenuButton: NSButton {
                     }
                 })
                 handlers.append(toggleDefaultHandler)
-                let toggleDefaultItem = NSMenuItem(title: model.i18n("git.remote.set_default", fallback: "Set as Default"), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
+                let toggleDefaultItem = NSMenuItem(title: String(localized: "git.remote.set_default", defaultValue: "Set as Default", bundle: .module), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
                 toggleDefaultItem.target = toggleDefaultHandler
                 toggleDefaultItem.state = isDefaultPushRemote ? .on : .off
                 remoteSubmenu.addItem(toggleDefaultItem)
@@ -555,16 +555,16 @@ private final class GitBranchMenuButton: NSButton {
                 let copyURLHandler = NativeContextMenuHandler(action: {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(remote.url, forType: .string)
-                    model.statusMessage = model.i18n("git.remote.copy_url.success", fallback: "Copied Remote Repository URL.")
+                    model.statusMessage = String(localized: "git.remote.copy_url.success", defaultValue: "Copied Remote Repository URL.", bundle: .module)
                 })
                 handlers.append(copyURLHandler)
-                let copyURLItem = NSMenuItem(title: model.i18n("git.remote.copy_url", fallback: "Copy URL"), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
+                let copyURLItem = NSMenuItem(title: String(localized: "git.remote.copy_url", defaultValue: "Copy URL", bundle: .module), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
                 copyURLItem.target = copyURLHandler
                 remoteSubmenu.addItem(copyURLItem)
 
                 let removeHandler = NativeContextMenuHandler(action: { model.removeGitRemote(remote) })
                 handlers.append(removeHandler)
-                let removeItem = NSMenuItem(title: model.i18n("git.remote.remove", fallback: "Remove Remote"), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
+                let removeItem = NSMenuItem(title: String(localized: "git.remote.remove", defaultValue: "Remove Remote", bundle: .module), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
                 removeItem.target = removeHandler
                 remoteSubmenu.addItem(removeItem)
 
@@ -577,19 +577,19 @@ private final class GitBranchMenuButton: NSButton {
             }
         }
 
-        let remotesItem = NSMenuItem(title: model.i18n("git.remote.remotes", fallback: "Remotes"), action: nil, keyEquivalent: "")
+        let remotesItem = NSMenuItem(title: String(localized: "git.remote.remotes", defaultValue: "Remotes", bundle: .module), action: nil, keyEquivalent: "")
         menu.setSubmenu(remotesMenu, for: remotesItem)
         menu.addItem(remotesItem)
 
-        let remoteMenu = NSMenu(title: model.i18n("git.remote.branches", fallback: "Remote Branches"))
+        let remoteMenu = NSMenu(title: String(localized: "git.remote.branches", defaultValue: "Remote Branches", bundle: .module))
         let refreshHandler = NativeContextMenuHandler(action: { model.refreshRemoteBranches() })
         handlers.append(refreshHandler)
-        let refresh = NSMenuItem(title: model.i18n("git.remote.branches.refresh", fallback: "Refresh Remote Branches"), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
+        let refresh = NSMenuItem(title: String(localized: "git.remote.branches.refresh", defaultValue: "Refresh Remote Branches", bundle: .module), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
         refresh.target = refreshHandler
         remoteMenu.addItem(refresh)
         remoteMenu.addItem(.separator())
         if model.gitRemoteBranches.isEmpty {
-            let item = NSMenuItem(title: model.i18n("git.remote.branches.empty", fallback: "No Remote Branches"), action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: String(localized: "git.remote.branches.empty", defaultValue: "No Remote Branches", bundle: .module), action: nil, keyEquivalent: "")
             item.isEnabled = false
             remoteMenu.addItem(item)
         } else {
@@ -598,7 +598,7 @@ private final class GitBranchMenuButton: NSButton {
                 let remoteSubmenu = NSMenu(title: remote.name)
 
                 if branches.isEmpty {
-                    let item = NSMenuItem(title: model.i18n("git.remote.branches.empty", fallback: "No Remote Branches"), action: nil, keyEquivalent: "")
+                    let item = NSMenuItem(title: String(localized: "git.remote.branches.empty", defaultValue: "No Remote Branches", bundle: .module), action: nil, keyEquivalent: "")
                     item.isEnabled = false
                     remoteSubmenu.addItem(item)
                 } else {
@@ -607,13 +607,13 @@ private final class GitBranchMenuButton: NSButton {
                         let shortName = branch.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true).dropFirst().first.map(String.init) ?? branch
                         let checkoutHandler = NativeContextMenuHandler(action: { model.checkoutRemoteGitBranch(branch) })
                         handlers.append(checkoutHandler)
-                        let checkout = NSMenuItem(title: model.i18n("git.remote.branch.checkout_local", fallback: "Checkout as Local Branch"), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
+                        let checkout = NSMenuItem(title: String(localized: "git.remote.branch.checkout_local", defaultValue: "Checkout as Local Branch", bundle: .module), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
                         checkout.target = checkoutHandler
                         branchMenu.addItem(checkout)
 
                         let pushHandler = NativeContextMenuHandler(action: { model.pushCurrentLocalBranch(to: branch) })
                         handlers.append(pushHandler)
-                        let pushItem = NSMenuItem(title: model.i18n("git.remote.branch.push_here", fallback: "Push to This Branch"), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
+                        let pushItem = NSMenuItem(title: String(localized: "git.remote.branch.push_here", defaultValue: "Push to This Branch", bundle: .module), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
                         pushItem.target = pushHandler
                         branchMenu.addItem(pushItem)
 
@@ -635,19 +635,19 @@ private final class GitBranchMenuButton: NSButton {
                 return !model.gitRemotes.contains(where: { $0.name == remoteName })
             }
             if !ungroupedBranches.isEmpty {
-                let otherMenu = NSMenu(title: model.i18n("git.misc.other", fallback: "Other"))
+                let otherMenu = NSMenu(title: String(localized: "git.misc.other", defaultValue: "Other", bundle: .module))
                 for branch in ungroupedBranches.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }) {
                     let branchMenu = NSMenu(title: branch)
                     let shortName = branch.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true).dropFirst().first.map(String.init) ?? branch
                     let checkoutHandler = NativeContextMenuHandler(action: { model.checkoutRemoteGitBranch(branch) })
                     handlers.append(checkoutHandler)
-                    let checkout = NSMenuItem(title: model.i18n("git.remote.branch.checkout_local", fallback: "Checkout as Local Branch"), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
+                    let checkout = NSMenuItem(title: String(localized: "git.remote.branch.checkout_local", defaultValue: "Checkout as Local Branch", bundle: .module), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
                     checkout.target = checkoutHandler
                     branchMenu.addItem(checkout)
 
                     let pushHandler = NativeContextMenuHandler(action: { model.pushCurrentLocalBranch(to: branch) })
                     handlers.append(pushHandler)
-                    let pushItem = NSMenuItem(title: model.i18n("git.remote.branch.push_here", fallback: "Push to This Branch"), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
+                    let pushItem = NSMenuItem(title: String(localized: "git.remote.branch.push_here", defaultValue: "Push to This Branch", bundle: .module), action: #selector(NativeContextMenuHandler.performAction), keyEquivalent: "")
                     pushItem.target = pushHandler
                     branchMenu.addItem(pushItem)
 
@@ -657,23 +657,23 @@ private final class GitBranchMenuButton: NSButton {
                     otherMenu.addItem(branchItem)
                 }
 
-                let otherItem = NSMenuItem(title: model.i18n("git.misc.other", fallback: "Other"), action: nil, keyEquivalent: "")
+                let otherItem = NSMenuItem(title: String(localized: "git.misc.other", defaultValue: "Other", bundle: .module), action: nil, keyEquivalent: "")
                 remoteMenu.setSubmenu(otherMenu, for: otherItem)
                 remoteMenu.addItem(otherItem)
             }
         }
-        let remoteItem = NSMenuItem(title: model.i18n("git.remote.branches", fallback: "Remote Branches"), action: nil, keyEquivalent: "")
+        let remoteItem = NSMenuItem(title: String(localized: "git.remote.branches", defaultValue: "Remote Branches", bundle: .module), action: nil, keyEquivalent: "")
         menu.setSubmenu(remoteMenu, for: remoteItem)
         menu.addItem(remoteItem)
 
         addSeparator()
-        addAction(model.i18n("git.remote.fetch", fallback: "Fetch")) { model.fetchGitBranch() }
-        addAction(model.i18n("git.remote.pull", fallback: "Pull")) { model.pullGitBranch() }
-        addAction(model.i18n("git.remote.push", fallback: "Push")) { model.pushGitBranch() }
+        addAction(String(localized: "git.remote.fetch", defaultValue: "Fetch", bundle: .module)) { model.fetchGitBranch() }
+        addAction(String(localized: "git.remote.pull", defaultValue: "Pull", bundle: .module)) { model.pullGitBranch() }
+        addAction(String(localized: "git.remote.push", defaultValue: "Push", bundle: .module)) { model.pushGitBranch() }
 
-        let pushRemoteMenu = NSMenu(title: model.i18n("git.remote.push_to", fallback: "Push To..."))
+        let pushRemoteMenu = NSMenu(title: String(localized: "git.remote.push_to", defaultValue: "Push To...", bundle: .module))
         if model.gitRemotes.isEmpty {
-            let item = NSMenuItem(title: model.i18n("git.remote.empty", fallback: "No Remotes"), action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: String(localized: "git.remote.empty", defaultValue: "No Remotes", bundle: .module), action: nil, keyEquivalent: "")
             item.isEnabled = false
             pushRemoteMenu.addItem(item)
         } else {
@@ -687,16 +687,16 @@ private final class GitBranchMenuButton: NSButton {
                 pushRemoteMenu.addItem(item)
             }
         }
-        let pushRemoteItem = NSMenuItem(title: model.i18n("git.remote.push_to", fallback: "Push To..."), action: nil, keyEquivalent: "")
+        let pushRemoteItem = NSMenuItem(title: String(localized: "git.remote.push_to", defaultValue: "Push To...", bundle: .module), action: nil, keyEquivalent: "")
         menu.setSubmenu(pushRemoteMenu, for: pushRemoteItem)
         menu.addItem(pushRemoteItem)
 
-        addAction(model.i18n("git.remote.force_push", fallback: "Force Push")) { model.forcePushGitBranch() }
+        addAction(String(localized: "git.remote.force_push", defaultValue: "Force Push", bundle: .module)) { model.forcePushGitBranch() }
         addSeparator()
-        addAction(model.i18n("git.history.undo_last_commit", fallback: "Undo Last Commit")) { model.undoLastGitCommit() }
-        addAction(model.i18n("git.history.edit_last_commit_message", fallback: "Edit Last Commit Message")) { model.editLastGitCommitMessage() }
+        addAction(String(localized: "git.history.undo_last_commit", defaultValue: "Undo Last Commit", bundle: .module)) { model.undoLastGitCommit() }
+        addAction(String(localized: "git.history.edit_last_commit_message", defaultValue: "Edit Last Commit Message", bundle: .module)) { model.editLastGitCommitMessage() }
         addSeparator()
-        addAction(model.i18n("git.repository.show_in_finder", fallback: "Show Repository in Finder")) { model.revealRepositoryInFinder() }
+        addAction(String(localized: "git.repository.show_in_finder", defaultValue: "Show Repository in Finder", bundle: .module)) { model.revealRepositoryInFinder() }
 
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
     }
@@ -720,7 +720,7 @@ private struct GitPanelHeader: View {
                         .font(.system(size: 13, weight: .semibold))
                 }
                 .buttonStyle(GitToolbarIconButtonStyle())
-                .help(model.i18n("git.commit.generate_message", fallback: "Generate Commit Message"))
+                .help(String(localized: "git.commit.generate_message", defaultValue: "Generate Commit Message", bundle: .module))
 
                 Button {
                     model.refreshGitState()
@@ -729,7 +729,7 @@ private struct GitPanelHeader: View {
                         .font(.system(size: 13, weight: .semibold))
                 }
                 .buttonStyle(GitToolbarIconButtonStyle())
-                .help(model.i18n("git.status.refresh", fallback: "Refresh Git Status"))
+                .help(String(localized: "git.status.refresh", defaultValue: "Refresh Git Status", bundle: .module))
             }
         }
         .padding(.horizontal, 18)
@@ -757,7 +757,7 @@ private struct GitTopRegion: View {
                         get: { model.commitMessage },
                         set: { model.commitMessage = $0 }
                     ),
-                    placeholder: model.i18n("git.commit.message.placeholder", fallback: "Enter Commit Message"),
+                    placeholder: String(localized: "git.commit.message.placeholder", defaultValue: "Enter Commit Message", bundle: .module),
                     isFocused: Binding(
                         get: { focusedField.wrappedValue == .commitMessage },
                         set: { focusedField.wrappedValue = $0 ? .commitMessage : nil }
@@ -832,11 +832,11 @@ private struct GitCommitSplitButton: View {
     private func commitActionTitle(_ action: GitCommitAction) -> String {
         switch action {
         case .commit:
-            return model.i18n("git.commit.action", fallback: "Commit")
+            return String(localized: "git.commit.action", defaultValue: "Commit", bundle: .module)
         case .commitAndPush:
-            return model.i18n("git.commit.action_push", fallback: "Commit and Push")
+            return String(localized: "git.commit.action_push", defaultValue: "Commit and Push", bundle: .module)
         case .commitAndSync:
-            return model.i18n("git.commit.action_sync", fallback: "Commit and Sync")
+            return String(localized: "git.commit.action_sync", defaultValue: "Commit and Sync", bundle: .module)
         }
     }
 }
@@ -859,7 +859,7 @@ private struct GitFilesRegion: View {
 
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     GitListSection(
-                        title: model.i18n("git.files.staged", fallback: "Staged"),
+                        title: String(localized: "git.files.staged", defaultValue: "Staged", bundle: .module),
                         entries: gitState.staged,
                         accent: AppTheme.success,
                         isExpanded: $stagedExpanded,
@@ -871,7 +871,7 @@ private struct GitFilesRegion: View {
                     )
 
                     GitListSection(
-                        title: model.i18n("git.files.changes", fallback: "Changes"),
+                        title: String(localized: "git.files.changes", defaultValue: "Changes", bundle: .module),
                         entries: gitState.changes,
                         accent: AppTheme.warning,
                         isExpanded: $changesExpanded,
@@ -883,7 +883,7 @@ private struct GitFilesRegion: View {
                     )
 
                     GitListSection(
-                        title: model.i18n("git.files.untracked", fallback: "Untracked"),
+                        title: String(localized: "git.files.untracked", defaultValue: "Untracked", bundle: .module),
                         entries: gitState.untracked,
                         accent: AppTheme.textSecondary,
                         isExpanded: $untrackedExpanded,
@@ -941,27 +941,27 @@ private struct GitListSection: View {
         case "Staged":
             guard !actionEntries.isEmpty else { return [] }
             return [
-                GitSectionHeaderAction(icon: "minus", help: usesSelectedEntries ? model.i18n("git.files.unstage_selected", fallback: "Unstage Selected") : model.i18n("git.files.unstage_all", fallback: "Unstage All")) {
+                GitSectionHeaderAction(icon: "minus", help: usesSelectedEntries ? String(localized: "git.files.unstage_selected", defaultValue: "Unstage Selected", bundle: .module) : String(localized: "git.files.unstage_all", defaultValue: "Unstage All", bundle: .module)) {
                     model.unstageEntries(actionEntries)
                 }
             ]
         case "Changes":
             guard !actionEntries.isEmpty else { return [] }
             return [
-                GitSectionHeaderAction(icon: "plus", help: usesSelectedEntries ? model.i18n("git.files.stage_selected", fallback: "Stage Selected") : model.i18n("git.files.stage_all", fallback: "Stage All")) {
+                GitSectionHeaderAction(icon: "plus", help: usesSelectedEntries ? String(localized: "git.files.stage_selected", defaultValue: "Stage Selected", bundle: .module) : String(localized: "git.files.stage_all", defaultValue: "Stage All", bundle: .module)) {
                     model.stageEntries(actionEntries)
                 },
-                GitSectionHeaderAction(icon: "discard", help: usesSelectedEntries ? model.i18n("git.files.discard_selected", fallback: "Discard Selected") : model.i18n("git.files.discard_all", fallback: "Discard All")) {
+                GitSectionHeaderAction(icon: "discard", help: usesSelectedEntries ? String(localized: "git.files.discard_selected", defaultValue: "Discard Selected", bundle: .module) : String(localized: "git.files.discard_all", defaultValue: "Discard All", bundle: .module)) {
                     model.discardEntries(actionEntries)
                 }
             ]
         case "Untracked":
             guard !actionEntries.isEmpty else { return [] }
             return [
-                GitSectionHeaderAction(icon: "plus", help: usesSelectedEntries ? model.i18n("git.files.stage_selected", fallback: "Stage Selected") : model.i18n("git.files.stage_all", fallback: "Stage All")) {
+                GitSectionHeaderAction(icon: "plus", help: usesSelectedEntries ? String(localized: "git.files.stage_selected", defaultValue: "Stage Selected", bundle: .module) : String(localized: "git.files.stage_all", defaultValue: "Stage All", bundle: .module)) {
                     model.stageEntries(actionEntries)
                 },
-                GitSectionHeaderAction(icon: "discard", help: usesSelectedEntries ? model.i18n("git.files.remove_selected", fallback: "Remove Selected") : model.i18n("git.files.remove_all", fallback: "Remove All")) {
+                GitSectionHeaderAction(icon: "discard", help: usesSelectedEntries ? String(localized: "git.files.remove_selected", defaultValue: "Remove Selected", bundle: .module) : String(localized: "git.files.remove_all", defaultValue: "Remove All", bundle: .module)) {
                     model.discardEntries(actionEntries)
                 }
             ]
@@ -1046,11 +1046,11 @@ private struct GitListSection: View {
     private var displayTitle: String {
         switch title {
         case "Staged":
-            return model.i18n("git.files.staged", fallback: "Staged")
+            return String(localized: "git.files.staged", defaultValue: "Staged", bundle: .module)
         case "Changes":
-            return model.i18n("git.files.changes", fallback: "Changes")
+            return String(localized: "git.files.changes", defaultValue: "Changes", bundle: .module)
         case "Untracked":
-            return model.i18n("git.files.untracked", fallback: "Untracked")
+            return String(localized: "git.files.untracked", defaultValue: "Untracked", bundle: .module)
         default:
             return title
         }
@@ -1287,7 +1287,7 @@ private struct GitHistoryRegion: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(model.i18n("git.history.title", fallback: "Git History"))
+                Text(String(localized: "git.history.title", defaultValue: "Git History", bundle: .module))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(AppTheme.textSecondary)
                 Spacer()
@@ -1305,7 +1305,7 @@ private struct GitHistoryRegion: View {
             }
 
             if history.isEmpty {
-                Text(model.i18n("git.history.empty", fallback: "No Commit History"))
+                Text(String(localized: "git.history.empty", defaultValue: "No Commit History", bundle: .module))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(AppTheme.textMuted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1384,7 +1384,7 @@ private struct GitHistoryRow: View {
                             .font(.system(size: 10, weight: .semibold))
                     }
                     .buttonStyle(GitHistoryActionButtonStyle())
-                    .help(model.i18n("git.history.revert_commit", fallback: "Revert This Commit"))
+                    .help(String(localized: "git.history.revert_commit", defaultValue: "Revert This Commit", bundle: .module))
 
                     Button {
                         model.createBranch(from: item)
@@ -1393,7 +1393,7 @@ private struct GitHistoryRow: View {
                             .font(.system(size: 10, weight: .semibold))
                     }
                     .buttonStyle(GitHistoryActionButtonStyle())
-                    .help(model.i18n("git.history.create_branch_from_commit", fallback: "Create Branch from This Commit"))
+                    .help(String(localized: "git.history.create_branch_from_commit", defaultValue: "Create Branch from This Commit", bundle: .module))
                 }
                 .padding(.leading, 12)
                 .padding(.trailing, 6)
@@ -1472,28 +1472,28 @@ private func buildGitFileContextMenu(model: AppModel, fallbackEntry: GitFileEntr
 
     var actions: [NativeContextMenuAction] = []
 
-    actions.append(.action(selectedEntries.count > 1 ? model.i18n("git.files.copy_selected_paths", fallback: "Copy Selected Paths") : model.i18n("git.files.copy_path", fallback: "Copy Path")) {
+    actions.append(.action(selectedEntries.count > 1 ? String(localized: "git.files.copy_selected_paths", defaultValue: "Copy Selected Paths", bundle: .module) : String(localized: "git.files.copy_path", defaultValue: "Copy Path", bundle: .module)) {
         model.copyGitPaths(selectedEntries)
     })
 
-    actions.append(.action(model.i18n("git.files.show_in_finder", fallback: "Show in Finder")) {
+    actions.append(.action(String(localized: "git.files.show_in_finder", defaultValue: "Show in Finder", bundle: .module)) {
         model.revealGitEntriesInFinder(selectedEntries)
     })
 
     actions.append(.separator)
 
     if allStaged {
-        actions.append(.action(selectedEntries.count > 1 ? model.i18n("git.files.unstage_selected", fallback: "Unstage Selected") : model.i18n("git.files.unstage", fallback: "Unstage")) {
+        actions.append(.action(selectedEntries.count > 1 ? String(localized: "git.files.unstage_selected", defaultValue: "Unstage Selected", bundle: .module) : String(localized: "git.files.unstage", defaultValue: "Unstage", bundle: .module)) {
             model.unstageEntries(selectedEntries)
         })
     } else {
-        actions.append(.action(selectedEntries.count > 1 ? model.i18n("git.files.stage_selected", fallback: "Stage Selected") : model.i18n("git.files.stage", fallback: "Stage")) {
+        actions.append(.action(selectedEntries.count > 1 ? String(localized: "git.files.stage_selected", defaultValue: "Stage Selected", bundle: .module) : String(localized: "git.files.stage", defaultValue: "Stage", bundle: .module)) {
             model.stageEntries(selectedEntries)
         })
     }
 
     if hasNonStaged {
-        actions.append(.action(selectedEntries.count > 1 ? model.i18n("git.files.discard_selected_changes", fallback: "Discard Selected Changes") : model.i18n("git.files.discard_changes", fallback: "Discard Changes")) {
+        actions.append(.action(selectedEntries.count > 1 ? String(localized: "git.files.discard_selected_changes", defaultValue: "Discard Selected Changes", bundle: .module) : String(localized: "git.files.discard_changes", defaultValue: "Discard Changes", bundle: .module)) {
             model.discardEntries(selectedEntries)
         })
     }
@@ -1501,11 +1501,11 @@ private func buildGitFileContextMenu(model: AppModel, fallbackEntry: GitFileEntr
     if allUntracked {
         actions.append(.separator)
 
-        actions.append(.action(model.i18n("git.ignore.add", fallback: "Add to .gitignore")) {
+        actions.append(.action(String(localized: "git.ignore.add", defaultValue: "Add to .gitignore", bundle: .module)) {
             model.addGitEntriesToIgnore(selectedEntries)
         })
 
-        actions.append(.action(selectedEntries.count > 1 ? model.i18n("git.files.delete_selected_files", fallback: "Delete Selected Files") : model.i18n("git.files.delete_file", fallback: "Delete File")) {
+        actions.append(.action(selectedEntries.count > 1 ? String(localized: "git.files.delete_selected_files", defaultValue: "Delete Selected Files", bundle: .module) : String(localized: "git.files.delete_file", defaultValue: "Delete File", bundle: .module)) {
             model.discardEntries(selectedEntries)
         })
     }
@@ -1516,22 +1516,22 @@ private func buildGitFileContextMenu(model: AppModel, fallbackEntry: GitFileEntr
 @MainActor
 private func buildGitCommitContextMenu(model: AppModel, commit: GitCommitEntry) -> [NativeContextMenuAction] {
     var actions: [NativeContextMenuAction] = [
-        .action(model.i18n("git.history.copy_commit_hash", fallback: "Copy Commit Hash")) { model.copyGitCommitHash(commit) },
-        .action(model.i18n("git.history.checkout_commit", fallback: "Checkout This Commit")) { model.checkoutGitCommit(commit) },
-        .action(model.i18n("git.history.create_branch_from_commit", fallback: "Create Branch from This Commit")) { model.createBranch(from: commit) },
+        .action(String(localized: "git.history.copy_commit_hash", defaultValue: "Copy Commit Hash", bundle: .module)) { model.copyGitCommitHash(commit) },
+        .action(String(localized: "git.history.checkout_commit", defaultValue: "Checkout This Commit", bundle: .module)) { model.checkoutGitCommit(commit) },
+        .action(String(localized: "git.history.create_branch_from_commit", defaultValue: "Create Branch from This Commit", bundle: .module)) { model.createBranch(from: commit) },
     ]
 
     if model.gitHistory.first?.hash == commit.hash {
         actions.append(.separator)
-        actions.append(.action(model.i18n("git.history.undo_last_commit", fallback: "Undo Last Commit")) { model.undoLastGitCommit() })
-        actions.append(.action(model.i18n("git.history.edit_last_commit_message", fallback: "Edit Last Commit Message")) { model.editLastGitCommitMessage() })
+        actions.append(.action(String(localized: "git.history.undo_last_commit", defaultValue: "Undo Last Commit", bundle: .module)) { model.undoLastGitCommit() })
+        actions.append(.action(String(localized: "git.history.edit_last_commit_message", defaultValue: "Edit Last Commit Message", bundle: .module)) { model.editLastGitCommitMessage() })
     }
 
     actions.append(.separator)
-    actions.append(.action(model.i18n("git.history.revert_commit", fallback: "Revert This Commit")) { model.revertGitCommit(commit) })
+    actions.append(.action(String(localized: "git.history.revert_commit", defaultValue: "Revert This Commit", bundle: .module)) { model.revertGitCommit(commit) })
     actions.append(.separator)
-    actions.append(.action(model.i18n("git.history.restore_local", fallback: "Restore This Revision Locally")) { model.restoreGitCommit(commit, forceRemote: false) })
-    actions.append(.action(model.i18n("git.history.restore_remote", fallback: "Restore This Revision Remotely")) { model.restoreGitCommit(commit, forceRemote: true) })
+    actions.append(.action(String(localized: "git.history.restore_local", defaultValue: "Restore This Revision Locally", bundle: .module)) { model.restoreGitCommit(commit, forceRemote: false) })
+    actions.append(.action(String(localized: "git.history.restore_remote", defaultValue: "Restore This Revision Remotely", bundle: .module)) { model.restoreGitCommit(commit, forceRemote: true) })
 
     return actions
 }

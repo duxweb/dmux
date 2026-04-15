@@ -298,7 +298,7 @@ final class AIStatsStore {
 
         task.cancel()
         refreshTasks[project.id] = nil
-        let cancelledStatus = AIIndexingStatus.cancelled(detail: appI18n("ai.indexing.stopped", fallback: "Indexing stopped."))
+        let cancelledStatus = AIIndexingStatus.cancelled(detail: String(localized: "ai.indexing.stopped", defaultValue: "Indexing stopped.", bundle: .module))
         indexingStatusByProjectID[project.id] = cancelledStatus
         _ = ingestRuntime(project: project, projects: projects)
         let liveSnapshots = runtimeStateStore.liveSnapshots(projectID: project.id)
@@ -403,7 +403,7 @@ final class AIStatsStore {
             "start trigger=\(refreshTriggerName(trigger)) project=\(project.id.uuidString) name=\(project.name) force=\(force) live=\(liveEnvelopes.count) selectedSession=\(selectedSessionID?.uuidString ?? "nil")"
         )
 
-        let runningStatus = AIIndexingStatus.indexing(progress: 0.0, detail: appI18n("ai.indexing.starting", fallback: "Starting index."))
+        let runningStatus = AIIndexingStatus.indexing(progress: 0.0, detail: String(localized: "ai.indexing.starting", defaultValue: "Starting index.", bundle: .module))
         indexingStatusByProjectID[project.id] = runningStatus
         if var runningState = panelStateByProjectID[project.id] {
             runningState.indexingStatus = runningStatus
@@ -524,9 +524,9 @@ final class AIStatsStore {
         case .indexing(let progress, let detail):
             return .indexing(progress: progress, detail: detail)
         case .completed:
-            return .completed(detail: appI18n("ai.indexing.complete", fallback: "Index complete."))
+            return .completed(detail: String(localized: "ai.indexing.complete", defaultValue: "Index complete.", bundle: .module))
         case .cancelled:
-            return .cancelled(detail: appI18n("ai.indexing.stopped", fallback: "Indexing stopped."))
+            return .cancelled(detail: String(localized: "ai.indexing.stopped", defaultValue: "Indexing stopped.", bundle: .module))
         case .failed(let detail):
             return .failed(detail: detail)
         }
@@ -852,7 +852,7 @@ final class AIStatsStore {
     private func refreshLiveState(project: Project, projects: [Project], selectedSessionID: UUID?) {
         let liveSnapshots = runtimeStateStore.liveSnapshots(projectID: project.id)
         let currentSnapshot = runtimeStateStore.currentSnapshot(projectID: project.id, selectedSessionID: selectedSessionID)
-        let status = indexingStatusByProjectID[project.id] ?? .completed(detail: appI18n("ai.indexing.complete", fallback: "Index complete."))
+        let status = indexingStatusByProjectID[project.id] ?? .completed(detail: String(localized: "ai.indexing.complete", defaultValue: "Index complete.", bundle: .module))
         let currentState = panelStateByProjectID[project.id] ?? cachedState(for: project.id) ?? .empty
         let nextState = aiUsageService.lightweightLivePanelState(
             from: currentState,

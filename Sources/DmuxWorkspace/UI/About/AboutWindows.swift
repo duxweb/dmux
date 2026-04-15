@@ -25,7 +25,7 @@ enum AboutWindowPresenter {
             defer: false
         )
         window.identifier = AppWindowIdentifier.about
-        applyStandardWindowChrome(window, title: String(format: model.i18n("menu.app.about_format", fallback: "About %@"), model.appDisplayName))
+        applyStandardWindowChrome(window, title: String(format: String(localized: "menu.app.about_format", defaultValue: "About %@", bundle: .module), model.appDisplayName))
         window.center()
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 320, height: 380))
@@ -72,7 +72,7 @@ enum UserAgreementWindowPresenter {
             defer: false
         )
         window.identifier = AppWindowIdentifier.agreement
-        applyStandardWindowChrome(window, title: model.i18n("about.user_agreement", fallback: "User Agreement"))
+        applyStandardWindowChrome(window, title: String(localized: "about.user_agreement", defaultValue: "User Agreement", bundle: .module))
         window.center()
         window.isReleasedWhenClosed = false
         let hosting = NSHostingController(
@@ -116,11 +116,11 @@ struct AboutWindowView: View {
             Spacer().frame(height: 20)
 
             VStack(spacing: 3) {
-                Text(model.i18n("about.tagline", fallback: "AI-Powered Terminal Workspace"))
+                Text(String(localized: "about.tagline", defaultValue: "AI-Powered Terminal Workspace", bundle: .module))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
 
-                Text(model.i18n("about.copyright", fallback: "Copyright © 2025 dmux contributors"))
+                Text(String(localized: "about.copyright", defaultValue: "Copyright © 2025 dmux contributors", bundle: .module))
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
@@ -128,15 +128,15 @@ struct AboutWindowView: View {
             Spacer().frame(height: 20)
 
             HStack(spacing: 12) {
-                Button(model.i18n("about.agreement", fallback: "Agreement")) {
+                Button(String(localized: "about.agreement", defaultValue: "Agreement", bundle: .module)) {
                     UserAgreementWindowPresenter.show(model: model)
                 }
 
-                Button(model.i18n("about.website", fallback: "Website")) {
+                Button(String(localized: "about.website", defaultValue: "Website", bundle: .module)) {
                     model.openURL(AppSupportLinks.website)
                 }
 
-                Button(model.isCheckingForUpdates ? model.i18n("about.checking_updates", fallback: "Checking...") : model.i18n("about.updates", fallback: "Updates")) {
+                Button(model.isCheckingForUpdates ? String(localized: "about.checking_updates", defaultValue: "Checking...", bundle: .module) : String(localized: "about.updates", defaultValue: "Updates", bundle: .module)) {
                     model.checkForUpdates()
                 }
                 .disabled(model.isCheckingForUpdates)
@@ -155,7 +155,7 @@ struct UserAgreementView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(model.i18n("about.user_agreement", fallback: "User Agreement"))
+                Text(String(localized: "about.user_agreement", defaultValue: "User Agreement", bundle: .module))
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
 

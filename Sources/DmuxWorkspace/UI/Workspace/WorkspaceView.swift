@@ -271,7 +271,7 @@ private struct BottomTabbedPaneView: View {
 
                             TabChip(
                                 model: model,
-                                title: String(format: model.i18n("workspace.tab_format", fallback: "Tab %@"), "\(index + 1)"),
+                                title: String(format: String(localized: "workspace.tab_format", defaultValue: "Tab %@", bundle: .module), "\(index + 1)"),
                                 isSelected: isSelected,
                                 onSelect: { model.selectBottomTabSession(sessionID) },
                                 onClose: { model.closeSession(sessionID) }

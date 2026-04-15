@@ -70,7 +70,7 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .system: return appI18n("settings.language.follow_system", fallback: "System")
+        case .system: return String(localized: "settings.language.follow_system", defaultValue: "System", bundle: .module)
         case .simplifiedChinese: return "简体中文"
         case .traditionalChinese: return "繁體中文"
         case .english: return "English"
@@ -82,13 +82,6 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable {
         case .portugueseBrazil: return "Português (Brasil)"
         case .russian: return "Русский"
         }
-    }
-
-    func title(for language: AppLanguage) -> String {
-        if self == .system {
-            return language.i18n("settings.language.follow_system", fallback: "System")
-        }
-        return title
     }
 
     var resolved: AppLanguage {
@@ -156,14 +149,56 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    func i18n(_ key: String, fallback: String) -> String {
-        AppLocalizationCatalog.localizedString(for: resolved, key: key, fallback: fallback)
+    var appleLanguageIdentifiers: [String]? {
+        switch self {
+        case .system:
+            return nil
+        case .simplifiedChinese:
+            return ["zh-Hans", "zh-CN", "zh"]
+        case .traditionalChinese:
+            return ["zh-Hant", "zh-TW", "zh-HK", "zh"]
+        case .english:
+            return ["en"]
+        case .japanese:
+            return ["ja"]
+        case .korean:
+            return ["ko"]
+        case .french:
+            return ["fr"]
+        case .german:
+            return ["de"]
+        case .spanish:
+            return ["es"]
+        case .portugueseBrazil:
+            return ["pt-BR", "pt"]
+        case .russian:
+            return ["ru"]
+        }
     }
 }
 
-func appI18n(_ key: String, fallback: String) -> String {
-    let language = PersistenceService().load()?.appSettings?.language.resolved ?? AppLanguage.system.resolved
-    return AppLocalizationCatalog.localizedString(for: language, key: key, fallback: fallback)
+enum AppLanguageBootstrap {
+    static let languageAtLaunch: AppLanguage = PersistenceService().load()?.appSettings?.language ?? .system
+
+    static func prepareForLaunch() {
+        apply(language: languageAtLaunch)
+    }
+
+    static func apply(language: AppLanguage) {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier, !bundleIdentifier.isEmpty else {
+            return
+        }
+
+        let appID = bundleIdentifier as CFString
+        if let identifiers = language.appleLanguageIdentifiers {
+            CFPreferencesSetAppValue("AppleLanguages" as CFString, identifiers as CFPropertyList, appID)
+            CFPreferencesSetAppValue("AppleLocale" as CFString, language.localeIdentifier as CFPropertyList, appID)
+        } else {
+            CFPreferencesSetAppValue("AppleLanguages" as CFString, nil, appID)
+            CFPreferencesSetAppValue("AppleLocale" as CFString, nil, appID)
+        }
+        CFPreferencesAppSynchronize(appID)
+    }
 }
 
 enum AppThemeMode: String, Codable, CaseIterable, Identifiable {
@@ -175,9 +210,9 @@ enum AppThemeMode: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .system: return appI18n("settings.theme.auto", fallback: "Auto")
-        case .light: return appI18n("settings.theme.light", fallback: "Light")
-        case .dark: return appI18n("settings.theme.dark", fallback: "Dark")
+        case .system: return String(localized: "settings.theme.auto", defaultValue: "Auto", bundle: .module)
+        case .light: return String(localized: "settings.theme.light", defaultValue: "Light", bundle: .module)
+        case .dark: return String(localized: "settings.theme.dark", defaultValue: "Dark", bundle: .module)
         }
     }
 
@@ -213,24 +248,24 @@ enum AppTerminalBackgroundPreset: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    func title(for language: AppLanguage) -> String {
+    var title: String {
         switch self {
         case .obsidian:
-            return language.i18n("settings.terminal_background.preset.obsidian", fallback: "Obsidian")
+            return String(localized: "settings.terminal_background.preset.obsidian", defaultValue: "Obsidian", bundle: .module)
         case .graphite:
-            return language.i18n("settings.terminal_background.preset.graphite", fallback: "Graphite")
+            return String(localized: "settings.terminal_background.preset.graphite", defaultValue: "Graphite", bundle: .module)
         case .midnight:
-            return language.i18n("settings.terminal_background.preset.midnight", fallback: "Midnight")
+            return String(localized: "settings.terminal_background.preset.midnight", defaultValue: "Midnight", bundle: .module)
         case .forest:
-            return language.i18n("settings.terminal_background.preset.forest", fallback: "Forest")
+            return String(localized: "settings.terminal_background.preset.forest", defaultValue: "Forest", bundle: .module)
         case .paper:
-            return language.i18n("settings.terminal_background.preset.paper", fallback: "Paper")
+            return String(localized: "settings.terminal_background.preset.paper", defaultValue: "Paper", bundle: .module)
         case .sand:
-            return language.i18n("settings.terminal_background.preset.sand", fallback: "Sand")
+            return String(localized: "settings.terminal_background.preset.sand", defaultValue: "Sand", bundle: .module)
         case .mist:
-            return language.i18n("settings.terminal_background.preset.mist", fallback: "Mist")
+            return String(localized: "settings.terminal_background.preset.mist", defaultValue: "Mist", bundle: .module)
         case .dawn:
-            return language.i18n("settings.terminal_background.preset.dawn", fallback: "Dawn")
+            return String(localized: "settings.terminal_background.preset.dawn", defaultValue: "Dawn", bundle: .module)
         }
     }
 
@@ -326,23 +361,10 @@ enum AppIconStyle: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .default: return appI18n("settings.app_icon.option.default", fallback: "Default")
-        case .cobalt: return appI18n("settings.app_icon.option.cobalt", fallback: "Cobalt")
-        case .sunset: return appI18n("settings.app_icon.option.sunset", fallback: "Sunset")
-        case .forest: return appI18n("settings.app_icon.option.forest", fallback: "Forest")
-        }
-    }
-
-    func title(for language: AppLanguage) -> String {
-        switch self {
-        case .default:
-            return language.i18n("settings.app_icon.option.default", fallback: "Default")
-        case .cobalt:
-            return language.i18n("settings.app_icon.option.cobalt", fallback: "Cobalt")
-        case .sunset:
-            return language.i18n("settings.app_icon.option.sunset", fallback: "Sunset")
-        case .forest:
-            return language.i18n("settings.app_icon.option.forest", fallback: "Forest")
+        case .default: return String(localized: "settings.app_icon.option.default", defaultValue: "Default", bundle: .module)
+        case .cobalt: return String(localized: "settings.app_icon.option.cobalt", defaultValue: "Cobalt", bundle: .module)
+        case .sunset: return String(localized: "settings.app_icon.option.sunset", defaultValue: "Sunset", bundle: .module)
+        case .forest: return String(localized: "settings.app_icon.option.forest", defaultValue: "Forest", bundle: .module)
         }
     }
 
@@ -518,111 +540,6 @@ enum AppShortcutTarget {
     case createTab
     case toggleGitPanel
     case toggleAIPanel
-}
-
-enum AppLocalizationCatalog {
-    private static let tables: [AppLanguage: [String: String]] = [
-        .english: loadTable(for: .english),
-        .simplifiedChinese: loadTable(for: .simplifiedChinese),
-        .traditionalChinese: loadTable(for: .traditionalChinese),
-        .japanese: loadTable(for: .japanese),
-        .korean: loadTable(for: .korean),
-        .french: loadTable(for: .french),
-        .german: loadTable(for: .german),
-        .spanish: loadTable(for: .spanish),
-        .portugueseBrazil: loadTable(for: .portugueseBrazil),
-        .russian: loadTable(for: .russian),
-    ]
-
-    static func localizedString(for language: AppLanguage, key: String, fallback: String) -> String {
-        let resolved = language.resolved
-        let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedKey.isEmpty else {
-            return fallback
-        }
-        let table = package(for: resolved)
-        return table[normalizedKey] ?? fallback
-    }
-
-    private static func package(for language: AppLanguage) -> [String: String] {
-        switch language {
-        case .system:
-            return [:]
-        case .simplifiedChinese, .traditionalChinese, .english, .japanese, .korean, .french, .german, .spanish, .portugueseBrazil, .russian:
-            return tables[language] ?? [:]
-        }
-    }
-
-    private static func loadTable(for language: AppLanguage) -> [String: String] {
-        let candidateURLs = localizationCandidateURLs(for: language)
-
-        guard let url = candidateURLs.compactMap({ $0 }).first,
-              let data = try? Data(contentsOf: url),
-              let table = try? JSONDecoder().decode([String: String].self, from: data) else {
-            return [:]
-        }
-        return table
-    }
-
-    private static func localizationCandidateURLs(for language: AppLanguage) -> [URL?] {
-        let filename = "\(language.resourceFileName).json"
-        let bundleNames = [
-            "DmuxWorkspace_DmuxWorkspace.bundle",
-            "DumxWorkspace_DmuxWorkspace.bundle",
-        ]
-
-        var candidates: [URL?] = []
-
-        let baseDirectories: [URL?] = [
-            Bundle.main.resourceURL,
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources", isDirectory: true),
-            Bundle.main.bundleURL,
-        ]
-
-        for baseDirectory in baseDirectories.compactMap({ $0 }) {
-            candidates.append(baseDirectory.appendingPathComponent("Localization/\(filename)"))
-            candidates.append(baseDirectory.appendingPathComponent(filename))
-
-            for bundleName in bundleNames {
-                let bundleURL = baseDirectory.appendingPathComponent(bundleName, isDirectory: true)
-                candidates.append(bundleURL.appendingPathComponent("Contents/Resources/Localization/\(filename)"))
-                candidates.append(bundleURL.appendingPathComponent("Contents/Resources/\(filename)"))
-                candidates.append(bundleURL.appendingPathComponent("Localization/\(filename)"))
-                candidates.append(bundleURL.appendingPathComponent(filename))
-            }
-        }
-
-        return candidates
-    }
-}
-
-private extension AppLanguage {
-    var resourceFileName: String {
-        switch self {
-        case .system:
-            return "system"
-        case .simplifiedChinese:
-            return "zh-Hans"
-        case .traditionalChinese:
-            return "zh-Hant"
-        case .english:
-            return "en"
-        case .japanese:
-            return "ja"
-        case .korean:
-            return "ko"
-        case .french:
-            return "fr"
-        case .german:
-            return "de"
-        case .spanish:
-            return "es"
-        case .portugueseBrazil:
-            return "pt-BR"
-        case .russian:
-            return "ru"
-        }
-    }
 }
 
 private extension NSColor {

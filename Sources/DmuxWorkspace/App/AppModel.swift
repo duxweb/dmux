@@ -159,8 +159,8 @@ final class AppModel {
         aiStatsStore.state
     }
 
-    func i18n(_ key: String, fallback: String) -> String {
-        appSettings.language.i18n(key, fallback: fallback)
+    var displayLanguage: AppLanguage {
+        AppLanguageBootstrap.languageAtLaunch.resolved
     }
 
     var aiPanelRefreshState: PanelRefreshState {
@@ -292,26 +292,26 @@ final class AppModel {
     func openDebugLog() {
         debugLog.log("app", "open debug log")
         debugLog.openInSystemViewer()
-        statusMessage = i18n("app.debug_log.opened", fallback: "Opened debug log.")
+        statusMessage = String(localized: "app.debug_log.opened", defaultValue: "Opened debug log.", bundle: .module)
     }
 
     func openSelectedProjectInVSCode() {
         guard let project = selectedProject else {
-            statusMessage = i18n("project.none_selected", fallback: "No project selected.")
+            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
             return
         }
         openSelectedProjectInApplication(
             project,
             bundleIdentifier: "com.microsoft.VSCode",
             fallbackURL: vscodeOpenURL(for: project.path),
-            successMessage: i18n("project.open.vscode.success", fallback: "Opened project in VS Code."),
-            failureMessage: i18n("project.open.vscode.failure", fallback: "Unable to find VS Code for this directory.")
+            successMessage: String(localized: "project.open.vscode.success", defaultValue: "Opened project in VS Code.", bundle: .module),
+            failureMessage: String(localized: "project.open.vscode.failure", defaultValue: "Unable to find VS Code for this directory.", bundle: .module)
         )
     }
 
     func revealSelectedProjectInFinder() {
         guard let project = selectedProject else {
-            statusMessage = i18n("project.none_selected", fallback: "No project selected.")
+            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
             return
         }
 
@@ -320,86 +320,86 @@ final class AppModel {
 
     func revealProjectInFinder(_ projectID: UUID) {
         guard let project = projects.first(where: { $0.id == projectID }) else {
-            statusMessage = i18n("project.not_found", fallback: "Project not found.")
+            statusMessage = String(localized: "project.not_found", defaultValue: "Project not found.", bundle: .module)
             return
         }
 
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.path, isDirectory: true)])
-        statusMessage = i18n("project.reveal.finder.success", fallback: "Revealed project in Finder.")
+        statusMessage = String(localized: "project.reveal.finder.success", defaultValue: "Revealed project in Finder.", bundle: .module)
     }
 
     func openProjectDirectory(_ projectID: UUID) {
         guard let project = projects.first(where: { $0.id == projectID }) else {
-            statusMessage = i18n("project.not_found", fallback: "Project not found.")
+            statusMessage = String(localized: "project.not_found", defaultValue: "Project not found.", bundle: .module)
             return
         }
 
         NSWorkspace.shared.open(URL(fileURLWithPath: project.path, isDirectory: true))
-        statusMessage = i18n("project.open.folder.success", fallback: "Opened project folder.")
+        statusMessage = String(localized: "project.open.folder.success", defaultValue: "Opened project folder.", bundle: .module)
     }
 
     func openSelectedProjectInTerminal() {
         guard let project = selectedProject else {
-            statusMessage = i18n("project.none_selected", fallback: "No project selected.")
+            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
             return
         }
         openSelectedProjectInApplication(
             project,
             bundleIdentifier: "com.apple.Terminal",
-            successMessage: i18n("project.open.terminal.success", fallback: "Opened project in Terminal."),
-            failureMessage: i18n("project.open.terminal.failure", fallback: "Terminal not found.")
+            successMessage: String(localized: "project.open.terminal.success", defaultValue: "Opened project in Terminal.", bundle: .module),
+            failureMessage: String(localized: "project.open.terminal.failure", defaultValue: "Terminal not found.", bundle: .module)
         )
     }
 
     func openSelectedProjectInITerm2() {
         guard let project = selectedProject else {
-            statusMessage = i18n("project.none_selected", fallback: "No project selected.")
+            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
             return
         }
         openSelectedProjectInApplication(
             project,
             bundleIdentifier: "com.googlecode.iterm2",
-            successMessage: i18n("project.open.iterm2.success", fallback: "Opened project in iTerm2."),
-            failureMessage: i18n("project.open.iterm2.failure", fallback: "iTerm2 not found.")
+            successMessage: String(localized: "project.open.iterm2.success", defaultValue: "Opened project in iTerm2.", bundle: .module),
+            failureMessage: String(localized: "project.open.iterm2.failure", defaultValue: "iTerm2 not found.", bundle: .module)
         )
     }
 
     func openSelectedProjectInGhostty() {
         guard let project = selectedProject else {
-            statusMessage = i18n("project.none_selected", fallback: "No project selected.")
+            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
             return
         }
         openSelectedProjectInApplication(
             project,
             bundleIdentifier: "com.mitchellh.ghostty",
-            successMessage: i18n("project.open.ghostty.success", fallback: "Opened project in Ghostty."),
-            failureMessage: i18n("project.open.ghostty.failure", fallback: "Ghostty not found.")
+            successMessage: String(localized: "project.open.ghostty.success", defaultValue: "Opened project in Ghostty.", bundle: .module),
+            failureMessage: String(localized: "project.open.ghostty.failure", defaultValue: "Ghostty not found.", bundle: .module)
         )
     }
 
     func openSelectedProjectInXcode() {
         guard let project = selectedProject else {
-            statusMessage = i18n("project.none_selected", fallback: "No project selected.")
+            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
             return
         }
         openSelectedProjectInApplication(
             project,
             bundleIdentifier: "com.apple.dt.Xcode",
-            successMessage: i18n("project.open.xcode.success", fallback: "Opened project in Xcode."),
-            failureMessage: i18n("project.open.xcode.failure", fallback: "Xcode not found.")
+            successMessage: String(localized: "project.open.xcode.success", defaultValue: "Opened project in Xcode.", bundle: .module),
+            failureMessage: String(localized: "project.open.xcode.failure", defaultValue: "Xcode not found.", bundle: .module)
         )
     }
 
     func addProject() {
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
         let dialog = ProjectEditorDialogState(
-            title: i18n("project.create.title", fallback: "Create Project"),
-            message: i18n("project.create.message", fallback: "Fill in the project name, directory, color, and icon."),
-            confirmTitle: i18n("common.create", fallback: "Create"),
+            title: String(localized: "project.create.title", defaultValue: "Create Project", bundle: .module),
+            message: String(localized: "project.create.message", defaultValue: "Fill in the project name, directory, color, and icon.", bundle: .module),
+            confirmTitle: String(localized: "common.create", defaultValue: "Create", bundle: .module),
             name: "",
             path: "",
             badgeText: "",
@@ -425,9 +425,9 @@ final class AppModel {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.title = i18n("project.open_folder.title", fallback: "Open Folder")
-        panel.prompt = i18n("project.open_folder.prompt", fallback: "Open")
-        panel.message = i18n("project.open_folder.message", fallback: "Choose a project folder to import.")
+        panel.title = String(localized: "project.open_folder.title", defaultValue: "Open Folder", bundle: .module)
+        panel.prompt = String(localized: "project.open_folder.prompt", defaultValue: "Open", bundle: .module)
+        panel.message = String(localized: "project.open_folder.message", defaultValue: "Choose a project folder to import.", bundle: .module)
 
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self, response == .OK, let url = panel.url else {
@@ -452,15 +452,15 @@ final class AppModel {
     func editProject(_ projectID: UUID) {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
         let project = projects[index]
         let dialog = ProjectEditorDialogState(
-            title: i18n("project.edit.title", fallback: "Edit Project"),
-            message: i18n("project.edit.message", fallback: "Update the project name, directory, color, and icon."),
-            confirmTitle: i18n("common.save", fallback: "Save"),
+            title: String(localized: "project.edit.title", defaultValue: "Edit Project", bundle: .module),
+            message: String(localized: "project.edit.message", defaultValue: "Update the project name, directory, color, and icon.", bundle: .module),
+            confirmTitle: String(localized: "common.save", defaultValue: "Save", bundle: .module),
             name: project.name,
             path: project.path,
             badgeText: project.badgeText ?? "",
@@ -497,7 +497,10 @@ final class AppModel {
                 self.workspaces = updatedWorkspaces
             }
 
-            self.statusMessage = self.i18n("project.update.success_format", fallback: "Updated project \(updatedProject.name).")
+            self.statusMessage = String(
+                format: String(localized: "project.update.success_format", defaultValue: "Updated project %@.", bundle: .module),
+                updatedProject.name
+            )
             self.persist()
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -513,23 +516,20 @@ final class AppModel {
     func removeProject(_ projectID: UUID) {
         guard let project = projects.first(where: { $0.id == projectID }) else { return }
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
         let dialog = ConfirmDialogState(
-            title: i18n("project.remove.title", fallback: "Remove Project"),
+            title: String(localized: "project.remove.title", defaultValue: "Remove Project", bundle: .module),
             message: String(
-                format: i18n(
-                    "project.remove.confirm_format",
-                    fallback: "Are you sure you want to remove project %@? Files on disk will not be deleted."
-                ),
+                format: String(localized: "project.remove.confirm_format", defaultValue: "Are you sure you want to remove project %@? Files on disk will not be deleted.", bundle: .module),
                 project.name
             ),
             icon: "trash",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("common.remove", fallback: "Remove"),
+            primaryTitle: String(localized: "common.remove", defaultValue: "Remove", bundle: .module),
             primaryTint: AppTheme.warning,
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
@@ -539,7 +539,10 @@ final class AppModel {
             if self.selectedProjectID == projectID {
                 self.selectedProjectID = self.projects.first?.id
             }
-            self.statusMessage = self.i18n("project.remove.success_format", fallback: "Removed project \(project.name).")
+            self.statusMessage = String(
+                format: String(localized: "project.remove.success_format", defaultValue: "Removed project %@.", bundle: .module),
+                project.name
+            )
             self.persist()
             self.refreshGitState()
             self.updateGitRemoteSyncPolling()
@@ -556,7 +559,7 @@ final class AppModel {
         workspaces.removeAll { $0.projectID == project.id }
         selectedProjectID = projects.first?.id
         statusMessage = String(
-            format: i18n("project.close.success_format", fallback: "Closed project %@."),
+            format: String(localized: "project.close.success_format", defaultValue: "Closed project %@.", bundle: .module),
             project.name
         )
         persist()
@@ -570,18 +573,18 @@ final class AppModel {
             return
         }
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
         let dialog = ConfirmDialogState(
-            title: i18n("workspace.close_all_projects.title", fallback: "Close All Projects"),
-            message: i18n("workspace.close_all_projects.message", fallback: "Are you sure you want to close all projects in the current workspace? Files on disk will not be deleted."),
+            title: String(localized: "workspace.close_all_projects.title", defaultValue: "Close All Projects", bundle: .module),
+            message: String(localized: "workspace.close_all_projects.message", defaultValue: "Are you sure you want to close all projects in the current workspace? Files on disk will not be deleted.", bundle: .module),
             icon: "xmark.rectangle.stack",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("workspace.close_all_projects.confirm", fallback: "Close All"),
+            primaryTitle: String(localized: "workspace.close_all_projects.confirm", defaultValue: "Close All", bundle: .module),
             primaryTint: AppTheme.warning,
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
@@ -590,7 +593,7 @@ final class AppModel {
             self.workspaces.removeAll()
             self.selectedProjectID = nil
             self.rightPanel = nil
-            self.statusMessage = self.i18n("workspace.close_all_projects.success", fallback: "Closed all projects.")
+            self.statusMessage = String(localized: "workspace.close_all_projects.success", defaultValue: "Closed all projects.", bundle: .module)
             self.persist()
             self.refreshGitState()
             self.updateGitRemoteSyncPolling()
@@ -622,40 +625,40 @@ final class AppModel {
 
     func openAISession(_ session: AISessionSummary) {
         guard let command = toolDriverFactory.resumeCommand(for: session) else {
-            statusMessage = i18n("ai.session.open.unsupported", fallback: "This session does not support opening.")
+            statusMessage = String(localized: "ai.session.open.unsupported", defaultValue: "This session does not support opening.", bundle: .module)
             return
         }
 
         if tryReuseSelectedTopTerminalForCommand(command) {
-            statusMessage = i18n("ai.session.open.current_success", fallback: "Opened session in the current terminal.")
+            statusMessage = String(localized: "ai.session.open.current_success", defaultValue: "Opened session in the current terminal.", bundle: .module)
             return
         }
 
         guard let newSessionID = createSplitTerminal(command: command, axis: .horizontal) else {
-            statusMessage = i18n("workspace.split.create_failed", fallback: "Unable to create a new split pane.")
+            statusMessage = String(localized: "workspace.split.create_failed", defaultValue: "Unable to create a new split pane.", bundle: .module)
             return
         }
         terminalFocusRequestID = newSessionID
-        statusMessage = i18n("ai.session.open.split_success", fallback: "Opened session in a new split pane.")
+        statusMessage = String(localized: "ai.session.open.split_success", defaultValue: "Opened session in a new split pane.", bundle: .module)
     }
 
     func renameAISession(_ session: AISessionSummary) {
         let capabilities = aiSessionCapabilities(for: session)
         guard capabilities.canRename else {
-            statusMessage = i18n("ai.session.rename.unsupported", fallback: "This session does not support renaming.")
+            statusMessage = String(localized: "ai.session.rename.unsupported", defaultValue: "This session does not support renaming.", bundle: .module)
             return
         }
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
         let dialog = GitInputDialogState(
             kind: .renameAISession,
-            title: i18n("ai.session.rename.title", fallback: "Rename Session"),
-            message: i18n("ai.session.rename.message", fallback: "Directly update the local session title for the corresponding AI CLI."),
-            placeholder: i18n("ai.session.rename.placeholder", fallback: "Enter a New Session Title"),
-            confirmTitle: i18n("common.save", fallback: "Save"),
+            title: String(localized: "ai.session.rename.title", defaultValue: "Rename Session", bundle: .module),
+            message: String(localized: "ai.session.rename.message", defaultValue: "Directly update the local session title for the corresponding AI CLI.", bundle: .module),
+            placeholder: String(localized: "ai.session.rename.placeholder", defaultValue: "Enter a New Session Title", bundle: .module),
+            confirmTitle: String(localized: "common.save", defaultValue: "Save", bundle: .module),
             value: session.sessionTitle,
             isMultiline: false
         )
@@ -665,7 +668,7 @@ final class AppModel {
             }
             let title = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else {
-                self.statusMessage = self.i18n("ai.session.rename.empty", fallback: "Session title cannot be empty.")
+                self.statusMessage = String(localized: "ai.session.rename.empty", defaultValue: "Session title cannot be empty.", bundle: .module)
                 return
             }
 
@@ -673,7 +676,7 @@ final class AppModel {
                 try self.toolDriverFactory.renameSession(session, to: title)
                 self.aiStatsStore.renameSessionOptimistically(projectID: session.projectID, sessionID: session.sessionID, title: title)
                 self.invalidateAISessionCachesAndRefresh()
-                self.statusMessage = self.i18n("ai.session.rename.success", fallback: "Renamed session.")
+                self.statusMessage = String(localized: "ai.session.rename.success", defaultValue: "Renamed session.", bundle: .module)
             } catch {
                 self.statusMessage = error.localizedDescription
             }
@@ -683,23 +686,23 @@ final class AppModel {
     func removeAISession(_ session: AISessionSummary) {
         let capabilities = aiSessionCapabilities(for: session)
         guard capabilities.canRemove else {
-            statusMessage = i18n("ai.session.remove.unsupported", fallback: "This session does not support removal.")
+            statusMessage = String(localized: "ai.session.remove.unsupported", defaultValue: "This session does not support removal.", bundle: .module)
             return
         }
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
         let dialog = ConfirmDialogState(
-            title: i18n("ai.session.remove.title", fallback: "Remove Session"),
-            message: i18n("ai.session.remove.confirm", fallback: "This will directly modify the local session storage for the corresponding AI CLI. Continue?"),
+            title: String(localized: "ai.session.remove.title", defaultValue: "Remove Session", bundle: .module),
+            message: String(localized: "ai.session.remove.confirm", defaultValue: "This will directly modify the local session storage for the corresponding AI CLI. Continue?", bundle: .module),
             icon: "trash",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("common.remove", fallback: "Remove"),
+            primaryTitle: String(localized: "common.remove", defaultValue: "Remove", bundle: .module),
             primaryTint: AppTheme.warning,
             secondaryTitle: nil,
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
             guard let self, result == .primary else {
@@ -710,7 +713,7 @@ final class AppModel {
                 try self.toolDriverFactory.removeSession(session)
                 self.aiStatsStore.removeSessionOptimistically(projectID: session.projectID, sessionID: session.sessionID)
                 self.invalidateAISessionCachesAndRefresh()
-                self.statusMessage = self.i18n("ai.session.remove.success", fallback: "Removed session.")
+                self.statusMessage = String(localized: "ai.session.remove.success", defaultValue: "Removed session.", bundle: .module)
             } catch {
                 self.statusMessage = error.localizedDescription
             }
@@ -757,8 +760,8 @@ final class AppModel {
             workspace.sessions.append(session)
             workspace.addBottomTab(session.id)
             statusMessage = workspace.bottomTabSessionIDs.count == 1
-                ? i18n("workspace.bottom_split.created", fallback: "Created the bottom split area.")
-                : i18n("workspace.bottom_tab.created", fallback: "Added a new bottom tab.")
+                ? String(localized: "workspace.bottom_split.created", defaultValue: "Created the bottom split area.", bundle: .module)
+                : String(localized: "workspace.bottom_tab.created", defaultValue: "Added a new bottom tab.", bundle: .module)
         }
     }
 
@@ -770,19 +773,19 @@ final class AppModel {
             switch axis {
             case .horizontal:
                 if workspace.addTopSession(session.id) {
-                    statusMessage = i18n("workspace.top_pane.horizontal_created", fallback: "Added a horizontal pane.")
+                    statusMessage = String(localized: "workspace.top_pane.horizontal_created", defaultValue: "Added a horizontal pane.", bundle: .module)
                 } else {
                     workspace.sessions.removeAll(where: { $0.id == session.id })
                     statusMessage = String(
-                        format: i18n("workspace.top_pane.limit_format", fallback: "The top row supports up to %@ panes."),
+                        format: String(localized: "workspace.top_pane.limit_format", defaultValue: "The top row supports up to %@ panes.", bundle: .module),
                         "\(ProjectWorkspace.maxTopPanes)"
                     )
                 }
             case .vertical:
                 workspace.addBottomTab(session.id)
                 statusMessage = workspace.bottomTabSessionIDs.count == 1
-                    ? i18n("workspace.bottom_split.created", fallback: "Created the bottom split area.")
-                    : i18n("workspace.bottom_tab.additional", fallback: "Added a tab to the bottom split area.")
+                    ? String(localized: "workspace.bottom_split.created", defaultValue: "Created the bottom split area.", bundle: .module)
+                    : String(localized: "workspace.bottom_tab.additional", defaultValue: "Added a tab to the bottom split area.", bundle: .module)
             }
         }
     }
@@ -875,7 +878,7 @@ final class AppModel {
         let text = entries.map(\.path).joined(separator: "\n")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        statusMessage = entries.count > 1 ? self.i18n("git.files.copy_selected_paths.success", fallback: "Copied selected file paths.") : self.i18n("git.files.copy_path.success", fallback: "Copied file path.")
+        statusMessage = entries.count > 1 ? String(localized: "git.files.copy_selected_paths.success", defaultValue: "Copied selected file paths.", bundle: .module) : String(localized: "git.files.copy_path.success", defaultValue: "Copied file path.", bundle: .module)
     }
 
     func addGitEntriesToIgnore(_ entries: [GitFileEntry]) {
@@ -891,7 +894,7 @@ final class AppModel {
             do {
                 try service.appendToGitignore(paths, at: repositoryPath)
                 await MainActor.run {
-                    self.statusMessage = paths.count > 1 ? self.i18n("git.ignore.added", fallback: "Added to .gitignore.") : self.i18n("git.ignore.added", fallback: "Added to .gitignore.")
+                    self.statusMessage = paths.count > 1 ? String(localized: "git.ignore.added", defaultValue: "Added to .gitignore.", bundle: .module) : String(localized: "git.ignore.added", defaultValue: "Added to .gitignore.", bundle: .module)
                     self.refreshGitState()
                 }
             } catch {
@@ -912,23 +915,23 @@ final class AppModel {
 
     func mergeBranchIntoCurrent(_ branch: String) {
         guard let project = selectedProject else { return }
-        let currentBranch = gitState?.branch ?? i18n("git.branch.current_label", fallback: "Current Branch")
+        let currentBranch = gitState?.branch ?? String(localized: "git.branch.current_label", defaultValue: "Current Branch", bundle: .module)
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
         let dialog = ConfirmDialogState(
-            title: i18n("git.branch.merge.title", fallback: "Merge Branch"),
+            title: String(localized: "git.branch.merge.title", defaultValue: "Merge Branch", bundle: .module),
             message: String(
-                format: i18n("git.branch.merge.message_format", fallback: "Merge %@ into %@."),
+                format: String(localized: "git.branch.merge.message_format", defaultValue: "Merge %@ into %@.", bundle: .module),
                 branch,
                 currentBranch
             ),
             icon: "arrow.merge",
             iconColor: AppTheme.focus,
-            primaryTitle: i18n("common.merge", fallback: "Merge"),
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            primaryTitle: String(localized: "common.merge", defaultValue: "Merge", bundle: .module),
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
@@ -941,7 +944,10 @@ final class AppModel {
                 do {
                     try service.merge(branch: branch, intoCurrentBranchAt: path)
                     await MainActor.run {
-                        self.statusMessage = self.i18n("git.branch.merge.success_format", fallback: "Merged branch \(branch).")
+                        self.statusMessage = String(
+                            format: String(localized: "git.branch.merge.success_format", defaultValue: "Merged branch %@.", bundle: .module),
+                            branch
+                        )
                         self.refreshGitState()
                     }
                 } catch {
@@ -957,31 +963,31 @@ final class AppModel {
     func syncMainBranchIntoCurrent() {
         let mainBranch = gitBranches.contains("main") ? "main" : (gitBranches.contains("master") ? "master" : nil)
         guard let mainBranch else {
-            statusMessage = i18n("git.main_branch.not_found", fallback: "Main branch not found.")
+            statusMessage = String(localized: "git.main_branch.not_found", defaultValue: "Main branch not found.", bundle: .module)
             return
         }
 
         if gitState?.branch == mainBranch {
-            statusMessage = i18n("git.main_branch.already_on", fallback: "Already on the main branch.")
+            statusMessage = String(localized: "git.main_branch.already_on", defaultValue: "Already on the main branch.", bundle: .module)
             return
         }
 
-        let currentBranch = gitState?.branch ?? i18n("git.branch.current_label", fallback: "Current Branch")
+        let currentBranch = gitState?.branch ?? String(localized: "git.branch.current_label", defaultValue: "Current Branch", bundle: .module)
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
         let dialog = ConfirmDialogState(
-            title: i18n("git.main_branch.sync.title", fallback: "Sync Main Branch"),
+            title: String(localized: "git.main_branch.sync.title", defaultValue: "Sync Main Branch", bundle: .module),
             message: String(
-                format: i18n("git.main_branch.sync.message_format", fallback: "Merge the latest changes from %@ into %@."),
+                format: String(localized: "git.main_branch.sync.message_format", defaultValue: "Merge the latest changes from %@ into %@.", bundle: .module),
                 mainBranch,
                 currentBranch
             ),
             icon: "arrow.triangle.merge",
             iconColor: AppTheme.focus,
-            primaryTitle: i18n("common.sync", fallback: "Sync"),
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            primaryTitle: String(localized: "common.sync", defaultValue: "Sync", bundle: .module),
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
@@ -994,7 +1000,7 @@ final class AppModel {
         mutateSelectedWorkspace { workspace, _ in
             let totalCount = workspace.sessions.count
             guard totalCount > 1 else {
-                statusMessage = i18n("terminal.keep_one_open", fallback: "At least one terminal must remain open.")
+                statusMessage = String(localized: "terminal.keep_one_open", defaultValue: "At least one terminal must remain open.", bundle: .module)
                 return
             }
 
@@ -1008,36 +1014,36 @@ final class AppModel {
                 selectedSessionID: selectedSessionID
             )
             SwiftTermTerminalRegistry.shared.release(sessionID: sessionID)
-            statusMessage = i18n("terminal.closed", fallback: "Closed terminal.")
+            statusMessage = String(localized: "terminal.closed", defaultValue: "Closed terminal.", bundle: .module)
         }
     }
 
     func confirmCloseSelectedSession() {
         guard let sessionID = selectedSessionID else {
-            statusMessage = i18n("terminal.none_selected", fallback: "No terminal selected.")
+            statusMessage = String(localized: "terminal.none_selected", defaultValue: "No terminal selected.", bundle: .module)
             return
         }
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
         guard let workspace = selectedWorkspace else {
-            statusMessage = i18n("workspace.not_found", fallback: "Current workspace not found.")
+            statusMessage = String(localized: "workspace.not_found", defaultValue: "Current workspace not found.", bundle: .module)
             return
         }
         guard workspace.sessions.count > 1 else {
-            statusMessage = i18n("terminal.keep_one_open", fallback: "At least one terminal must remain open.")
+            statusMessage = String(localized: "terminal.keep_one_open", defaultValue: "At least one terminal must remain open.", bundle: .module)
             return
         }
 
         let dialog = ConfirmDialogState(
-            title: i18n("workspace.close_current_split.title", fallback: "Close Current Split"),
-            message: i18n("workspace.close_current_split.message", fallback: "Are you sure you want to close the current split or tab?"),
+            title: String(localized: "workspace.close_current_split.title", defaultValue: "Close Current Split", bundle: .module),
+            message: String(localized: "workspace.close_current_split.message", defaultValue: "Are you sure you want to close the current split or tab?", bundle: .module),
             icon: "xmark.rectangle.portrait",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("common.close", fallback: "Close"),
+            primaryTitle: String(localized: "common.close", defaultValue: "Close", bundle: .module),
             primaryTint: AppTheme.warning,
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
@@ -1055,8 +1061,8 @@ final class AppModel {
 
         projects[index].defaultCommand = command
         statusMessage = command.isEmpty
-            ? i18n("project.default_command.cleared", fallback: "Cleared default startup command.")
-            : i18n("project.default_command.updated", fallback: "Updated default startup command.")
+            ? String(localized: "project.default_command.cleared", defaultValue: "Cleared default startup command.", bundle: .module)
+            : String(localized: "project.default_command.updated", defaultValue: "Updated default startup command.", bundle: .module)
         persist()
     }
 
@@ -1072,15 +1078,15 @@ final class AppModel {
     func cloneGitRepository() {
         guard let project = selectedProject else { return }
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
         let dialog = GitInputDialogState(
             kind: .cloneRepository,
-            title: i18n("git.empty.clone_remote_repository", fallback: "Clone Remote Repository"),
-            message: i18n("git.clone.message", fallback: "Enter a remote repository URL to clone it into the current project directory."),
+            title: String(localized: "git.empty.clone_remote_repository", defaultValue: "Clone Remote Repository", bundle: .module),
+            message: String(localized: "git.clone.message", defaultValue: "Enter a remote repository URL to clone it into the current project directory.", bundle: .module),
             placeholder: "https://github.com/foo/bar.git",
-            confirmTitle: i18n("git.clone.start", fallback: "Start Clone"),
+            confirmTitle: String(localized: "git.clone.start", defaultValue: "Start Clone", bundle: .module),
             value: "",
             isMultiline: false
         )
@@ -1088,7 +1094,7 @@ final class AppModel {
             guard let self, let value else { return }
             let remoteURL = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !remoteURL.isEmpty else {
-                self.statusMessage = self.i18n("git.remote.url_required", fallback: "Please enter a remote repository URL.")
+                self.statusMessage = String(localized: "git.remote.url_required", defaultValue: "Please enter a remote repository URL.", bundle: .module)
                 return
             }
 
@@ -1122,7 +1128,7 @@ final class AppModel {
     func copyGitCommitHash(_ commit: GitCommitEntry) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(commit.hash, forType: .string)
-        statusMessage = i18n("git.commit.hash.copied", fallback: "Copied commit hash.")
+        statusMessage = String(localized: "git.commit.hash.copied", defaultValue: "Copied commit hash.", bundle: .module)
     }
 
     func checkoutGitCommit(_ commit: GitCommitEntry) {
@@ -1137,15 +1143,15 @@ final class AppModel {
 
     func createBranch(from commit: GitCommitEntry) {
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
         let dialog = GitInputDialogState(
             kind: .createBranchFromCommit(commit.hash),
-            title: i18n("git.branch.create_from_commit.title", fallback: "Create Branch from Commit"),
-            message: i18n("git.branch.new.message", fallback: "Enter a new branch name."),
+            title: String(localized: "git.branch.create_from_commit.title", defaultValue: "Create Branch from Commit", bundle: .module),
+            message: String(localized: "git.branch.new.message", defaultValue: "Enter a new branch name.", bundle: .module),
             placeholder: "feature/from-commit",
-            confirmTitle: i18n("common.create", fallback: "Create"),
+            confirmTitle: String(localized: "common.create", defaultValue: "Create", bundle: .module),
             value: "",
             isMultiline: false
         )
@@ -1160,19 +1166,19 @@ final class AppModel {
         guard let project = selectedProject else { return }
 
         let dialog = ConfirmDialogState(
-            title: forceRemote ? i18n("git.history.restore_remote", fallback: "Restore This Revision Remotely") : i18n("git.history.restore_local", fallback: "Restore This Revision Locally"),
+            title: forceRemote ? String(localized: "git.history.restore_remote", defaultValue: "Restore This Revision Remotely", bundle: .module) : String(localized: "git.history.restore_local", defaultValue: "Restore This Revision Locally", bundle: .module),
             message: forceRemote
-                ? i18n("git.history.restore_remote.message", fallback: "Reset the current branch to this revision and overwrite the remote branch.")
-                : i18n("git.history.restore_local.message", fallback: "Reset the current branch to this revision locally only."),
+                ? String(localized: "git.history.restore_remote.message", defaultValue: "Reset the current branch to this revision and overwrite the remote branch.", bundle: .module)
+                : String(localized: "git.history.restore_local.message", defaultValue: "Reset the current branch to this revision locally only.", bundle: .module),
             icon: forceRemote ? "arrow.uturn.backward.circle.fill" : "clock.arrow.circlepath",
             iconColor: AppTheme.warning,
-            primaryTitle: forceRemote ? i18n("git.history.restore_remote.action", fallback: "Remote Restore") : i18n("git.history.restore_local.action", fallback: "Local Restore"),
+            primaryTitle: forceRemote ? String(localized: "git.history.restore_remote.action", defaultValue: "Remote Restore", bundle: .module) : String(localized: "git.history.restore_local.action", defaultValue: "Local Restore", bundle: .module),
             primaryTint: AppTheme.warning,
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
@@ -1213,17 +1219,17 @@ final class AppModel {
 
     func addGitRemote() {
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
         guard let project = selectedProject else { return }
 
         let nameDialog = GitInputDialogState(
             kind: .cloneRepository,
-            title: i18n("git.remote.add", fallback: "Add Remote"),
-            message: i18n("git.remote.add.name_message", fallback: "Enter the remote name first, such as origin or upstream."),
-            placeholder: i18n("git.remote.name", fallback: "Remote Name"),
-            confirmTitle: i18n("common.next", fallback: "Next"),
+            title: String(localized: "git.remote.add", defaultValue: "Add Remote", bundle: .module),
+            message: String(localized: "git.remote.add.name_message", defaultValue: "Enter the remote name first, such as origin or upstream.", bundle: .module),
+            placeholder: String(localized: "git.remote.name", defaultValue: "Remote Name", bundle: .module),
+            confirmTitle: String(localized: "common.next", defaultValue: "Next", bundle: .module),
             value: "",
             isMultiline: false
         )
@@ -1235,10 +1241,10 @@ final class AppModel {
 
             let urlDialog = GitInputDialogState(
                 kind: .cloneRepository,
-                title: i18n("git.remote.add", fallback: "Add Remote"),
-                message: i18n("git.remote.add.url_message", fallback: "Enter the remote URL."),
+                title: String(localized: "git.remote.add", defaultValue: "Add Remote", bundle: .module),
+                message: String(localized: "git.remote.add.url_message", defaultValue: "Enter the remote URL.", bundle: .module),
                 placeholder: "https://github.com/org/repo.git",
-                confirmTitle: i18n("common.add", fallback: "Add"),
+                confirmTitle: String(localized: "common.add", defaultValue: "Add", bundle: .module),
                 value: "",
                 isMultiline: false
             )
@@ -1254,18 +1260,18 @@ final class AppModel {
     func removeGitRemote(_ remote: GitRemoteEntry) {
         guard let project = selectedProject else { return }
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
         let dialog = ConfirmDialogState(
-            title: i18n("git.remote.remove", fallback: "Remove Remote"),
-            message: String(format: i18n("git.remote.remove.confirm_format", fallback: "Are you sure you want to remove remote %@?"), remote.name),
+            title: String(localized: "git.remote.remove", defaultValue: "Remove Remote", bundle: .module),
+            message: String(format: String(localized: "git.remote.remove.confirm_format", defaultValue: "Are you sure you want to remove remote %@?", bundle: .module), remote.name),
             icon: "trash",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("common.remove", fallback: "Remove"),
+            primaryTitle: String(localized: "common.remove", defaultValue: "Remove", bundle: .module),
             primaryTint: AppTheme.warning,
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
@@ -1284,7 +1290,7 @@ final class AppModel {
               let index = projects.firstIndex(where: { $0.id == project.id }) else { return }
         projects[index].gitDefaultPushRemoteName = remote.name
         persist()
-        statusMessage = String(format: i18n("git.remote.default_push.set_format", fallback: "Set %@ as the default push remote."), remote.name)
+        statusMessage = String(format: String(localized: "git.remote.default_push.set_format", defaultValue: "Set %@ as the default push remote.", bundle: .module), remote.name)
     }
 
     func clearDefaultPushRemote() {
@@ -1292,7 +1298,7 @@ final class AppModel {
               let index = projects.firstIndex(where: { $0.id == project.id }) else { return }
         projects[index].gitDefaultPushRemoteName = nil
         persist()
-        statusMessage = i18n("git.remote.default_push.cleared", fallback: "Restored the Git default push target.")
+        statusMessage = String(localized: "git.remote.default_push.cleared", defaultValue: "Restored the Git default push target.", bundle: .module)
     }
 
     func pushGitBranch() {
@@ -1331,7 +1337,7 @@ final class AppModel {
         let parts = remoteBranch.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true).map(String.init)
         guard parts.count == 2,
               let remote = gitRemotes.first(where: { $0.name == parts[0] }) else {
-            statusMessage = i18n("git.remote.matching_not_found", fallback: "Matching remote was not found.")
+            statusMessage = String(localized: "git.remote.matching_not_found", defaultValue: "Matching remote was not found.", bundle: .module)
             return
         }
 
@@ -1346,17 +1352,17 @@ final class AppModel {
     func forcePushGitBranch() {
         guard let project = selectedProject else { return }
         let dialog = ConfirmDialogState(
-            title: i18n("git.remote.force_push", fallback: "Force Push"),
-            message: i18n("git.remote.force_push.message", fallback: "Overwrite the current remote branch. Only use this when you intentionally want to rewrite remote history."),
+            title: String(localized: "git.remote.force_push", defaultValue: "Force Push", bundle: .module),
+            message: String(localized: "git.remote.force_push.message", defaultValue: "Overwrite the current remote branch. Only use this when you intentionally want to rewrite remote history.", bundle: .module),
             icon: "exclamationmark.arrow.trianglehead.2.clockwise.rotate.90",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("git.remote.force_push", fallback: "Force Push"),
+            primaryTitle: String(localized: "git.remote.force_push", defaultValue: "Force Push", bundle: .module),
             primaryTint: AppTheme.warning,
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
@@ -1383,26 +1389,26 @@ final class AppModel {
         let headCommitPushed = (try? gitService.isHeadCommitPushed(at: path)) ?? false
 
         let dialog = ConfirmDialogState(
-            title: i18n("git.history.undo_last_commit", fallback: "Undo Last Commit"),
+            title: String(localized: "git.history.undo_last_commit", defaultValue: "Undo Last Commit", bundle: .module),
             message: headCommitPushed
-                ? i18n("git.history.undo_last_commit.remote_notice", fallback: "Undo the last commit but keep the file changes and staging state. This commit may already be on the remote, so you might need to force push later.")
-                : i18n("git.history.undo_last_commit.local_notice", fallback: "Undo the last commit but keep the file changes and staging state."),
+                ? String(localized: "git.history.undo_last_commit.remote_notice", defaultValue: "Undo the last commit but keep the file changes and staging state. This commit may already be on the remote, so you might need to force push later.", bundle: .module)
+                : String(localized: "git.history.undo_last_commit.local_notice", defaultValue: "Undo the last commit but keep the file changes and staging state.", bundle: .module),
             icon: "arrow.uturn.backward",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("common.undo", fallback: "Undo"),
+            primaryTitle: String(localized: "common.undo", defaultValue: "Undo", bundle: .module),
             primaryTint: AppTheme.warning,
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
             guard let self, result == .primary else { return }
             self.gitStore.undoLastCommit(headCommitPushed: headCommitPushed, project: project, onStatus: { self.statusMessage = $0 }, onRewriteWarning: {
-                self.presentPostCommitRewriteAlert(actionTitle: self.i18n("git.history.undo_last_commit", fallback: "Undo Last Commit"), repositoryPath: path)
+                self.presentPostCommitRewriteAlert(actionTitle: String(localized: "git.history.undo_last_commit", defaultValue: "Undo Last Commit", bundle: .module), repositoryPath: path)
             })
         }
     }
@@ -1411,7 +1417,7 @@ final class AppModel {
         guard let project = selectedProject else { return }
         let path = project.path
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
@@ -1420,12 +1426,12 @@ final class AppModel {
 
         let dialog = GitInputDialogState(
             kind: .editLastCommitMessage(headCommitPushed: headCommitPushed),
-            title: i18n("git.history.edit_last_commit_message", fallback: "Edit Last Commit Message"),
+            title: String(localized: "git.history.edit_last_commit_message", defaultValue: "Edit Last Commit Message", bundle: .module),
             message: headCommitPushed
-                ? i18n("git.commit.edit_last_message.remote_notice", fallback: "Only change the latest commit message. This commit may already be on the remote, so you might need to force push after editing it.")
-                : i18n("git.commit.edit_last_message.notice", fallback: "Only change the latest commit message."),
-            placeholder: i18n("git.commit.edit_last_message.placeholder", fallback: "Enter a new commit message"),
-            confirmTitle: i18n("common.save", fallback: "Save"),
+                ? String(localized: "git.commit.edit_last_message.remote_notice", defaultValue: "Only change the latest commit message. This commit may already be on the remote, so you might need to force push after editing it.", bundle: .module)
+                : String(localized: "git.commit.edit_last_message.notice", defaultValue: "Only change the latest commit message.", bundle: .module),
+            placeholder: String(localized: "git.commit.edit_last_message.placeholder", defaultValue: "Enter a new commit message", bundle: .module),
+            confirmTitle: String(localized: "common.save", defaultValue: "Save", bundle: .module),
             value: currentMessage,
             isMultiline: true
         )
@@ -1450,15 +1456,15 @@ final class AppModel {
 
     func createGitBranch() {
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
         let dialog = GitInputDialogState(
             kind: .createBranch,
-            title: i18n("git.branch.new", fallback: "New Branch"),
-            message: i18n("git.branch.new.message", fallback: "Enter a new branch name."),
+            title: String(localized: "git.branch.new", defaultValue: "New Branch", bundle: .module),
+            message: String(localized: "git.branch.new.message", defaultValue: "Enter a new branch name.", bundle: .module),
             placeholder: "feature/xxx",
-            confirmTitle: i18n("common.create", fallback: "Create"),
+            confirmTitle: String(localized: "common.create", defaultValue: "Create", bundle: .module),
             value: "",
             isMultiline: false
         )
@@ -1478,7 +1484,7 @@ final class AppModel {
         guard let project = selectedProject else { return }
         let path = project.path
         gitStore.amendLastCommitMessage(message, headCommitPushed: headCommitPushed, project: project, onStatus: { self.statusMessage = $0 }, onRewriteWarning: {
-            self.presentPostCommitRewriteAlert(actionTitle: self.i18n("git.history.edit_last_commit_message", fallback: "Edit Last Commit Message"), repositoryPath: path)
+            self.presentPostCommitRewriteAlert(actionTitle: String(localized: "git.history.edit_last_commit_message", defaultValue: "Edit Last Commit Message", bundle: .module), repositoryPath: path)
         })
     }
 
@@ -1491,27 +1497,27 @@ final class AppModel {
         guard let project = selectedProject, let gitState else { return }
         let entries = selectedEntries(in: gitState).filter { $0.kind != .staged }
         guard !entries.isEmpty else { return }
-        gitStore.discardEntries(entries, project: project, successMessage: i18n("git.discard.selected.success", fallback: "Discarded selected changes.")) { self.statusMessage = $0 }
+        gitStore.discardEntries(entries, project: project, successMessage: String(localized: "git.discard.selected.success", defaultValue: "Discarded selected changes.", bundle: .module)) { self.statusMessage = $0 }
     }
 
     func stageEntries(_ entries: [GitFileEntry]) {
         guard let project = selectedProject else { return }
         let paths = Array(Set(entries.filter { $0.kind != .staged }.map(\.path))).sorted()
         guard !paths.isEmpty else { return }
-        gitStore.stagePaths(paths, project: project, successMessage: i18n("git.stage.section.success", fallback: "Staged files in this section.")) { self.statusMessage = $0 }
+        gitStore.stagePaths(paths, project: project, successMessage: String(localized: "git.stage.section.success", defaultValue: "Staged files in this section.", bundle: .module)) { self.statusMessage = $0 }
     }
 
     func unstageEntries(_ entries: [GitFileEntry]) {
         guard let project = selectedProject else { return }
         let paths = Array(Set(entries.filter { $0.kind == .staged }.map(\.path))).sorted()
         guard !paths.isEmpty else { return }
-        gitStore.unstagePaths(paths, project: project, successMessage: i18n("git.unstage.section.success", fallback: "Unstaged files in this section.")) { self.statusMessage = $0 }
+        gitStore.unstagePaths(paths, project: project, successMessage: String(localized: "git.unstage.section.success", defaultValue: "Unstaged files in this section.", bundle: .module)) { self.statusMessage = $0 }
     }
 
     func discardEntries(_ entries: [GitFileEntry]) {
         guard let project = selectedProject else { return }
         guard !entries.isEmpty else { return }
-        gitStore.discardEntries(entries, project: project, successMessage: i18n("git.discard.section.success", fallback: "Discarded changes in this section.")) { self.statusMessage = $0 }
+        gitStore.discardEntries(entries, project: project, successMessage: String(localized: "git.discard.section.success", defaultValue: "Discarded changes in this section.", bundle: .module)) { self.statusMessage = $0 }
     }
 
     func loadDiff(for entry: GitFileEntry) {
@@ -1537,7 +1543,7 @@ final class AppModel {
         let entries = selectedEntries(in: gitState).filter { $0.kind == .changed || $0.kind == .untracked }
         let paths = Array(Set(entries.map(\.path))).sorted()
         guard !paths.isEmpty else { return }
-        gitStore.stagePaths(paths, project: project, successMessage: i18n("git.stage.selected.success", fallback: "Staged selected files.")) { self.statusMessage = $0 }
+        gitStore.stagePaths(paths, project: project, successMessage: String(localized: "git.stage.selected.success", defaultValue: "Staged selected files.", bundle: .module)) { self.statusMessage = $0 }
     }
 
     func unstageSelectedChanges() {
@@ -1545,21 +1551,21 @@ final class AppModel {
         let entries = selectedEntries(in: gitState).filter { $0.kind == .staged }
         let paths = Array(Set(entries.map(\.path))).sorted()
         guard !paths.isEmpty else { return }
-        gitStore.unstagePaths(paths, project: project, successMessage: i18n("git.unstage.selected.success", fallback: "Unstaged selected files.")) { self.statusMessage = $0 }
+        gitStore.unstagePaths(paths, project: project, successMessage: String(localized: "git.unstage.selected.success", defaultValue: "Unstaged selected files.", bundle: .module)) { self.statusMessage = $0 }
     }
 
     func stage(_ entry: GitFileEntry) {
         guard let project = selectedProject else {
             return
         }
-        gitStore.stagePaths([entry.path], project: project, successMessage: String(format: i18n("git.stage.file.success_format", fallback: "Staged %@."), entry.path)) { self.statusMessage = $0 }
+        gitStore.stagePaths([entry.path], project: project, successMessage: String(format: String(localized: "git.stage.file.success_format", defaultValue: "Staged %@.", bundle: .module), entry.path)) { self.statusMessage = $0 }
     }
 
     func unstage(_ entry: GitFileEntry) {
         guard let project = selectedProject else {
             return
         }
-        gitStore.unstagePaths([entry.path], project: project, successMessage: String(format: i18n("git.unstage.file.success_format", fallback: "Unstaged %@."), entry.path)) { self.statusMessage = $0 }
+        gitStore.unstagePaths([entry.path], project: project, successMessage: String(format: String(localized: "git.unstage.file.success_format", defaultValue: "Unstaged %@.", bundle: .module), entry.path)) { self.statusMessage = $0 }
     }
 
     func commitChanges() {
@@ -1573,7 +1579,7 @@ final class AppModel {
 
         let trimmed = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            statusMessage = i18n("git.commit.message.empty", fallback: "Commit message cannot be empty.")
+            statusMessage = String(localized: "git.commit.message.empty", defaultValue: "Commit message cannot be empty.", bundle: .module)
             return
         }
 
@@ -1581,30 +1587,30 @@ final class AppModel {
             self.commitMessage = ""
             self.selectedGitEntry = nil
             self.selectedGitEntryIDs.removeAll()
-            self.gitDiffText = self.i18n("git.commit.completed", fallback: "Commit completed.")
+            self.gitDiffText = String(localized: "git.commit.completed", defaultValue: "Commit completed.", bundle: .module)
         })
     }
 
     func generateCommitMessage() {
         guard let gitState else {
-            statusMessage = i18n("git.commit.generate.unavailable", fallback: "There are no changes available to generate a commit message.")
+            statusMessage = String(localized: "git.commit.generate.unavailable", defaultValue: "There are no changes available to generate a commit message.", bundle: .module)
             return
         }
 
         let fileNames = Array(Set((gitState.staged + gitState.changes + gitState.untracked).map(\.path))).sorted()
         guard !fileNames.isEmpty else {
-            statusMessage = i18n("git.commit.generate.unavailable", fallback: "There are no changes available to generate a commit message.")
+            statusMessage = String(localized: "git.commit.generate.unavailable", defaultValue: "There are no changes available to generate a commit message.", bundle: .module)
             return
         }
 
         isGeneratingCommitMessage = true
         let summary = fileNames.prefix(3).joined(separator: ", ")
         let suffix = fileNames.count > 3
-            ? String(format: i18n("git.commit.generate.more_files_format", fallback: " and %@ more files"), "\(fileNames.count)")
+            ? String(format: String(localized: "git.commit.generate.more_files_format", defaultValue: " and %@ more files", bundle: .module), "\(fileNames.count)")
             : ""
-        commitMessage = String(format: i18n("git.commit.generate.summary_format", fallback: "Update %@%@ Git workspace interaction"), summary, suffix)
+        commitMessage = String(format: String(localized: "git.commit.generate.summary_format", defaultValue: "Update %@%@ Git workspace interaction", bundle: .module), summary, suffix)
         isGeneratingCommitMessage = false
-        statusMessage = i18n("git.commit.generate.success", fallback: "Generated commit message.")
+        statusMessage = String(localized: "git.commit.generate.success", defaultValue: "Generated commit message.", bundle: .module)
     }
 
     private func entries(for kind: GitFileKind, in state: GitRepositoryState) -> [GitFileEntry] {
@@ -1629,16 +1635,16 @@ final class AppModel {
 
     private func promptForGitCredential(completion: @escaping (GitCredential?) -> Void) {
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             completion(nil)
             return
         }
 
         let dialog = GitCredentialDialogState(
-            title: i18n("git.credentials.title", fallback: "Git Credentials Required"),
-            message: i18n("git.credentials.message", fallback: "Remote access requires authentication. Enter your username and password or token to retry."),
-            confirmTitle: i18n("common.continue", fallback: "Continue"),
-            cancelTitle: i18n("common.cancel", fallback: "Cancel")
+            title: String(localized: "git.credentials.title", defaultValue: "Git Credentials Required", bundle: .module),
+            message: String(localized: "git.credentials.message", defaultValue: "Remote access requires authentication. Enter your username and password or token to retry.", bundle: .module),
+            confirmTitle: String(localized: "common.continue", defaultValue: "Continue", bundle: .module),
+            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
         )
 
         GitCredentialDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] credential in
@@ -1647,13 +1653,13 @@ final class AppModel {
                 return
             }
             guard let credential else {
-                self.statusMessage = self.i18n("git.auth.cancelled", fallback: "Git authentication was cancelled.")
+                self.statusMessage = String(localized: "git.auth.cancelled", defaultValue: "Git authentication was cancelled.", bundle: .module)
                 completion(nil)
                 return
             }
 
             guard !credential.username.isEmpty, !credential.password.isEmpty else {
-                self.statusMessage = self.i18n("git.auth.credentials_required", fallback: "Username and password or token cannot be empty.")
+                self.statusMessage = String(localized: "git.auth.credentials_required", defaultValue: "Username and password or token cannot be empty.", bundle: .module)
                 completion(nil)
                 return
             }
@@ -1683,15 +1689,15 @@ final class AppModel {
     private func presentPostCommitRewriteAlert(actionTitle: String, repositoryPath: String) {
         let dialog = ConfirmDialogState(
             title: actionTitle,
-            message: i18n("git.history.rewrite_warning.message", fallback: "Local history has changed. If the remote still contains the old commits, you may need to force push to sync it."),
+            message: String(localized: "git.history.rewrite_warning.message", defaultValue: "Local history has changed. If the remote still contains the old commits, you may need to force push to sync it.", bundle: .module),
             icon: "arrow.trianglehead.2.clockwise.rotate.90",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("git.history.rewrite_warning.defer", fallback: "Handle Later"),
-            secondaryTitle: i18n("git.history.rewrite_warning.force_push", fallback: "Force Push Now")
+            primaryTitle: String(localized: "git.history.rewrite_warning.defer", defaultValue: "Handle Later", bundle: .module),
+            secondaryTitle: String(localized: "git.history.rewrite_warning.force_push", defaultValue: "Force Push Now", bundle: .module)
         )
 
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
@@ -1765,16 +1771,16 @@ final class AppModel {
 
     private func presentRemoteSyncConflictAlert(repositoryPath: String) {
         let dialog = ConfirmDialogState(
-            title: i18n("git.sync.conflict.title", fallback: "Sync Conflict"),
-            message: i18n("git.sync.conflict.message", fallback: "A conflict occurred while pulling. You can resolve it manually first, or force push the current branch directly."),
+            title: String(localized: "git.sync.conflict.title", defaultValue: "Sync Conflict", bundle: .module),
+            message: String(localized: "git.sync.conflict.message", defaultValue: "A conflict occurred while pulling. You can resolve it manually first, or force push the current branch directly.", bundle: .module),
             icon: "exclamationmark.triangle.fill",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("git.sync.conflict.resolve_manually", fallback: "Resolve Manually"),
-            secondaryTitle: i18n("git.remote.force_push", fallback: "Force Push")
+            primaryTitle: String(localized: "git.sync.conflict.resolve_manually", defaultValue: "Resolve Manually", bundle: .module),
+            secondaryTitle: String(localized: "git.remote.force_push", defaultValue: "Force Push", bundle: .module)
         )
 
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
@@ -1783,7 +1789,7 @@ final class AppModel {
             if result == .secondary {
                 self.forcePushAfterConflict(at: repositoryPath)
             } else {
-                self.statusMessage = self.i18n("git.remote.pull_conflicts", fallback: "Pull resulted in conflicts. Resolve them manually first.")
+                self.statusMessage = String(localized: "git.remote.pull_conflicts", defaultValue: "Pull resulted in conflicts. Resolve them manually first.", bundle: .module)
                 self.refreshGitState()
             }
         }
@@ -2182,31 +2188,43 @@ final class AppModel {
     }
 
     func updateThemeMode(_ mode: AppThemeMode) {
-        appSettings.themeMode = mode
+        var settings = appSettings
+        settings.themeMode = mode
+        appSettings = settings
         applyThemeMode()
         persist()
     }
 
     func updateLanguage(_ language: AppLanguage) {
-        appSettings.language = language
+        var settings = appSettings
+        settings.language = language
+        appSettings = settings
         persist()
+        AppLanguageBootstrap.apply(language: language)
         aiStatsStore.refreshLocalizedStatusTexts()
+        presentLanguageRestartPrompt()
     }
 
     func updateAppIconStyle(_ style: AppIconStyle) {
-        appSettings.iconStyle = style
+        var settings = appSettings
+        settings.iconStyle = style
+        appSettings = settings
         applyAppIcon()
         persist()
     }
 
     func updateTerminalBackgroundPreset(_ preset: AppTerminalBackgroundPreset) {
-        appSettings.terminalBackgroundPreset = preset
+        var settings = appSettings
+        settings.terminalBackgroundPreset = preset
+        appSettings = settings
         persist()
     }
 
     func updateDefaultTerminal(_ terminal: AppTerminalProfile) {
         let previousShell = appSettings.defaultTerminal.shellPath
-        appSettings.defaultTerminal = terminal
+        var settings = appSettings
+        settings.defaultTerminal = terminal
+        appSettings = settings
         let nextShell = terminal.shellPath
         for index in projects.indices where projects[index].shell == previousShell || AppTerminalProfile.allShellPaths.contains(projects[index].shell) {
             projects[index].shell = nextShell
@@ -2220,7 +2238,9 @@ final class AppModel {
     }
 
     func updateDockBadgeEnabled(_ enabled: Bool) {
-        appSettings.showsDockBadge = enabled
+        var settings = appSettings
+        settings.showsDockBadge = enabled
+        appSettings = settings
         updateDockBadge()
         persist()
     }
@@ -2240,13 +2260,17 @@ final class AppModel {
     }
 
     func updateGitAutoRefreshInterval(_ interval: TimeInterval) {
-        appSettings.gitAutoRefreshInterval = interval
+        var settings = appSettings
+        settings.gitAutoRefreshInterval = interval
+        appSettings = settings
         gitStore.configureRemoteSyncInterval(interval)
         persist()
     }
 
     func updateAIAutomaticRefreshInterval(_ interval: TimeInterval) {
-        appSettings.aiAutoRefreshInterval = interval
+        var settings = appSettings
+        settings.aiAutoRefreshInterval = interval
+        appSettings = settings
         aiStatsStore.configureIntervals(
             automatic: interval,
             background: appSettings.aiBackgroundRefreshInterval
@@ -2255,7 +2279,9 @@ final class AppModel {
     }
 
     func updateAIBackgroundRefreshInterval(_ interval: TimeInterval) {
-        appSettings.aiBackgroundRefreshInterval = interval
+        var settings = appSettings
+        settings.aiBackgroundRefreshInterval = interval
+        appSettings = settings
         aiStatsStore.configureIntervals(
             automatic: appSettings.aiAutoRefreshInterval,
             background: interval
@@ -2264,12 +2290,16 @@ final class AppModel {
     }
 
     func updateDeveloperNotificationTestButtonEnabled(_ enabled: Bool) {
-        appSettings.developer.showsNotificationTestButton = enabled
+        var settings = appSettings
+        settings.developer.showsNotificationTestButton = enabled
+        appSettings = settings
         persist()
     }
 
     func updateDeveloperDebugLogButtonEnabled(_ enabled: Bool) {
-        appSettings.developer.showsDebugLogButton = enabled
+        var settings = appSettings
+        settings.developer.showsDebugLogButton = enabled
+        appSettings = settings
         persist()
     }
 
@@ -2282,7 +2312,7 @@ final class AppModel {
             return
         }
         isCheckingForUpdates = true
-        statusMessage = i18n("update.checking", fallback: "Checking for updates...")
+        statusMessage = String(localized: "update.checking", defaultValue: "Checking for updates...", bundle: .module)
 
         Task { @MainActor in
             defer { isCheckingForUpdates = false }
@@ -2314,10 +2344,10 @@ final class AppModel {
 
     var localizedUserAgreementDocument: String {
         [
-            i18n("about.user_agreement_body", fallback: "This app is currently a development preview. By using it, you understand that terminal, Git, and AI activity features read local project metadata and runtime state, but do not proactively upload your project contents."),
-            i18n("about.user_agreement_data", fallback: "dmux only reads the local state needed to display terminal sessions, Git repository status, AI tool activity, and local statistics. You are responsible for reviewing any third-party CLI behavior and network activity triggered by those tools."),
-            i18n("about.user_agreement_responsibility", fallback: "You are responsible for your local environment, file permissions, repository credentials, notification permissions, and any commands executed inside the terminal."),
-            i18n("about.user_agreement_license", fallback: "dmux is distributed as open-source software under the GPL-3.0 license. Continued use means you accept that this experimental software may change behavior, interface, and compatibility over time.")
+            String(localized: "about.user_agreement_body", defaultValue: "This app is currently a development preview. By using it, you understand that terminal, Git, and AI activity features read local project metadata and runtime state, but do not proactively upload your project contents.", bundle: .module),
+            String(localized: "about.user_agreement_data", defaultValue: "dmux only reads the local state needed to display terminal sessions, Git repository status, AI tool activity, and local statistics. You are responsible for reviewing any third-party CLI behavior and network activity triggered by those tools.", bundle: .module),
+            String(localized: "about.user_agreement_responsibility", defaultValue: "You are responsible for your local environment, file permissions, repository credentials, notification permissions, and any commands executed inside the terminal.", bundle: .module),
+            String(localized: "about.user_agreement_license", defaultValue: "dmux is distributed as open-source software under the GPL-3.0 license. Continued use means you accept that this experimental software may change behavior, interface, and compatibility over time.", bundle: .module)
         ].joined(separator: "\n\n")
     }
 
@@ -2371,30 +2401,30 @@ final class AppModel {
 
     private func presentUpdateCheckResult(_ result: AppReleaseCheckResult) {
         guard let parentWindow = presentationWindow() else {
-            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
             return
         }
 
         switch result {
         case .upToDate(let currentVersion, let latestVersion):
-            statusMessage = i18n("update.latest.title", fallback: "You're up to date.")
+            statusMessage = String(localized: "update.latest.title", defaultValue: "You're up to date.", bundle: .module)
             let dialog = ConfirmDialogState(
-                title: i18n("update.latest.title", fallback: "You're up to date."),
+                title: String(localized: "update.latest.title", defaultValue: "You're up to date.", bundle: .module),
                 message: String(
-                    format: i18n("update.latest.message_format", fallback: "Current version: v%@\nLatest release: v%@"),
+                    format: String(localized: "update.latest.message_format", defaultValue: "Current version: v%@\nLatest release: v%@", bundle: .module),
                     currentVersion,
                     latestVersion
                 ),
                 icon: "checkmark.circle.fill",
                 iconColor: AppTheme.success,
-                primaryTitle: i18n("common.ok", fallback: "OK")
+                primaryTitle: String(localized: "common.ok", defaultValue: "OK", bundle: .module)
             )
             ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { _ in }
 
         case .updateAvailable(let currentVersion, let latest):
             let notes = AppReleaseService.releaseNotesExcerpt(from: latest.body)
             var message = String(
-                format: i18n("update.available.message_format", fallback: "A new version v%@ is available. You are currently using v%@."),
+                format: String(localized: "update.available.message_format", defaultValue: "A new version v%@ is available. You are currently using v%@.", bundle: .module),
                 latest.version,
                 currentVersion
             )
@@ -2403,12 +2433,12 @@ final class AppModel {
             }
 
             let dialog = ConfirmDialogState(
-                title: i18n("update.available.title", fallback: "Update Available"),
+                title: String(localized: "update.available.title", defaultValue: "Update Available", bundle: .module),
                 message: message,
                 icon: "arrow.down.circle.fill",
                 iconColor: AppTheme.focus,
-                primaryTitle: i18n("update.available.open", fallback: "Download"),
-                secondaryTitle: i18n("update.available.later", fallback: "Later")
+                primaryTitle: String(localized: "update.available.open", defaultValue: "Download", bundle: .module),
+                secondaryTitle: String(localized: "update.available.later", defaultValue: "Later", bundle: .module)
             )
             ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
                 guard let self, result == .primary else {
@@ -2427,25 +2457,56 @@ final class AppModel {
 
         statusMessage = error.localizedDescription
         let dialog = ConfirmDialogState(
-            title: i18n("update.error.title", fallback: "Unable to Check for Updates"),
-            message: i18n("update.error.message", fallback: "Please check your network connection and try again."),
+            title: String(localized: "update.error.title", defaultValue: "Unable to Check for Updates", bundle: .module),
+            message: String(localized: "update.error.message", defaultValue: "Please check your network connection and try again.", bundle: .module),
             icon: "wifi.exclamationmark",
             iconColor: AppTheme.warning,
-            primaryTitle: i18n("common.ok", fallback: "OK")
+            primaryTitle: String(localized: "common.ok", defaultValue: "OK", bundle: .module)
         )
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { _ in }
+    }
+
+    private func presentLanguageRestartPrompt() {
+        guard let parentWindow = presentationWindow() else {
+            statusMessage = String(localized: "settings.language.restart_required", defaultValue: "Restart the app to apply the selected language.", bundle: .module)
+            return
+        }
+
+        let dialog = ConfirmDialogState(
+            title: String(localized: "settings.language.restart_title", defaultValue: "Restart Required", bundle: .module),
+            message: String(localized: "settings.language.restart_message", defaultValue: "Restart dmux to apply the selected language.", bundle: .module),
+            icon: "globe",
+            iconColor: AppTheme.focus,
+            primaryTitle: String(localized: "common.restart_now", defaultValue: "Restart Now", bundle: .module),
+            secondaryTitle: String(localized: "common.later", defaultValue: "Later", bundle: .module)
+        )
+
+        ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
+            guard let self else {
+                return
+            }
+            if result == .primary {
+                self.relaunchApplication()
+            } else {
+                self.statusMessage = String(localized: "settings.language.restart_pending", defaultValue: "Language changes will apply after restart.", bundle: .module)
+            }
+        }
+    }
+
+    private func relaunchApplication() {
+        AppDelegate.scheduleRelaunch(at: Bundle.main.bundleURL)
     }
 
     private func importProject(name: String, path: String, badgeText: String, badgeSymbol: String?, badgeColorHex: String) {
         let normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedPath.isEmpty else {
-            statusMessage = i18n("project.path.empty", fallback: "Project path cannot be empty.")
+            statusMessage = String(localized: "project.path.empty", defaultValue: "Project path cannot be empty.", bundle: .module)
             return
         }
 
         if let existing = projects.first(where: { $0.path == normalizedPath }) {
             selectedProjectID = existing.id
-            statusMessage = i18n("project.exists.switched", fallback: "Project already exists. Switched to it.")
+            statusMessage = String(localized: "project.exists.switched", defaultValue: "Project already exists. Switched to it.", bundle: .module)
             refreshGitState()
             updateGitRemoteSyncPolling()
             refreshAIStatsIfNeeded()
@@ -2467,7 +2528,7 @@ final class AppModel {
         workspaces.append(ProjectWorkspace.sample(projectID: project.id, path: project.path))
         selectedProjectID = project.id
         statusMessage = String(
-            format: i18n("project.add.success_format", fallback: "Added project %@."),
+            format: String(localized: "project.add.success_format", defaultValue: "Added project %@.", bundle: .module),
             project.name
         )
         persist()
@@ -2486,22 +2547,22 @@ enum GitCommitAction: CaseIterable, Hashable {
     var title: String {
         switch self {
         case .commit:
-            return appI18n("git.commit.action", fallback: "Commit")
+            return String(localized: "git.commit.action", defaultValue: "Commit", bundle: .module)
         case .commitAndPush:
-            return appI18n("git.commit.action_push", fallback: "Commit and Push")
+            return String(localized: "git.commit.action_push", defaultValue: "Commit and Push", bundle: .module)
         case .commitAndSync:
-            return appI18n("git.commit.action_sync", fallback: "Commit and Sync")
+            return String(localized: "git.commit.action_sync", defaultValue: "Commit and Sync", bundle: .module)
         }
     }
 
     var successMessage: String {
         switch self {
         case .commit:
-            return appI18n("git.commit.success", fallback: "Committed staged changes.")
+            return String(localized: "git.commit.success", defaultValue: "Committed staged changes.", bundle: .module)
         case .commitAndPush:
-            return appI18n("git.commit.push_success", fallback: "Committed and pushed changes.")
+            return String(localized: "git.commit.push_success", defaultValue: "Committed and pushed changes.", bundle: .module)
         case .commitAndSync:
-            return appI18n("git.commit.sync_success", fallback: "Committed and synced changes.")
+            return String(localized: "git.commit.sync_success", defaultValue: "Committed and synced changes.", bundle: .module)
         }
     }
 }

@@ -25,6 +25,20 @@ helper_pkginfo_path="${helper_contents_dir}/PkgInfo"
 iconset_dir="${app_dir}.iconset"
 icns_path="${resources_dir}/AppIcon.icns"
 localizations=(en zh-Hans zh-Hant de es fr ja ko pt-BR ru)
+icon_generator_bin="$(mktemp "${TMPDIR:-/tmp}/dmux-generate-app-icon.XXXXXX")"
+
+cleanup() {
+  rm -f "${icon_generator_bin}"
+}
+trap cleanup EXIT
+
+compile_bundle_string_catalogs() {
+  local bundle_dir="$1"
+  local catalog_path="${bundle_dir}/Localizable.xcstrings"
+  [[ -f "${catalog_path}" ]] || return 0
+
+  xcrun xcstringstool compile "${catalog_path}" --output-directory "${bundle_dir}" --serialization-format text
+}
 
 swift build -c "${configuration}" >/dev/null
 swift build -c "${configuration}" --product dmux-notify-helper >/dev/null
@@ -54,21 +68,16 @@ chmod +x "${helper_macos_dir}/dmux-notify-helper"
 for bundle_path in "${build_products_dir}"/*.bundle; do
   if [[ -d "${bundle_path}" ]]; then
     cp -R "${bundle_path}" "${resources_dir}/"
+    copied_bundle="${resources_dir}/$(basename "${bundle_path}")"
+    compile_bundle_string_catalogs "${copied_bundle}"
   fi
 done
 
-swift "${root_dir}/scripts/release/generate-app-icon.swift" "${iconset_dir}" >/dev/null
+swiftc -framework AppKit "${root_dir}/scripts/release/generate-app-icon.swift" -o "${icon_generator_bin}"
+"${icon_generator_bin}" "${iconset_dir}" >/dev/null
 iconutil -c icns "${iconset_dir}" -o "${icns_path}"
 rm -rf "${iconset_dir}"
 cp -f "${icns_path}" "${helper_resources_dir}/AppIcon.icns"
-
-for localization in "${localizations[@]}"; do
-  mkdir -p "${resources_dir}/${localization}.lproj"
-  cat > "${resources_dir}/${localization}.lproj/InfoPlist.strings" <<'EOF'
-"CFBundleDisplayName" = "dmux";
-"CFBundleName" = "dmux";
-EOF
-done
 
 cat > "${plist_path}" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

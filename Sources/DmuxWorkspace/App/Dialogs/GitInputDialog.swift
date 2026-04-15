@@ -124,7 +124,7 @@ private struct GitInputPanelView: View {
                 )
             }
         } actions: {
-            Button(appI18n("common.cancel", fallback: "Cancel")) { viewModel.onCancel?() }
+            Button(String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)) { viewModel.onCancel?() }
                 .buttonStyle(AppDialogSecondaryButtonStyle())
                 .keyboardShortcut(.cancelAction)
 

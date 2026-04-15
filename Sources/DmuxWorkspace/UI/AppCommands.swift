@@ -6,12 +6,12 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button(model.i18n("menu.file.new_project", fallback: "New Project")) {
+            Button(String(localized: "menu.file.new_project", defaultValue: "New Project", bundle: .module)) {
                 model.addProject()
             }
             .keyboardShortcut("n", modifiers: [.command])
 
-            Button(model.i18n("menu.file.open_folder", fallback: "Open Folder…")) {
+            Button(String(localized: "menu.file.open_folder", defaultValue: "Open Folder…", bundle: .module)) {
                 model.openProjectFolder()
             }
             .keyboardShortcut("o", modifiers: [.command])
@@ -24,12 +24,12 @@ struct AppCommands: Commands {
             .disabled(!canHandleCloseCommand)
             .keyboardShortcut("w", modifiers: [.command])
 
-            Button(model.i18n("menu.file.close_current_project", fallback: "Close Current Project")) {
+            Button(String(localized: "menu.file.close_current_project", defaultValue: "Close Current Project", bundle: .module)) {
                 model.closeCurrentProject()
             }
             .disabled(model.selectedProject == nil)
 
-            Button(model.i18n("menu.file.close_all_projects", fallback: "Close All Projects…")) {
+            Button(String(localized: "menu.file.close_all_projects", defaultValue: "Close All Projects…", bundle: .module)) {
                 model.closeAllProjects()
             }
             .disabled(model.projects.isEmpty)
@@ -41,35 +41,35 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .windowArrangement) {}
 
         CommandGroup(replacing: .appInfo) {
-            Button(String(format: model.i18n("menu.app.about_format", fallback: "About %@"), model.appDisplayName)) {
+            Button(String(format: String(localized: "menu.app.about_format", defaultValue: "About %@", bundle: .module), model.appDisplayName)) {
                 AboutWindowPresenter.show(model: model)
             }
         }
 
         CommandGroup(replacing: .help) {
-            Button(model.i18n("menu.help.github", fallback: "GitHub")) {
+            Button(String(localized: "menu.help.github", defaultValue: "GitHub", bundle: .module)) {
                 model.openURL(AppSupportLinks.github)
             }
 
-            Button(model.i18n("menu.help.github_issue", fallback: "GitHub Issue")) {
+            Button(String(localized: "menu.help.github_issue", defaultValue: "GitHub Issue", bundle: .module)) {
                 model.openURL(AppSupportLinks.issues)
             }
 
-            Button(model.i18n("menu.help.website", fallback: "Official Website")) {
+            Button(String(localized: "menu.help.website", defaultValue: "Official Website", bundle: .module)) {
                 model.openURL(AppSupportLinks.website)
             }
         }
 
         CommandGroup(after: .sidebar) {
             ShortcutCommandButton(
-                title: model.i18n("menu.view.create_split", fallback: "Create Split"),
+                title: String(localized: "menu.view.create_split", defaultValue: "Create Split", bundle: .module),
                 shortcut: model.appSettings.shortcuts.splitPane
             ) {
                 model.splitSelectedPane(axis: .horizontal)
             }
 
             ShortcutCommandButton(
-                title: model.i18n("menu.view.create_tab", fallback: "Create Tab"),
+                title: String(localized: "menu.view.create_tab", defaultValue: "Create Tab", bundle: .module),
                 shortcut: model.appSettings.shortcuts.createTab
             ) {
                 model.createBottomTab()
@@ -78,14 +78,14 @@ struct AppCommands: Commands {
             Divider()
 
             ShortcutCommandButton(
-                title: model.i18n("menu.view.open_git_panel", fallback: "Open Git Panel"),
+                title: String(localized: "menu.view.open_git_panel", defaultValue: "Open Git Panel", bundle: .module),
                 shortcut: model.appSettings.shortcuts.toggleGitPanel
             ) {
                 model.toggleRightPanel(.git)
             }
 
             ShortcutCommandButton(
-                title: model.i18n("menu.view.open_ai_panel", fallback: "Open AI Panel"),
+                title: String(localized: "menu.view.open_ai_panel", defaultValue: "Open AI Panel", bundle: .module),
                 shortcut: model.appSettings.shortcuts.toggleAIPanel
             ) {
                 model.toggleRightPanel(.aiStats)
@@ -93,7 +93,7 @@ struct AppCommands: Commands {
 
             Divider()
 
-            Button(model.i18n("menu.view.toggle_full_screen", fallback: "Toggle Full Screen")) {
+            Button(String(localized: "menu.view.toggle_full_screen", defaultValue: "Toggle Full Screen", bundle: .module)) {
                 (NSApp.keyWindow ?? NSApp.mainWindow)?.toggleFullScreen(nil)
             }
             .keyboardShortcut("f", modifiers: [.command, .option])
@@ -133,9 +133,9 @@ struct AppCommands: Commands {
 
     private var closeCommandTitle: String {
         if isClosingStandardWindow {
-            return model.i18n("menu.file.close_window", fallback: "Close Window")
+            return String(localized: "menu.file.close_window", defaultValue: "Close Window", bundle: .module)
         }
-        return model.i18n("menu.file.close_current_split", fallback: "Close Current Split")
+        return String(localized: "menu.file.close_current_split", defaultValue: "Close Current Split", bundle: .module)
     }
 
     private func handleCloseCommand() {
@@ -178,7 +178,7 @@ private struct WorkspaceSwitchCommandButton: View {
     let index: Int
 
     var body: some View {
-        Button(String(format: model.i18n("menu.view.workspace_format", fallback: "Workspace %@"), "\(index + 1)")) {
+        Button(String(format: String(localized: "menu.view.workspace_format", defaultValue: "Workspace %@", bundle: .module), "\(index + 1)")) {
             model.selectProject(atSidebarIndex: index)
         }
         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command])

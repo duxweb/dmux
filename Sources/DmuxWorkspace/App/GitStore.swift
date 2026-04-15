@@ -23,10 +23,6 @@ final class GitStore {
     private var selectedProjectProvider: (@MainActor () -> Project?)?
     private var remoteSyncEnabledProvider: (@MainActor () -> Bool)?
 
-    private func i18n(_ key: String, fallback: String? = nil) -> String {
-        appI18n(key, fallback: fallback ?? key)
-    }
-
     private func beginPanelOperation(allowsPreservingVisibleState: Bool = true) {
         if allowsPreservingVisibleState, panelState.gitState != nil {
             panelState.isGitLoading = false
@@ -39,7 +35,7 @@ final class GitStore {
     func refresh(project: Project?, presentation: RefreshPresentation = .fullScreen) {
         guard let project else {
             panelState = .empty
-            panelState.gitDiffText = i18n("git.empty.select_project", fallback: "Add or select a project to view Git status.")
+            panelState.gitDiffText = String(localized: "git.empty.select_project", defaultValue: "Add or select a project to view Git status.", bundle: .module)
             return
         }
 
@@ -63,7 +59,7 @@ final class GitStore {
                     self.panelState.isGitLoading = false
                     self.panelState.refreshState = .idle
                     if state == nil {
-                        self.panelState.gitDiffText = self.i18n("git.repository.not_repository")
+                        self.panelState.gitDiffText = String(localized: "git.repository.not_repository", bundle: .module)
                         self.panelState.selectedGitEntryIDs.removeAll()
                         self.panelState.gitHistory = []
                         self.panelState.gitBranches = []
@@ -72,7 +68,7 @@ final class GitStore {
                         self.panelState.gitRemotes = []
                         self.panelState.gitRemoteSyncState = .empty
                     } else {
-                        self.panelState.gitDiffText = self.panelState.selectedGitEntry == nil ? self.i18n("git.diff.select_file") : self.panelState.gitDiffText
+                        self.panelState.gitDiffText = self.panelState.selectedGitEntry == nil ? String(localized: "git.diff.select_file", bundle: .module) : self.panelState.gitDiffText
                         let validIDs = Set((state?.staged ?? []).map(\.id) + (state?.changes ?? []).map(\.id) + (state?.untracked ?? []).map(\.id))
                         self.panelState.selectedGitEntryIDs = selectedIDsSnapshot.intersection(validIDs)
                         self.refreshHistory(projectPath: path, projectID: projectID)
@@ -107,7 +103,7 @@ final class GitStore {
             do {
                 try service.initializeRepository(at: path)
                 await MainActor.run {
-                    onStatus(self.i18n("git.repository.initialized"))
+                    onStatus(String(localized: "git.repository.initialized", bundle: .module))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -121,7 +117,7 @@ final class GitStore {
 
     func cloneRepository(project: Project, remoteURL: String, credential: GitCredential? = nil, onStatus: @escaping @MainActor (String) -> Void, onAuthRequired: @escaping @MainActor (@escaping (GitCredential?) -> Void) -> Void, onAuthSucceeded: @escaping @MainActor (GitCredential) -> Void) {
         beginPanelOperation(allowsPreservingVisibleState: false)
-        panelState.gitOperationStatusText = i18n("git.clone.preparing", fallback: "Preparing to clone the repository...")
+        panelState.gitOperationStatusText = String(localized: "git.clone.preparing", defaultValue: "Preparing to clone the repository...", bundle: .module)
         panelState.gitOperationProgress = 0
         let path = project.path
         Task.detached {
@@ -141,7 +137,7 @@ final class GitStore {
                     }
                     self.panelState.gitOperationStatusText = nil
                     self.panelState.gitOperationProgress = nil
-                    onStatus(self.i18n("git.repository.cloned"))
+                    onStatus(String(localized: "git.repository.cloned", bundle: .module))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -151,9 +147,9 @@ final class GitStore {
                         onAuthRequired { credential in
                             guard let credential else {
                                 self.panelState.isGitLoading = false
-                                self.panelState.gitOperationStatusText = self.i18n("git.auth.cancelled")
+                                self.panelState.gitOperationStatusText = String(localized: "git.auth.cancelled", bundle: .module)
                                 self.panelState.gitOperationProgress = nil
-                                onStatus(self.i18n("git.auth.cancelled"))
+                                onStatus(String(localized: "git.auth.cancelled", bundle: .module))
                                 return
                             }
                             self.cloneRepository(project: project, remoteURL: remoteURL, credential: credential, onStatus: onStatus, onAuthRequired: onAuthRequired, onAuthSucceeded: onAuthSucceeded)
@@ -174,7 +170,7 @@ final class GitStore {
             panelState.refreshState = .refreshing
             panelState.selectedGitEntry = nil
             panelState.selectedGitCommitHash = nil
-            panelState.gitDiffText = i18n("git.diff.select_file")
+            panelState.gitDiffText = String(localized: "git.diff.select_file", bundle: .module)
             panelState.selectedGitEntryIDs.removeAll()
             panelState.gitHistory = []
             panelState.gitBranches = []
@@ -277,7 +273,7 @@ final class GitStore {
         let projectID = project.id
         let path = project.path
         panelState.isGitDiffLoading = true
-        panelState.gitDiffText = i18n("git.diff.loading", fallback: "Loading diff...")
+        panelState.gitDiffText = String(localized: "git.diff.loading", defaultValue: "Loading diff...", bundle: .module)
 
         Task.detached {
             let service = GitService()
@@ -400,7 +396,7 @@ final class GitStore {
             do {
                 try service.checkout(branch: branch, at: path)
                 await MainActor.run {
-                    onStatus(String(format: self.i18n("git.branch.switch.success_format"), branch))
+                    onStatus(String(format: String(localized: "git.branch.switch.success_format", bundle: .module), branch))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -420,7 +416,7 @@ final class GitStore {
             do {
                 let localName = try service.checkoutRemoteBranch(remoteBranch, at: path)
                 await MainActor.run {
-                    onStatus(String(format: self.i18n("git.remote.branch.checkout_tracking_format"), localName))
+                    onStatus(String(format: String(localized: "git.remote.branch.checkout_tracking_format", bundle: .module), localName))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -440,7 +436,7 @@ final class GitStore {
             do {
                 try service.checkout(commit: commit.hash, at: path)
                 await MainActor.run {
-                    onStatus(String(format: self.i18n("git.history.checkout.success_format"), String(commit.hash.prefix(7))))
+                    onStatus(String(format: String(localized: "git.history.checkout.success_format", bundle: .module), String(commit.hash.prefix(7))))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -460,7 +456,7 @@ final class GitStore {
             do {
                 try service.revert(commit: commit.hash, at: path)
                 await MainActor.run {
-                    onStatus(String(format: self.i18n("git.history.revert.success_format"), String(commit.hash.prefix(7))))
+                    onStatus(String(format: String(localized: "git.history.revert.success_format", bundle: .module), String(commit.hash.prefix(7))))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -483,7 +479,7 @@ final class GitStore {
                     try service.forcePush(at: path)
                 }
                 await MainActor.run {
-                    onStatus(forceRemote ? self.i18n("git.history.restore.remote_success") : self.i18n("git.history.restore.local_success"))
+                    onStatus(forceRemote ? String(localized: "git.history.restore.remote_success", bundle: .module) : String(localized: "git.history.restore.local_success", bundle: .module))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -508,8 +504,8 @@ final class GitStore {
                 }
                 await MainActor.run {
                     onStatus(commitHash == nil
-                        ? String(format: self.i18n("git.branch.create_and_switch.success_format"), branchName)
-                        : String(format: self.i18n("git.branch.create_from_commit.success_format"), branchName))
+                        ? String(format: String(localized: "git.branch.create_and_switch.success_format", bundle: .module), branchName)
+                        : String(format: String(localized: "git.branch.create_from_commit.success_format", bundle: .module), branchName))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -529,7 +525,7 @@ final class GitStore {
             do {
                 try service.stageAll(at: path)
                 await MainActor.run {
-                    onStatus(self.i18n("git.files.stage_all.success"))
+                    onStatus(String(localized: "git.files.stage_all.success", bundle: .module))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -549,7 +545,7 @@ final class GitStore {
             do {
                 try service.unstageAll(at: path)
                 await MainActor.run {
-                    onStatus(self.i18n("git.files.unstage_all.success"))
+                    onStatus(String(localized: "git.files.unstage_all.success", bundle: .module))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -632,7 +628,7 @@ final class GitStore {
             do {
                 try service.discard(entry, at: repositoryPath)
                 await MainActor.run {
-                    onStatus(String(format: self.i18n("git.files.discard.success_format"), entry.path))
+                    onStatus(String(format: String(localized: "git.files.discard.success_format", bundle: .module), entry.path))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -683,8 +679,8 @@ final class GitStore {
                 try service.amendLastCommitMessage(message, at: path)
                 await MainActor.run {
                     onStatus(headCommitPushed
-                        ? self.i18n("git.commit.edit_last_message.remote_success")
-                        : self.i18n("git.commit.edit_last_message.success"))
+                        ? String(localized: "git.commit.edit_last_message.remote_success", bundle: .module)
+                        : String(localized: "git.commit.edit_last_message.success", bundle: .module))
                     if headCommitPushed {
                         onRewriteWarning()
                     } else {
@@ -709,8 +705,8 @@ final class GitStore {
                 try service.undoLastCommit(at: path)
                 await MainActor.run {
                     onStatus(headCommitPushed
-                        ? self.i18n("git.history.undo_last_commit.remote_success")
-                        : self.i18n("git.history.undo_last_commit.success"))
+                        ? String(localized: "git.history.undo_last_commit.remote_success", bundle: .module)
+                        : String(localized: "git.history.undo_last_commit.success", bundle: .module))
                     if headCommitPushed {
                         onRewriteWarning()
                     } else {
@@ -751,7 +747,7 @@ final class GitStore {
                     self.panelState.gitRemotes = remotes
                     self.panelState.gitRemoteSyncState = remoteState
                     self.cacheState(for: projectID)
-                    onStatus(self.i18n("git.remote.branches.refresh_success"))
+                    onStatus(String(localized: "git.remote.branches.refresh_success", bundle: .module))
                 }
             } catch {
                 let remainingDelay = max(0, 1.2 - Date().timeIntervalSince(startedAt))
@@ -784,7 +780,7 @@ final class GitStore {
                         onAuthSucceeded(credential)
                     }
                     self.panelState.activeGitRemoteOperation = nil
-                    onStatus(String(format: self.i18n("git.remote.push.success_format"), remote.name))
+                    onStatus(String(format: String(localized: "git.remote.push.success_format", bundle: .module), remote.name))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -798,7 +794,7 @@ final class GitStore {
                         onAuthRequired { credential in
                             guard let credential else {
                                 self.panelState.activeGitRemoteOperation = nil
-                                onStatus(self.i18n("git.auth.cancelled"))
+                                onStatus(String(localized: "git.auth.cancelled", bundle: .module))
                                 return
                             }
                             self.pushBranch(branch, to: remote, project: project, credential: credential, onStatus: onStatus, onAuthRequired: onAuthRequired, onAuthSucceeded: onAuthSucceeded)
@@ -830,7 +826,7 @@ final class GitStore {
                         onAuthSucceeded(credential)
                     }
                     self.panelState.activeGitRemoteOperation = nil
-                    onStatus(String(format: self.i18n("git.remote.push.branch_success_format"), localBranch, remote.name, remoteBranch))
+                    onStatus(String(format: String(localized: "git.remote.push.branch_success_format", bundle: .module), localBranch, remote.name, remoteBranch))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -844,7 +840,7 @@ final class GitStore {
                         onAuthRequired { credential in
                             guard let credential else {
                                 self.panelState.activeGitRemoteOperation = nil
-                                onStatus(self.i18n("git.auth.cancelled"))
+                                onStatus(String(localized: "git.auth.cancelled", bundle: .module))
                                 return
                             }
                             self.pushLocalBranch(localBranch, to: remote, remoteBranch: remoteBranch, project: project, credential: credential, onStatus: onStatus, onAuthRequired: onAuthRequired, onAuthSucceeded: onAuthSucceeded)
@@ -866,7 +862,7 @@ final class GitStore {
             do {
                 try service.addRemote(name: name, url: url, at: path)
                 await MainActor.run {
-                    onStatus(String(format: self.i18n("git.remote.add.success_format"), name))
+                    onStatus(String(format: String(localized: "git.remote.add.success_format", bundle: .module), name))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -885,7 +881,7 @@ final class GitStore {
             do {
                 try service.removeRemote(name: remote.name, at: path)
                 await MainActor.run {
-                    onStatus(String(format: self.i18n("git.remote.remove.success_format"), remote.name))
+                    onStatus(String(format: String(localized: "git.remote.remove.success_format", bundle: .module), remote.name))
                     self.refresh(project: project, presentation: .preserveVisibleState)
                 }
             } catch {
@@ -928,7 +924,7 @@ final class GitStore {
                         onAuthRequired { credential in
                             guard let credential else {
                                 self.panelState.activeGitRemoteOperation = nil
-                                onStatus(self.i18n("git.auth.cancelled"))
+                                onStatus(String(localized: "git.auth.cancelled", bundle: .module))
                                 return
                             }
                             self.performRemoteAction(action, project: project, credential: credential, onStatus: onStatus, onAuthRequired: onAuthRequired, onAuthSucceeded: onAuthSucceeded, onConflict: onConflict)
@@ -959,16 +955,16 @@ final class GitStore {
         switch action {
         case .fetch:
             try service.fetch(at: path, credential: credential)
-            return appI18n("git.remote.fetch.success", fallback: "Fetched remote updates.")
+            return String(localized: "git.remote.fetch.success", defaultValue: "Fetched remote updates.", bundle: .module)
         case .pull:
             try service.pull(at: path, credential: credential)
-            return appI18n("git.remote.pull.success", fallback: "Pulled remote updates.")
+            return String(localized: "git.remote.pull.success", defaultValue: "Pulled remote updates.", bundle: .module)
         case .push:
             try service.push(at: path, credential: credential)
-            return appI18n("git.remote.push.current_success", fallback: "Pushed the current branch.")
+            return String(localized: "git.remote.push.current_success", defaultValue: "Pushed the current branch.", bundle: .module)
         case .forcePush:
             try service.forcePush(at: path, credential: credential)
-            return appI18n("git.remote.force_push.current_success", fallback: "Force pushed the current branch.")
+            return String(localized: "git.remote.force_push.current_success", defaultValue: "Force pushed the current branch.", bundle: .module)
         case .sync:
             try service.fetch(at: path, credential: credential)
             let remoteState = try service.remoteSyncState(at: path)
@@ -981,18 +977,18 @@ final class GitStore {
             }
             if remoteState.incomingCount > 0 && postPullState.outgoingCount > 0 {
                 return String(
-                    format: appI18n("git.remote.sync.pull_push_format", fallback: "Pulled %@ updates and pushed %@ commits."),
+                    format: String(localized: "git.remote.sync.pull_push_format", defaultValue: "Pulled %@ updates and pushed %@ commits.", bundle: .module),
                     "\(remoteState.incomingCount)",
                     "\(postPullState.outgoingCount > 0 ? postPullState.outgoingCount : remoteState.outgoingCount)"
                 )
             }
             if remoteState.incomingCount > 0 {
-                return String(format: appI18n("git.remote.sync.pull_only_format", fallback: "Pulled %@ updates."), "\(remoteState.incomingCount)")
+                return String(format: String(localized: "git.remote.sync.pull_only_format", defaultValue: "Pulled %@ updates.", bundle: .module), "\(remoteState.incomingCount)")
             }
             if postPullState.outgoingCount > 0 || remoteState.outgoingCount > 0 {
-                return String(format: appI18n("git.remote.sync.push_only_format", fallback: "Pushed %@ commits."), "\(postPullState.outgoingCount > 0 ? postPullState.outgoingCount : remoteState.outgoingCount)")
+                return String(format: String(localized: "git.remote.sync.push_only_format", defaultValue: "Pushed %@ commits.", bundle: .module), "\(postPullState.outgoingCount > 0 ? postPullState.outgoingCount : remoteState.outgoingCount)")
             }
-            return appI18n("git.remote.sync.synced", fallback: "Remote is synced.")
+            return String(localized: "git.remote.sync.synced", defaultValue: "Remote is synced.", bundle: .module)
         }
     }
 

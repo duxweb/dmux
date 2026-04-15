@@ -58,7 +58,7 @@ private struct ProjectEditorPanelView: View {
     }
 
     private var header: AppDialogHeaderSpec {
-        let isCreating = dialog.confirmTitle == appI18n("common.create", fallback: "Create")
+        let isCreating = dialog.confirmTitle == String(localized: "common.create", defaultValue: "Create", bundle: .module)
         return AppDialogHeaderSpec(
             title: dialog.title,
             message: dialog.message,
@@ -80,11 +80,11 @@ private struct ProjectEditorPanelView: View {
             footerTopPadding: 0,
             footerBottomPadding: 18
         ) {
-            field(title: appI18n("project.editor.name", fallback: "Project Name"), text: $viewModel.name, isHovered: $isNameHovered, placeholder: appI18n("common.required", fallback: "Required"), autofocus: true, onViewCreated: onNameFieldCreated)
+            field(title: String(localized: "project.editor.name", defaultValue: "Project Name", bundle: .module), text: $viewModel.name, isHovered: $isNameHovered, placeholder: String(localized: "common.required", defaultValue: "Required", bundle: .module), autofocus: true, onViewCreated: onNameFieldCreated)
             pathField
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(appI18n("project.editor.icon", fallback: "Project Icon"))
+                Text(String(localized: "project.editor.icon", defaultValue: "Project Icon", bundle: .module))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color(nsColor: .labelColor))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 36, maximum: 36), spacing: 8)], alignment: .leading, spacing: 8) {
@@ -101,7 +101,7 @@ private struct ProjectEditorPanelView: View {
                                         .font(.system(size: 14, weight: .semibold))
                                         .foregroundStyle(Color(hexString: hexColor))
                                 } else {
-                                    Text(appI18n("common.none", fallback: "None"))
+                                    Text(String(localized: "common.none", defaultValue: "None", bundle: .module))
                                         .font(.system(size: 11, weight: .bold, design: .rounded))
                                         .foregroundStyle(Color(nsColor: .labelColor).opacity(0.82))
                                 }
@@ -113,7 +113,7 @@ private struct ProjectEditorPanelView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(appI18n("project.editor.color", fallback: "Project Color"))
+                Text(String(localized: "project.editor.color", defaultValue: "Project Color", bundle: .module))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color(nsColor: .labelColor))
                 HStack(spacing: 10) {
@@ -133,7 +133,7 @@ private struct ProjectEditorPanelView: View {
                 }
             }
         } actions: {
-            Button(appI18n("common.cancel", fallback: "Cancel")) { viewModel.onCancel?() }
+            Button(String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)) { viewModel.onCancel?() }
                 .buttonStyle(AppDialogSecondaryButtonStyle())
                 .keyboardShortcut(.cancelAction)
 
@@ -157,12 +157,12 @@ private struct ProjectEditorPanelView: View {
 
     private var pathField: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(appI18n("project.editor.directory", fallback: "Project Directory"))
+            Text(String(localized: "project.editor.directory", defaultValue: "Project Directory", bundle: .module))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color(nsColor: .labelColor))
             HStack(spacing: 10) {
                 field(title: nil, text: $viewModel.path, isHovered: $isPathHovered, placeholder: "/path/to/project")
-                Button(appI18n("common.choose", fallback: "Choose")) {
+                Button(String(localized: "common.choose", defaultValue: "Choose", bundle: .module)) {
                     viewModel.onChooseDirectory?()
                 }
                 .buttonStyle(AppDialogSecondaryButtonStyle())
@@ -259,9 +259,9 @@ final class ProjectEditorPanelController: AppDialogController<ProjectEditorDialo
             panel.canChooseDirectories = true
             panel.canChooseFiles = false
             panel.allowsMultipleSelection = false
-            panel.title = appI18n("project.editor.choose_directory.title", fallback: "Choose Project Directory")
-            panel.prompt = appI18n("project.editor.choose_directory.prompt", fallback: "Choose")
-            panel.message = appI18n("project.editor.choose_directory.message", fallback: "Select a folder for this project.")
+            panel.title = String(localized: "project.editor.choose_directory.title", defaultValue: "Choose Project Directory", bundle: .module)
+            panel.prompt = String(localized: "project.editor.choose_directory.prompt", defaultValue: "Choose", bundle: .module)
+            panel.message = String(localized: "project.editor.choose_directory.message", defaultValue: "Select a folder for this project.", bundle: .module)
             panel.beginSheetModal(for: window) { response in
                 guard response == .OK, let url = panel.url else { return }
                 self.viewModel.path = url.path

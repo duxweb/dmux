@@ -40,8 +40,8 @@ private struct GitCredentialDialogView: View {
             footerTopPadding: 0,
             footerBottomPadding: 18
         ) {
-            dialogField(title: appI18n("git.credential.username", fallback: "Username"), text: $viewModel.username, placeholder: appI18n("git.credential.username", fallback: "Username"), isSecure: false, isHovered: $isUsernameHovered)
-            dialogField(title: appI18n("git.credential.password_or_token", fallback: "Password or Token"), text: $viewModel.password, placeholder: appI18n("git.credential.password_or_token", fallback: "Password or Token"), isSecure: true, isHovered: $isPasswordHovered)
+            dialogField(title: String(localized: "git.credential.username", defaultValue: "Username", bundle: .module), text: $viewModel.username, placeholder: String(localized: "git.credential.username", defaultValue: "Username", bundle: .module), isSecure: false, isHovered: $isUsernameHovered)
+            dialogField(title: String(localized: "git.credential.password_or_token", defaultValue: "Password or Token", bundle: .module), text: $viewModel.password, placeholder: String(localized: "git.credential.password_or_token", defaultValue: "Password or Token", bundle: .module), isSecure: true, isHovered: $isPasswordHovered)
         } actions: {
             Button(dialog.cancelTitle) { viewModel.onCancel?() }
                 .buttonStyle(AppDialogSecondaryButtonStyle())
