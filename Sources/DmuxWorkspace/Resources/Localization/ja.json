@@ -416,5 +416,19 @@
   "workspace.not_found": "Current workspace not found.",
   "workspace.split.create_failed": "Unable to create a new split pane.",
   "workspace.top_pane.horizontal_created": "Added a horizontal pane.",
-  "workspace.top_pane.limit_format": "The top row supports up to %@ panes."
+  "workspace.top_pane.limit_format": "The top row supports up to %@ panes.",
+  "common.ok": "OK",
+  "about.checking_updates": "確認中...",
+  "about.user_agreement_data": "dmux は、ターミナルセッション、Git リポジトリ状態、AI ツールのアクティビティ、ローカル統計を表示するために必要なローカル状態のみを読み取ります。サードパーティ CLI の挙動やネットワーク通信はご自身で確認してください。",
+  "about.user_agreement_responsibility": "ローカル環境、ファイル権限、リポジトリ認証情報、通知権限、およびターミナル内で実行するすべてのコマンドはご自身の責任で管理してください。",
+  "about.user_agreement_license": "dmux は GPL-3.0 ライセンスのオープンソースソフトウェアとして提供されます。利用を続けることで、この実験的なソフトウェアの挙動、UI、互換性が今後変わる可能性があることに同意したものとみなされます。",
+  "update.checking": "アップデートを確認しています...",
+  "update.latest.title": "すでに最新バージョンです。",
+  "update.latest.message_format": "現在のバージョン: v%@\\n最新バージョン: v%@",
+  "update.available.title": "新しいバージョンがあります",
+  "update.available.message_format": "新しいバージョン v%@ が利用できます。現在お使いのバージョンは v%@ です。",
+  "update.available.open": "ダウンロード",
+  "update.available.later": "あとで",
+  "update.error.title": "アップデートを確認できませんでした",
+  "update.error.message": "ネットワーク接続を確認してから、もう一度お試しください。"
 }

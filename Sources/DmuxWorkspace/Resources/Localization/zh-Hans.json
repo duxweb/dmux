@@ -416,5 +416,19 @@
   "workspace.not_found": "未找到当前工作区。",
   "workspace.split.create_failed": "无法创建新的分屏。",
   "workspace.top_pane.horizontal_created": "已添加横向分屏。",
-  "workspace.top_pane.limit_format": "顶部一行最多支持 %@ 个分屏。"
+  "workspace.top_pane.limit_format": "顶部一行最多支持 %@ 个分屏。",
+  "common.ok": "好的",
+  "about.checking_updates": "检查中...",
+  "about.user_agreement_data": "dmux 只会读取展示终端会话、Git 仓库状态、AI 工具活动和本地统计所需的本机状态。涉及第三方 CLI 的行为和网络请求，需要你自行确认与承担风险。",
+  "about.user_agreement_responsibility": "你需要自行负责本地环境、文件权限、仓库凭据、通知权限，以及在终端内执行的所有命令。",
+  "about.user_agreement_license": "dmux 以 GPL-3.0 开源协议发布。继续使用即表示你接受该实验性软件后续可能发生行为、界面和兼容性调整。",
+  "update.checking": "正在检查更新...",
+  "update.latest.title": "当前已是最新版本",
+  "update.latest.message_format": "当前版本：v%@\\n最新版本：v%@",
+  "update.available.title": "发现新版本",
+  "update.available.message_format": "发现新版本 v%@，你当前使用的是 v%@。",
+  "update.available.open": "立即下载",
+  "update.available.later": "稍后再说",
+  "update.error.title": "检查更新失败",
+  "update.error.message": "请检查网络连接后再试。"
 }

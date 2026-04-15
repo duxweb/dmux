@@ -230,6 +230,8 @@ final class AppModel {
         set { gitStore.panelState.isGitLoading = newValue }
     }
 
+    var isCheckingForUpdates = false
+
     var isGitDiffLoading: Bool {
         get { gitStore.panelState.isGitDiffLoading }
         set { gitStore.panelState.isGitDiffLoading = newValue }
@@ -2276,7 +2278,22 @@ final class AppModel {
     }
 
     func checkForUpdates() {
-        openURL(AppSupportLinks.releases)
+        guard !isCheckingForUpdates else {
+            return
+        }
+        isCheckingForUpdates = true
+        statusMessage = i18n("update.checking", fallback: "Checking for updates...")
+
+        Task { @MainActor in
+            defer { isCheckingForUpdates = false }
+
+            do {
+                let result = try await AppReleaseService.checkForUpdates(currentVersion: currentAppVersion)
+                presentUpdateCheckResult(result)
+            } catch {
+                presentUpdateCheckError(error)
+            }
+        }
     }
 
     var appDisplayName: String {
@@ -2290,9 +2307,18 @@ final class AppModel {
     }
 
     var appVersionDescription: String {
-        let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.1.0"
+        let version = currentAppVersion
         let build = (Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String) ?? "dev"
         return "v\(version) (\(build))"
+    }
+
+    var localizedUserAgreementDocument: String {
+        [
+            i18n("about.user_agreement_body", fallback: "This app is currently a development preview. By using it, you understand that terminal, Git, and AI activity features read local project metadata and runtime state, but do not proactively upload your project contents."),
+            i18n("about.user_agreement_data", fallback: "dmux only reads the local state needed to display terminal sessions, Git repository status, AI tool activity, and local statistics. You are responsible for reviewing any third-party CLI behavior and network activity triggered by those tools."),
+            i18n("about.user_agreement_responsibility", fallback: "You are responsible for your local environment, file permissions, repository credentials, notification permissions, and any commands executed inside the terminal."),
+            i18n("about.user_agreement_license", fallback: "dmux is distributed as open-source software under the GPL-3.0 license. Continued use means you accept that this experimental software may change behavior, interface, and compatibility over time.")
+        ].joined(separator: "\n\n")
     }
 
     var appIconImage: NSImage {
@@ -2336,6 +2362,78 @@ final class AppModel {
         }
         NSApp.dockTile.badgeLabel = completedCount > 0 ? "\(completedCount)" : nil
         NSApp.dockTile.display()
+    }
+
+    private var currentAppVersion: String {
+        ((Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.1.0")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func presentUpdateCheckResult(_ result: AppReleaseCheckResult) {
+        guard let parentWindow = presentationWindow() else {
+            statusMessage = i18n("app.window.main_missing", fallback: "Unable to find the main window.")
+            return
+        }
+
+        switch result {
+        case .upToDate(let currentVersion, let latestVersion):
+            statusMessage = i18n("update.latest.title", fallback: "You're up to date.")
+            let dialog = ConfirmDialogState(
+                title: i18n("update.latest.title", fallback: "You're up to date."),
+                message: String(
+                    format: i18n("update.latest.message_format", fallback: "Current version: v%@\nLatest release: v%@"),
+                    currentVersion,
+                    latestVersion
+                ),
+                icon: "checkmark.circle.fill",
+                iconColor: AppTheme.success,
+                primaryTitle: i18n("common.ok", fallback: "OK")
+            )
+            ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { _ in }
+
+        case .updateAvailable(let currentVersion, let latest):
+            let notes = AppReleaseService.releaseNotesExcerpt(from: latest.body)
+            var message = String(
+                format: i18n("update.available.message_format", fallback: "A new version v%@ is available. You are currently using v%@."),
+                latest.version,
+                currentVersion
+            )
+            if let notes, !notes.isEmpty {
+                message += "\n\n" + notes
+            }
+
+            let dialog = ConfirmDialogState(
+                title: i18n("update.available.title", fallback: "Update Available"),
+                message: message,
+                icon: "arrow.down.circle.fill",
+                iconColor: AppTheme.focus,
+                primaryTitle: i18n("update.available.open", fallback: "Download"),
+                secondaryTitle: i18n("update.available.later", fallback: "Later")
+            )
+            ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
+                guard let self, result == .primary else {
+                    return
+                }
+                self.openURL(AppReleaseService.preferredDownloadURL(for: latest))
+            }
+        }
+    }
+
+    private func presentUpdateCheckError(_ error: Error) {
+        guard let parentWindow = presentationWindow() else {
+            statusMessage = error.localizedDescription
+            return
+        }
+
+        statusMessage = error.localizedDescription
+        let dialog = ConfirmDialogState(
+            title: i18n("update.error.title", fallback: "Unable to Check for Updates"),
+            message: i18n("update.error.message", fallback: "Please check your network connection and try again."),
+            icon: "wifi.exclamationmark",
+            iconColor: AppTheme.warning,
+            primaryTitle: i18n("common.ok", fallback: "OK")
+        )
+        ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { _ in }
     }
 
     private func importProject(name: String, path: String, badgeText: String, badgeSymbol: String?, badgeColorHex: String) {

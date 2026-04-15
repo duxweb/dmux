@@ -416,5 +416,19 @@
   "workspace.not_found": "Current workspace not found.",
   "workspace.split.create_failed": "Unable to create a new split pane.",
   "workspace.top_pane.horizontal_created": "Added a horizontal pane.",
-  "workspace.top_pane.limit_format": "The top row supports up to %@ panes."
+  "workspace.top_pane.limit_format": "The top row supports up to %@ panes.",
+  "common.ok": "OK",
+  "about.checking_updates": "Verificando...",
+  "about.user_agreement_data": "O dmux lê apenas o estado local necessário para mostrar sessões de terminal, status do repositório Git, atividade de ferramentas de IA e estatísticas locais. O comportamento e as conexões de rede de CLIs de terceiros devem ser verificados por você.",
+  "about.user_agreement_responsibility": "Você é responsável pelo seu ambiente local, permissões de arquivo, credenciais do repositório, permissões de notificação e qualquer comando executado dentro do terminal.",
+  "about.user_agreement_license": "O dmux é distribuído como software de código aberto sob a licença GPL-3.0. Ao continuar usando, você aceita que o comportamento, a interface e a compatibilidade deste software experimental ainda podem mudar com o tempo.",
+  "update.checking": "Verificando atualizações...",
+  "update.latest.title": "Você já está na versão mais recente.",
+  "update.latest.message_format": "Versão atual: v%@\\nÚltima versão: v%@",
+  "update.available.title": "Atualização disponível",
+  "update.available.message_format": "Uma nova versão v%@ está disponível. Você está usando a v%@ no momento.",
+  "update.available.open": "Baixar",
+  "update.available.later": "Depois",
+  "update.error.title": "Não foi possível verificar atualizações",
+  "update.error.message": "Verifique sua conexão de rede e tente novamente."
 }

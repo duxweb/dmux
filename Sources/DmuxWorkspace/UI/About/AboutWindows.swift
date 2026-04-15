@@ -136,9 +136,10 @@ struct AboutWindowView: View {
                     model.openURL(AppSupportLinks.website)
                 }
 
-                Button(model.i18n("about.updates", fallback: "Updates")) {
+                Button(model.isCheckingForUpdates ? model.i18n("about.checking_updates", fallback: "Checking...") : model.i18n("about.updates", fallback: "Updates")) {
                     model.checkForUpdates()
                 }
+                .disabled(model.isCheckingForUpdates)
             }
             .controlSize(.small)
 
@@ -152,19 +153,86 @@ struct UserAgreementView: View {
     let model: AppModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(model.i18n("about.user_agreement", fallback: "User Agreement"))
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
 
-                Text(model.i18n("about.user_agreement_body", fallback: "This app is currently a development preview. By using it, you understand that terminal, Git, and AI activity features read local project metadata and runtime state, but do not proactively upload your project contents. You are responsible for the safety of your local environment, permissions, third-party CLIs, and repository credentials. Continued use means you accept that this experimental software may change behavior, interface, and compatibility over time."))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text("GPL-3.0")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
             }
-            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+
+            Divider()
+
+            LegalDocumentTextView(
+                text: model.localizedUserAgreementDocument,
+                backgroundColor: .windowBackgroundColor,
+                textColor: .textColor
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(minWidth: 520, minHeight: 460)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct LegalDocumentTextView: NSViewRepresentable {
+    let text: String
+    let backgroundColor: NSColor
+    let textColor: NSColor
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = NSTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = true
+        textView.backgroundColor = backgroundColor
+        textView.textContainerInset = NSSize(width: 24, height: 18)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        applyDocumentStyle(to: textView)
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else {
+            return
+        }
+        textView.backgroundColor = backgroundColor
+        applyDocumentStyle(to: textView)
+    }
+
+    private func applyDocumentStyle(to textView: NSTextView) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 4
+        paragraphStyle.paragraphSpacing = 10
+        paragraphStyle.alignment = .left
+
+        let attributed = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: textColor,
+                .paragraphStyle: paragraphStyle
+            ]
+        )
+        textView.textStorage?.setAttributedString(attributed)
     }
 }

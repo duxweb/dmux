@@ -416,5 +416,19 @@
   "workspace.not_found": "找不到目前工作區。",
   "workspace.split.create_failed": "無法建立新的分割。",
   "workspace.top_pane.horizontal_created": "已新增橫向分割。",
-  "workspace.top_pane.limit_format": "頂部一列最多支援 %@ 個分割。"
+  "workspace.top_pane.limit_format": "頂部一列最多支援 %@ 個分割。",
+  "common.ok": "好的",
+  "about.checking_updates": "檢查中...",
+  "about.user_agreement_data": "dmux 只會讀取顯示終端工作階段、Git 倉庫狀態、AI 工具活動與本機統計所需的本機狀態。涉及第三方 CLI 的行為與網路請求，需由您自行確認並承擔風險。",
+  "about.user_agreement_responsibility": "您需自行負責本機環境、檔案權限、倉庫憑證、通知權限，以及在終端內執行的所有命令。",
+  "about.user_agreement_license": "dmux 以 GPL-3.0 開源授權發佈。繼續使用即表示您接受此實驗性軟體後續可能在行為、介面與相容性上有所調整。",
+  "update.checking": "正在檢查更新...",
+  "update.latest.title": "目前已是最新版本",
+  "update.latest.message_format": "目前版本：v%@\\n最新版本：v%@",
+  "update.available.title": "發現新版本",
+  "update.available.message_format": "發現新版本 v%@，您目前使用的是 v%@。",
+  "update.available.open": "立即下載",
+  "update.available.later": "稍後再說",
+  "update.error.title": "檢查更新失敗",
+  "update.error.message": "請檢查網路連線後再試。"
 }
