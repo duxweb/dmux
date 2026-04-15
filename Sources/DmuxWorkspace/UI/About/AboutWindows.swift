@@ -10,7 +10,6 @@ enum AboutWindowPresenter {
             if let hosting = controller?.contentViewController as? NSHostingController<AnyView> {
                 hosting.rootView = AnyView(
                     AboutWindowView(model: model)
-                        .preferredColorScheme(model.appSettings.themeMode.colorScheme)
                 )
             }
             window.makeKeyAndOrderFront(nil)
@@ -37,7 +36,6 @@ enum AboutWindowPresenter {
         let hosting = NSHostingController(
             rootView: AnyView(
                 AboutWindowView(model: model)
-                    .preferredColorScheme(model.appSettings.themeMode.colorScheme)
             )
         )
         window.contentViewController = hosting
@@ -57,7 +55,6 @@ enum UserAgreementWindowPresenter {
             if let hosting = controller?.contentViewController as? NSHostingController<AnyView> {
                 hosting.rootView = AnyView(
                     UserAgreementView(model: model)
-                        .preferredColorScheme(model.appSettings.themeMode.colorScheme)
                 )
             }
             window.makeKeyAndOrderFront(nil)
@@ -78,7 +75,6 @@ enum UserAgreementWindowPresenter {
         let hosting = NSHostingController(
             rootView: AnyView(
                 UserAgreementView(model: model)
-                    .preferredColorScheme(model.appSettings.themeMode.colorScheme)
             )
         )
         window.contentViewController = hosting

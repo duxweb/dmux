@@ -2370,8 +2370,31 @@ final class AppModel {
         guard isSystemUIReady else {
             return
         }
-        NSApplication.shared.applicationIconImage = AppIconRenderer.image(for: appSettings.iconStyle)
+        persistApplicationBundleIcon()
         updateDockBadge()
+        applyRuntimeDockIcon()
+    }
+
+    private func persistApplicationBundleIcon() {
+        let bundlePath = Bundle.main.bundleURL.path
+        let iconImage: NSImage? = appSettings.iconStyle == .default
+            ? nil
+            : AppIconRenderer.image(for: appSettings.iconStyle, size: 1024)
+
+        let didUpdate = NSWorkspace.shared.setIcon(iconImage, forFile: bundlePath, options: [])
+        debugLog.log(
+            "app",
+            "bundle icon update style=\(appSettings.iconStyle.rawValue) success=\(didUpdate) path=\(bundlePath)"
+        )
+
+        guard didUpdate else {
+            return
+        }
+
+        // Nudge Finder and LaunchServices to pick up the custom icon change immediately.
+        NSWorkspace.shared.noteFileSystemChanged(bundlePath)
+        let parentPath = Bundle.main.bundleURL.deletingLastPathComponent().path
+        NSWorkspace.shared.noteFileSystemChanged(parentPath)
     }
 
     private func updateDockBadge() {
@@ -2382,6 +2405,7 @@ final class AppModel {
         guard appSettings.showsDockBadge else {
             NSApp.dockTile.badgeLabel = nil
             NSApp.dockTile.display()
+            applyRuntimeDockIcon()
             return
         }
 
@@ -2392,6 +2416,11 @@ final class AppModel {
         }
         NSApp.dockTile.badgeLabel = completedCount > 0 ? "\(completedCount)" : nil
         NSApp.dockTile.display()
+        applyRuntimeDockIcon()
+    }
+
+    private func applyRuntimeDockIcon() {
+        NSApplication.shared.applicationIconImage = AppIconRenderer.image(for: appSettings.iconStyle)
     }
 
     private var currentAppVersion: String {

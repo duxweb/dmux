@@ -3,6 +3,24 @@ import SwiftUI
 struct WorkspaceEmptyStateView: View {
     let model: AppModel
 
+    private var titleColor: Color {
+        model.terminalBackgroundPreset.isLight
+            ? model.terminalTextColor.opacity(0.9)
+            : model.terminalTextColor.opacity(0.82)
+    }
+
+    private var subtitleColor: Color {
+        model.terminalBackgroundPreset.isLight
+            ? model.terminalMutedTextColor.opacity(0.84)
+            : model.terminalMutedTextColor.opacity(0.78)
+    }
+
+    private var tertiaryColor: Color {
+        model.terminalBackgroundPreset.isLight
+            ? model.terminalMutedTextColor.opacity(0.72)
+            : model.terminalMutedTextColor.opacity(0.74)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
@@ -18,11 +36,11 @@ struct WorkspaceEmptyStateView: View {
                 VStack(spacing: 6) {
                     Text(String(format: String(localized: "welcome.title_format", defaultValue: "Welcome to %@", bundle: .module), model.appDisplayName))
                         .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(titleColor)
 
                     Text(String(localized: "welcome.subtitle", defaultValue: "Create a project in the sidebar to get started", bundle: .module))
                     .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(subtitleColor)
                 }
 
                 Button {
@@ -40,6 +58,7 @@ struct WorkspaceEmptyStateView: View {
             Spacer()
 
             WelcomeShortcutHintsView(model: model)
+                .foregroundStyle(subtitleColor)
                 .padding(.bottom, 20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,6 +67,18 @@ struct WorkspaceEmptyStateView: View {
 
 private struct WelcomeShortcutHintsView: View {
     let model: AppModel
+
+    private var subtitleColor: Color {
+        model.terminalBackgroundPreset.isLight
+            ? model.terminalMutedTextColor.opacity(0.84)
+            : model.terminalMutedTextColor.opacity(0.78)
+    }
+
+    private var tertiaryColor: Color {
+        model.terminalBackgroundPreset.isLight
+            ? model.terminalMutedTextColor.opacity(0.72)
+            : model.terminalMutedTextColor.opacity(0.74)
+    }
 
     var body: some View {
         HStack(spacing: 24) {
@@ -86,15 +117,15 @@ private struct WelcomeShortcutHintsView: View {
         VStack(spacing: 4) {
             Image(systemName: symbol)
                 .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(tertiaryColor)
 
             Text(label)
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(subtitleColor)
 
             Text(keys)
                 .font(.system(size: 10, design: .rounded))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(tertiaryColor)
         }
     }
 }

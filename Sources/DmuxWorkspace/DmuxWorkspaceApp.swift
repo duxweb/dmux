@@ -60,7 +60,6 @@ struct DmuxWorkspaceApp: App {
 
         WindowGroup {
             RootView(model: model)
-                .preferredColorScheme(model.appSettings.themeMode.colorScheme)
         }
         .defaultSize(width: 1460, height: 920)
         .windowStyle(.hiddenTitleBar)
@@ -70,7 +69,6 @@ struct DmuxWorkspaceApp: App {
 
         Settings {
             SettingsView(model: model)
-                .preferredColorScheme(model.appSettings.themeMode.colorScheme)
         }
         .windowResizability(.contentSize)
     }
