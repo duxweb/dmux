@@ -554,17 +554,7 @@ enum AppLocalizationCatalog {
     }
 
     private static func loadTable(for language: AppLanguage) -> [String: String] {
-        let candidateURLs: [URL?] = [
-            Bundle.module.url(
-                forResource: language.resourceFileName,
-                withExtension: "json",
-                subdirectory: "Localization"
-            ),
-            Bundle.module.url(
-                forResource: language.resourceFileName,
-                withExtension: "json"
-            ),
-        ]
+        let candidateURLs = localizationCandidateURLs(for: language)
 
         guard let url = candidateURLs.compactMap({ $0 }).first,
               let data = try? Data(contentsOf: url),
@@ -572,6 +562,37 @@ enum AppLocalizationCatalog {
             return [:]
         }
         return table
+    }
+
+    private static func localizationCandidateURLs(for language: AppLanguage) -> [URL?] {
+        let filename = "\(language.resourceFileName).json"
+        let bundleNames = [
+            "DmuxWorkspace_DmuxWorkspace.bundle",
+            "DumxWorkspace_DmuxWorkspace.bundle",
+        ]
+
+        var candidates: [URL?] = []
+
+        let baseDirectories: [URL?] = [
+            Bundle.main.resourceURL,
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources", isDirectory: true),
+            Bundle.main.bundleURL,
+        ]
+
+        for baseDirectory in baseDirectories.compactMap({ $0 }) {
+            candidates.append(baseDirectory.appendingPathComponent("Localization/\(filename)"))
+            candidates.append(baseDirectory.appendingPathComponent(filename))
+
+            for bundleName in bundleNames {
+                let bundleURL = baseDirectory.appendingPathComponent(bundleName, isDirectory: true)
+                candidates.append(bundleURL.appendingPathComponent("Contents/Resources/Localization/\(filename)"))
+                candidates.append(bundleURL.appendingPathComponent("Contents/Resources/\(filename)"))
+                candidates.append(bundleURL.appendingPathComponent("Localization/\(filename)"))
+                candidates.append(bundleURL.appendingPathComponent(filename))
+            }
+        }
+
+        return candidates
     }
 }
 
