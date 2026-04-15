@@ -16,15 +16,15 @@ struct GitPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GitPanelHeader(model: model)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    focusedField = nil
-                    NSApp.keyWindow?.makeFirstResponder(nil)
-                }
-
             if let gitState = model.gitPanelState.gitState {
                 VStack(spacing: 0) {
+                    GitPanelHeader(model: model)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            focusedField = nil
+                            NSApp.keyWindow?.makeFirstResponder(nil)
+                        }
+
                     GitTopRegion(model: model, gitState: gitState, focusedField: $focusedField)
 
                     GitPanelSeparator()
@@ -799,8 +799,8 @@ private struct GitCommitSplitButton: View {
         HStack(spacing: 0) {
             Button(action: onSubmit) {
                 Text(commitActionTitle(selectedAction))
-                    .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity)
             .buttonStyle(CommitMainButtonStyle())
 
             Menu {
@@ -812,9 +812,10 @@ private struct GitCommitSplitButton: View {
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 40, height: 32)
                     .foregroundStyle(AppTheme.textPrimary)
             }
+            .frame(width: 40, height: 32)
+            .fixedSize(horizontal: true, vertical: false)
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .buttonStyle(CommitMenuButtonStyle())
@@ -824,6 +825,16 @@ private struct GitCommitSplitButton: View {
         .overlay {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 0.5)
+        }
+        .overlay(alignment: .trailing) {
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color.white.opacity(isDisabled ? 0.08 : 0.16))
+                    .frame(width: 1)
+                Color.clear
+                    .frame(width: 40)
+            }
+            .allowsHitTesting(false)
         }
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
@@ -1758,6 +1769,10 @@ private struct GitSecondaryHoverIconButtonBody: View {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(backgroundColor)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(borderColor, lineWidth: 0.5)
+            )
             .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .onHover { hovering in
                 isHovered = hovering
@@ -1766,12 +1781,19 @@ private struct GitSecondaryHoverIconButtonBody: View {
 
     private var backgroundColor: Color {
         if configuration.isPressed {
-            return Color(nsColor: .tertiarySystemFill)
+            return AppTheme.card.opacity(0.9)
+        }
+        return AppTheme.panel.opacity(0.88)
+    }
+
+    private var borderColor: Color {
+        if configuration.isPressed {
+            return AppTheme.separator.opacity(0.5)
         }
         if isHovered {
-            return Color(nsColor: .quaternarySystemFill)
+            return AppTheme.separator.opacity(0.45)
         }
-        return Color.clear
+        return AppTheme.separator.opacity(0.3)
     }
 }
 
@@ -1794,6 +1816,7 @@ private struct CommitMainButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 14, weight: .semibold, design: .rounded))
             .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
             .frame(height: 32)
             .foregroundStyle(Color.white.opacity(isEnabled ? 0.98 : 0.78))
             .background(AppTheme.focus.opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1.0) : 0.5))
@@ -1806,13 +1829,6 @@ private struct CommitMenuButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(Color.white.opacity(isEnabled ? 0.96 : 0.76))
-            .background(
-                ZStack(alignment: .leading) {
-                    AppTheme.focus.opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1.0) : 0.5)
-                    Rectangle()
-                        .fill(Color.white.opacity(isEnabled ? 0.2 : 0.1))
-                        .frame(width: 0.5)
-                }
-            )
+            .background(AppTheme.focus.opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1.0) : 0.5))
     }
 }
