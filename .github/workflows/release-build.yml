@@ -30,7 +30,7 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
           APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
-        shell: zsh
+        shell: bash
         run: |
           if [[ -z "${APPLE_BUILD_CERTIFICATE_BASE64:-}" || -z "${APPLE_BUILD_CERTIFICATE_PASSWORD:-}" || -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
             echo "[release] signing secrets not configured, continuing with ad-hoc signing"
@@ -64,7 +64,7 @@ jobs:
 
       - name: Resolve build metadata
         id: meta
-        shell: zsh
+        shell: bash
         run: |
           version="${{ github.event.release.tag_name }}"
           version="${version#v}"
@@ -108,7 +108,7 @@ jobs:
 
       - name: Cleanup signing assets
         if: always()
-        shell: zsh
+        shell: bash
         run: |
           if [[ -n "${DMUX_KEYCHAIN_PATH:-}" && -f "${DMUX_KEYCHAIN_PATH}" ]]; then
             security delete-keychain "${DMUX_KEYCHAIN_PATH}" || true
