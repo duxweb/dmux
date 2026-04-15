@@ -2,14 +2,13 @@
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "$0")/../.." && pwd)"
+project_path="${root_dir}/dmux.xcodeproj"
+scheme="dmux"
 app_name="dmux"
-binary_name="dmux"
-bundle_id="com.duxweb.dmux"
 version="${DMUX_VERSION:-0.1.0}"
 build_number="${DMUX_BUILD_NUMBER:-1}"
-configuration="${DMUX_CONFIGURATION:-release}"
+configuration="${DMUX_CONFIGURATION:-Release}"
 arch_list="${DMUX_ARCHS:-arm64 x86_64}"
-read -r -a target_archs <<< "${arch_list}"
 codesign_identity="${APPLE_CODESIGN_IDENTITY:--}"
 enable_notarization="${DMUX_NOTARIZE:-0}"
 apple_team_id="${APPLE_TEAM_ID:-}"
@@ -18,30 +17,17 @@ notary_api_key_path="${APPLE_API_PRIVATE_KEY_PATH:-}"
 notary_api_key_id="${APPLE_API_KEY_ID:-}"
 notary_api_issuer_id="${APPLE_API_ISSUER_ID:-}"
 dist_dir="${root_dir}/dist"
-package_basename="${app_name}-${version}-macos-universal"
+build_dir="${root_dir}/.xcode-release"
+build_products_dir="${build_dir}/Build/Products/${configuration}"
+built_app_dir="${build_products_dir}/${app_name}.app"
 app_dir="${dist_dir}/${app_name}.app"
-contents_dir="${app_dir}/Contents"
-macos_dir="${contents_dir}/MacOS"
-resources_dir="${contents_dir}/Resources"
-helpers_dir="${resources_dir}/Helpers"
-helper_app_dir="${helpers_dir}/dmux-notify-helper.app"
-helper_contents_dir="${helper_app_dir}/Contents"
-helper_macos_dir="${helper_contents_dir}/MacOS"
-helper_resources_dir="${helper_contents_dir}/Resources"
-runtime_root="${resources_dir}/runtime-root"
-binary_path="${macos_dir}/${binary_name}"
-helper_binary_path="${helper_macos_dir}/dmux-notify-helper"
-plist_path="${contents_dir}/Info.plist"
-helper_plist_path="${helper_contents_dir}/Info.plist"
-pkginfo_path="${contents_dir}/PkgInfo"
-helper_pkginfo_path="${helper_contents_dir}/PkgInfo"
+package_basename="${app_name}-${version}-macos-universal"
 dmg_staging_dir="${dist_dir}/dmg"
 dmg_path="${dist_dir}/${package_basename}.dmg"
 zip_path="${dist_dir}/${package_basename}.zip"
 checksums_path="${dist_dir}/SHA256SUMS.txt"
 iconset_dir="${dist_dir}/AppIcon.iconset"
-icns_path="${resources_dir}/AppIcon.icns"
-localizations=(en zh-Hans zh-Hant de es fr ja ko pt-BR ru)
+main_icns_path="${app_dir}/Contents/Resources/AppIcon.icns"
 icon_generator_bin="$(mktemp "${TMPDIR:-/tmp}/dmux-generate-app-icon.XXXXXX")"
 
 cleanup() {
@@ -49,20 +35,61 @@ cleanup() {
 }
 trap cleanup EXIT
 
-compile_bundle_string_catalogs() {
-  local bundle_dir="$1"
-  local catalog_path="${bundle_dir}/Localizable.xcstrings"
-  [[ -f "${catalog_path}" ]] || return 0
-
-  xcrun xcstringstool compile "${catalog_path}" --output-directory "${bundle_dir}" --serialization-format text
+require_command() {
+  local command_name="$1"
+  if ! command -v "${command_name}" >/dev/null 2>&1; then
+    echo "[package] missing required command: ${command_name}" >&2
+    exit 1
+  fi
 }
 
-function build_dir_for_arch() {
-  local arch="$1"
-  swift build -c "${configuration}" --arch "${arch}" --show-bin-path
+ensure_metal_toolchain() {
+  if ! xcrun metal -help >/dev/null 2>&1; then
+    echo "[package] Metal Toolchain is unavailable." >&2
+    echo "[package] Install it with: xcodebuild -downloadComponent MetalToolchain" >&2
+    exit 1
+  fi
 }
 
-function sign_app() {
+generate_app_icons() {
+  rm -rf "${iconset_dir}"
+  mkdir -p "$(dirname "${main_icns_path}")"
+  swiftc -framework AppKit "${root_dir}/scripts/release/generate-app-icon.swift" -o "${icon_generator_bin}"
+  "${icon_generator_bin}" "${iconset_dir}" >/dev/null
+  iconutil -c icns "${iconset_dir}" -o "${main_icns_path}"
+  rm -rf "${iconset_dir}"
+}
+
+build_app() {
+  rm -rf "${build_dir}" "${app_dir}" "${dmg_staging_dir}" "${dmg_path}" "${zip_path}" "${checksums_path}"
+  mkdir -p "${dist_dir}"
+
+  echo "[package] building ${scheme} (${configuration}) for ${arch_list}"
+  xcodebuild \
+    -project "${project_path}" \
+    -scheme "${scheme}" \
+    -configuration "${configuration}" \
+    -derivedDataPath "${build_dir}" \
+    -destination "generic/platform=macOS" \
+    ARCHS="${arch_list}" \
+    ONLY_ACTIVE_ARCH=NO \
+    MARKETING_VERSION="${version}" \
+    CURRENT_PROJECT_VERSION="${build_number}" \
+    CONFIGURATION_BUILD_DIR="${build_products_dir}" \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGN_IDENTITY="" \
+    build
+
+  if [[ ! -d "${built_app_dir}" ]]; then
+    echo "[package] expected built app not found: ${built_app_dir}" >&2
+    exit 1
+  fi
+
+  cp -R "${built_app_dir}" "${app_dir}"
+}
+
+sign_app() {
   if [[ "${codesign_identity}" == "-" ]]; then
     echo "[package] applying ad-hoc signature"
     codesign --force --deep --sign - --timestamp=none "${app_dir}"
@@ -72,12 +99,12 @@ function sign_app() {
   fi
 }
 
-function verify_app_signature() {
+verify_app_signature() {
   echo "[package] verifying bundle signature"
   codesign --verify --deep --strict --verbose=2 "${app_dir}"
 }
 
-function notarize_app_if_needed() {
+notarize_app_if_needed() {
   if [[ "${enable_notarization}" != "1" ]]; then
     return
   fi
@@ -108,176 +135,52 @@ function notarize_app_if_needed() {
   xcrun stapler staple "${app_dir}"
 }
 
-echo "[package] building universal swift package (${configuration}) for: ${target_archs[*]}"
+create_release_artifacts() {
+  echo "[package] preparing dmg staging"
+  mkdir -p "${dmg_staging_dir}"
+  cp -R "${app_dir}" "${dmg_staging_dir}/"
+  ln -s /Applications "${dmg_staging_dir}/Applications"
 
-build_product_dirs=()
-build_bins=()
-notify_helper_bins=()
+  echo "[package] creating dmg at ${dmg_path}"
+  hdiutil create \
+    -volname "${app_name}" \
+    -srcfolder "${dmg_staging_dir}" \
+    -ov \
+    -format UDZO \
+    "${dmg_path}" >/dev/null
+  rm -rf "${dmg_staging_dir}"
 
-for arch in "${target_archs[@]}"; do
-  echo "[package] building architecture ${arch}"
-  swift build -c "${configuration}" --arch "${arch}" >/dev/null
-  swift build -c "${configuration}" --arch "${arch}" --product dmux-notify-helper >/dev/null
+  echo "[package] creating zip at ${zip_path}"
+  ditto -c -k --sequesterRsrc --keepParent "${app_dir}" "${zip_path}"
 
-  build_products_dir="$(build_dir_for_arch "${arch}")"
-  build_bin="${build_products_dir}/${binary_name}"
-  notify_helper_bin="${build_products_dir}/dmux-notify-helper"
+  echo "[package] writing checksums to ${checksums_path}"
+  (
+    cd "${dist_dir}"
+    shasum -a 256 "$(basename "${dmg_path}")" "$(basename "${zip_path}")" > "$(basename "${checksums_path}")"
+  )
+}
 
-  if [[ ! -x "${build_bin}" || ! -x "${notify_helper_bin}" ]]; then
-    echo "[package] missing built binary for ${arch}: ${build_bin}" >&2
-    exit 1
-  fi
+require_command xcodebuild
+require_command xcrun
+require_command swiftc
+require_command iconutil
+require_command codesign
+require_command ditto
+require_command hdiutil
+require_command shasum
 
-  build_product_dirs+=("${build_products_dir}")
-  build_bins+=("${build_bin}")
-  notify_helper_bins+=("${notify_helper_bin}")
-done
-
-echo "[package] assembling app bundle at ${app_dir}"
-rm -rf "${app_dir}" "${dmg_staging_dir}" "${dmg_path}" "${zip_path}" "${checksums_path}" "${iconset_dir}"
-mkdir -p "${macos_dir}" "${resources_dir}" "${helpers_dir}" "${runtime_root}" "${dmg_staging_dir}"
-mkdir -p "${helper_macos_dir}" "${helper_resources_dir}"
-
-if (( ${#build_bins[@]} == 1 )); then
-  cp -f "${build_bins[0]}" "${binary_path}"
-  cp -f "${notify_helper_bins[0]}" "${helper_binary_path}"
-else
-  lipo -create "${build_bins[@]}" -output "${binary_path}"
-  lipo -create "${notify_helper_bins[@]}" -output "${helper_binary_path}"
+if [[ ! -d "${project_path}" ]]; then
+  echo "[package] missing Xcode project: ${project_path}" >&2
+  exit 1
 fi
-chmod +x "${binary_path}" "${helper_binary_path}"
 
-for bundle_path in "${build_product_dirs[0]}"/*.bundle; do
-  if [[ -d "${bundle_path}" ]]; then
-    cp -R "${bundle_path}" "${resources_dir}/"
-    copied_bundle="${resources_dir}/$(basename "${bundle_path}")"
-    compile_bundle_string_catalogs "${copied_bundle}"
-  fi
-done
-
-echo "[package] app binary: $(lipo -info "${binary_path}")"
-echo "[package] notify helper: $(lipo -info "${helper_binary_path}")"
-
-swiftc -framework AppKit "${root_dir}/scripts/release/generate-app-icon.swift" -o "${icon_generator_bin}"
-"${icon_generator_bin}" "${iconset_dir}" >/dev/null
-iconutil -c icns "${iconset_dir}" -o "${icns_path}"
-rm -rf "${iconset_dir}"
-cp -f "${icns_path}" "${helper_resources_dir}/AppIcon.icns"
-
-cp -f "${root_dir}/Package.swift" "${runtime_root}/Package.swift"
-cp -R "${root_dir}/scripts" "${runtime_root}/scripts"
-
-cat > "${plist_path}" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleAllowMixedLocalizations</key>
-  <true/>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>en</string>
-  <key>CFBundleDisplayName</key>
-  <string>${app_name}</string>
-  <key>CFBundleExecutable</key>
-  <string>${binary_name}</string>
-  <key>CFBundleIconFile</key>
-  <string>AppIcon</string>
-  <key>CFBundleIdentifier</key>
-  <string>${bundle_id}</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleLocalizations</key>
-  <array>
-    <string>en</string>
-    <string>zh-Hans</string>
-    <string>zh-Hant</string>
-    <string>de</string>
-    <string>es</string>
-    <string>fr</string>
-    <string>ja</string>
-    <string>ko</string>
-    <string>pt-BR</string>
-    <string>ru</string>
-  </array>
-  <key>CFBundleName</key>
-  <string>${app_name}</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>${version}</string>
-  <key>CFBundleVersion</key>
-  <string>${build_number}</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>14.0</string>
-  <key>NSHighResolutionCapable</key>
-  <true/>
-  <key>NSPrincipalClass</key>
-  <string>NSApplication</string>
-</dict>
-</plist>
-EOF
-
-cat > "${helper_plist_path}" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDisplayName</key>
-  <string>${app_name}</string>
-  <key>CFBundleExecutable</key>
-  <string>dmux-notify-helper</string>
-  <key>CFBundleIconFile</key>
-  <string>AppIcon</string>
-  <key>CFBundleIdentifier</key>
-  <string>${bundle_id}.notify-helper</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>${app_name}</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>${version}</string>
-  <key>CFBundleVersion</key>
-  <string>${build_number}</string>
-  <key>LSUIElement</key>
-  <true/>
-  <key>NSPrincipalClass</key>
-  <string>NSApplication</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>14.0</string>
-</dict>
-</plist>
-EOF
-
-printf 'APPL????' > "${pkginfo_path}"
-printf 'APPL????' > "${helper_pkginfo_path}"
-
+ensure_metal_toolchain
+build_app
+generate_app_icons
 sign_app
 verify_app_signature
 notarize_app_if_needed
-
-echo "[package] preparing dmg staging"
-cp -R "${app_dir}" "${dmg_staging_dir}/"
-ln -s /Applications "${dmg_staging_dir}/Applications"
-
-echo "[package] creating dmg at ${dmg_path}"
-hdiutil create \
-  -volname "${app_name}" \
-  -srcfolder "${dmg_staging_dir}" \
-  -ov \
-  -format UDZO \
-  "${dmg_path}" >/dev/null
-rm -rf "${dmg_staging_dir}"
-
-echo "[package] creating zip at ${zip_path}"
-ditto -c -k --sequesterRsrc --keepParent "${app_dir}" "${zip_path}"
-
-echo "[package] writing checksums to ${checksums_path}"
-(
-  cd "${dist_dir}"
-  shasum -a 256 "$(basename "${dmg_path}")" "$(basename "${zip_path}")" > "$(basename "${checksums_path}")"
-)
+create_release_artifacts
 
 echo "[package] done"
 echo "APP=${app_dir}"

@@ -13,10 +13,6 @@ let package = Package(
             name: "dmux",
             targets: ["DmuxWorkspace"]
         ),
-        .executable(
-            name: "dmux-notify-helper",
-            targets: ["DmuxNotifyHelper"]
-        ),
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", branch: "main"),
@@ -35,15 +31,6 @@ let package = Package(
                 .linkedFramework("UniformTypeIdentifiers"),
                 .linkedFramework("Carbon"),
                 .linkedLibrary("sqlite3"),
-            ]
-        ),
-        .executableTarget(
-            name: "DmuxNotifyHelper",
-            path: "Sources/DmuxNotifyHelper",
-            linkerSettings: [
-                .linkedFramework("AppKit"),
-                .linkedFramework("Foundation"),
-                .linkedFramework("UserNotifications"),
             ]
         ),
     ]

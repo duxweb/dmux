@@ -105,22 +105,19 @@ struct ProjectActivityService: @unchecked Sendable {
                 UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
                     if let error {
                         AppDebugLog.shared.log("notifications", "authorization-on-send error=\(error.localizedDescription)")
-                        fallbackNotifyIfNeeded(projectName: projectName, tool: tool, exitCode: exitCode, reason: "authorization-error")
                         return
                     }
                     AppDebugLog.shared.log("notifications", "authorization-on-send granted=\(granted)")
                     guard granted else {
-                        fallbackNotifyIfNeeded(projectName: projectName, tool: tool, exitCode: exitCode, reason: "authorization-denied")
+                        AppDebugLog.shared.log("notifications", "authorization-on-send denied")
                         return
                     }
                     enqueueNotification(projectName: projectName, tool: tool, exitCode: exitCode)
                 }
             case .denied:
                 AppDebugLog.shared.log("notifications", "enqueue skipped status=denied")
-                fallbackNotifyIfNeeded(projectName: projectName, tool: tool, exitCode: exitCode, reason: "status-denied")
             @unknown default:
                 AppDebugLog.shared.log("notifications", "enqueue skipped status=unknown")
-                fallbackNotifyIfNeeded(projectName: projectName, tool: tool, exitCode: exitCode, reason: "status-unknown")
             }
         }
     }
@@ -141,111 +138,10 @@ struct ProjectActivityService: @unchecked Sendable {
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
                 AppDebugLog.shared.log("notifications", "enqueue failed error=\(error.localizedDescription)")
-                fallbackNotifyIfNeeded(projectName: projectName, tool: tool, exitCode: exitCode, reason: "enqueue-failed")
             } else {
                 AppDebugLog.shared.log("notifications", "enqueue success project=\(projectName) tool=\(tool)")
             }
         }
-    }
-
-    private func fallbackNotifyIfNeeded(projectName: String, tool: String, exitCode: Int?, reason: String) {
-        let title = String(format: String(localized: "project.activity.completed_format", defaultValue: "%@ completed", bundle: .module), tool)
-        let body = exitCode == nil || exitCode == 0
-            ? String(format: String(localized: "project.activity.finished_successfully_format", defaultValue: "%@ finished successfully", bundle: .module), projectName)
-            : String(format: String(localized: "project.activity.finished_with_exit_code_format", defaultValue: "%@ finished with exit code %@", bundle: .module), projectName, "\(exitCode ?? -1)")
-
-        if sendBundledNotificationHelper(title: title, body: body) {
-            AppDebugLog.shared.log("notifications", "fallback success transport=dmux-notify-helper reason=\(reason) project=\(projectName) tool=\(tool)")
-            return
-        }
-        AppDebugLog.shared.log("notifications", "fallback failed reason=\(reason) project=\(projectName) tool=\(tool)")
-    }
-
-    private func sendBundledNotificationHelper(title: String, body: String) -> Bool {
-        if let appBundle = bundledNotificationHelperAppURL() {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            process.arguments = [
-                "-n",
-                appBundle.path,
-                "--args",
-                "--title", title,
-                "--message", body,
-            ]
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-            do {
-                AppDebugLog.shared.log("notifications", "notify-helper app=\(appBundle.path)")
-                try process.run()
-                process.waitUntilExit()
-                if process.terminationStatus == 0 {
-                    return true
-                }
-                let errorOutput = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                AppDebugLog.shared.log("notifications", "notify-helper app exit=\(process.terminationStatus) stderr=\(errorOutput)")
-            } catch {
-                AppDebugLog.shared.log("notifications", "notify-helper app failed error=\(error.localizedDescription)")
-            }
-        }
-
-        guard let executable = bundledNotificationHelperURL() else {
-            return false
-        }
-
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = [
-            "--title", title,
-            "--message", body,
-        ]
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        do {
-            AppDebugLog.shared.log("notifications", "notify-helper exec=\(executable.path)")
-            try process.run()
-            process.waitUntilExit()
-            if process.terminationStatus == 0 {
-                return true
-            }
-            let errorOutput = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            AppDebugLog.shared.log("notifications", "notify-helper exit=\(process.terminationStatus) stderr=\(errorOutput)")
-            return false
-        } catch {
-            AppDebugLog.shared.log("notifications", "notify-helper failed error=\(error.localizedDescription)")
-            return false
-        }
-    }
-
-    private func bundledNotificationHelperAppURL() -> URL? {
-        let candidates = [
-            Bundle.main.resourceURL?.appendingPathComponent("Helpers/dmux-notify-helper.app"),
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Helpers/dmux-notify-helper.app"),
-        ]
-
-        for url in candidates.compactMap({ $0 }) where fileManager.fileExists(atPath: url.path) {
-            return url
-        }
-        return nil
-    }
-
-    private func bundledNotificationHelperURL() -> URL? {
-        let candidates = [
-            Bundle.main.resourceURL?.appendingPathComponent("Helpers/dmux-notify-helper.app/Contents/MacOS/dmux-notify-helper"),
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Helpers/dmux-notify-helper.app/Contents/MacOS/dmux-notify-helper"),
-            Bundle.main.resourceURL?.appendingPathComponent("Helpers/dmux-notify-helper"),
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Helpers/dmux-notify-helper"),
-        ]
-
-        for url in candidates.compactMap({ $0 }) where fileManager.isExecutableFile(atPath: url.path) {
-            return url
-        }
-        return nil
     }
     func writeTestStatus(project: Project, tool: String, phase: String, exitCode: Int? = nil) {
         let fileURL = statusDirectoryURL().appendingPathComponent("\(project.id.uuidString).json")

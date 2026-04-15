@@ -3,9 +3,13 @@
 dist/
 .claude
 .ruff_cache
+.swiftpm
 
 # Xcode user state
 DerivedData/
+.xcode-derive/
+.xcode-release/
+.xcode-dev/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/

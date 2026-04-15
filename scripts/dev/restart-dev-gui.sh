@@ -1,175 +1,108 @@
 #!/bin/zsh
 set -euo pipefail
-setopt null_glob
 
 root_dir="$(cd "$(dirname "$0")/../.." && pwd)"
-configuration="debug"
-app_name="dmux"
-binary_name="dmux"
-bundle_id="com.dmux.dev"
+project_path="${root_dir}/dmux.xcodeproj"
+scheme="dmux"
+configuration="Debug"
+native_arch="${DMUX_ARCHS:-$(uname -m)}"
+build_dir="${root_dir}/.xcode-dev"
+build_products_dir="${build_dir}/Build/Products/${configuration}"
+built_app_dir="${build_products_dir}/dmux.app"
 dev_apps_dir="${HOME}/Applications"
-app_dir="${dev_apps_dir}/${app_name}-dev.app"
-contents_dir="${app_dir}/Contents"
-macos_dir="${contents_dir}/MacOS"
-resources_dir="${contents_dir}/Resources"
-helpers_dir="${resources_dir}/Helpers"
-helper_app_dir="${helpers_dir}/dmux-notify-helper.app"
-helper_contents_dir="${helper_app_dir}/Contents"
-helper_macos_dir="${helper_contents_dir}/MacOS"
-helper_resources_dir="${helper_contents_dir}/Resources"
-plist_path="${contents_dir}/Info.plist"
-helper_plist_path="${helper_contents_dir}/Info.plist"
-launcher_path="${macos_dir}/${binary_name}"
-pkginfo_path="${contents_dir}/PkgInfo"
-helper_pkginfo_path="${helper_contents_dir}/PkgInfo"
-iconset_dir="${app_dir}.iconset"
-icns_path="${resources_dir}/AppIcon.icns"
-localizations=(en zh-Hans zh-Hant de es fr ja ko pt-BR ru)
-icon_generator_bin="$(mktemp "${TMPDIR:-/tmp}/dmux-generate-app-icon.XXXXXX")"
+app_dir="${dev_apps_dir}/dmux-dev.app"
+main_plist_path="${app_dir}/Contents/Info.plist"
+main_icns_path="${app_dir}/Contents/Resources/AppIcon.icns"
+iconset_dir="${build_dir}/AppIcon.iconset"
+icon_generator_bin="$(mktemp "${TMPDIR:-/tmp}/dmux-dev-generate-app-icon.XXXXXX")"
 
 cleanup() {
   rm -f "${icon_generator_bin}"
 }
 trap cleanup EXIT
 
-compile_bundle_string_catalogs() {
-  local bundle_dir="$1"
-  local catalog_path="${bundle_dir}/Localizable.xcstrings"
-  [[ -f "${catalog_path}" ]] || return 0
-
-  xcrun xcstringstool compile "${catalog_path}" --output-directory "${bundle_dir}" --serialization-format text
+require_command() {
+  local command_name="$1"
+  if ! command -v "${command_name}" >/dev/null 2>&1; then
+    print -u2 -- "[dev] missing required command: ${command_name}"
+    exit 1
+  fi
 }
 
-swift build -c "${configuration}" >/dev/null
-swift build -c "${configuration}" --product dmux-notify-helper >/dev/null
-build_products_dir="$(swift build -c "${configuration}" --show-bin-path)"
-build_bin="${build_products_dir}/${binary_name}"
-notify_helper_bin="${build_products_dir}/dmux-notify-helper"
+ensure_metal_toolchain() {
+  if ! xcrun metal -help >/dev/null 2>&1; then
+    print -u2 -- "[dev] Metal Toolchain is unavailable."
+    print -u2 -- "[dev] Install it with: xcodebuild -downloadComponent MetalToolchain"
+    exit 1
+  fi
+}
 
-if [[ ! -x "${build_bin}" || ! -x "${notify_helper_bin}" ]]; then
-  print -u2 -- "missing built binary: ${build_bin}"
+build_app() {
+  rm -rf "${build_dir}"
+  mkdir -p "${build_products_dir}"
+
+  xcodebuild \
+    -project "${project_path}" \
+    -scheme "${scheme}" \
+    -configuration "${configuration}" \
+    -derivedDataPath "${build_dir}" \
+    -destination "platform=macOS" \
+    ARCHS="${native_arch}" \
+    ONLY_ACTIVE_ARCH=YES \
+    CONFIGURATION_BUILD_DIR="${build_products_dir}" \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGN_IDENTITY="" \
+    build
+
+  if [[ ! -d "${built_app_dir}" ]]; then
+    print -u2 -- "[dev] expected built app not found: ${built_app_dir}"
+    exit 1
+  fi
+}
+
+install_dev_bundle() {
+  pkill -x dmux >/dev/null 2>&1 || true
+  mkdir -p "${dev_apps_dir}"
+  rm -rf "${app_dir}"
+  cp -R "${built_app_dir}" "${app_dir}"
+}
+
+update_dev_metadata() {
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.dmux.dev" "${main_plist_path}"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName dmux-dev" "${main_plist_path}" >/dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Set :CFBundleName dmux-dev" "${main_plist_path}" >/dev/null 2>&1 || true
+}
+
+generate_app_icons() {
+  rm -rf "${iconset_dir}"
+  mkdir -p "$(dirname "${main_icns_path}")"
+  swiftc -framework AppKit "${root_dir}/scripts/release/generate-app-icon.swift" -o "${icon_generator_bin}"
+  "${icon_generator_bin}" "${iconset_dir}" >/dev/null
+  iconutil -c icns "${iconset_dir}" -o "${main_icns_path}"
+  rm -rf "${iconset_dir}"
+}
+
+sign_and_launch() {
+  codesign --force --deep --sign - --timestamp=none "${app_dir}" >/dev/null
+  open -n "${app_dir}"
+}
+
+require_command xcodebuild
+require_command xcrun
+require_command swiftc
+require_command iconutil
+require_command codesign
+require_command open
+
+if [[ ! -d "${project_path}" ]]; then
+  print -u2 -- "[dev] missing Xcode project: ${project_path}"
   exit 1
 fi
 
-pkill -x "${binary_name}" >/dev/null 2>&1 || true
-mkdir -p "${dev_apps_dir}"
-mkdir -p "${macos_dir}"
-mkdir -p "${resources_dir}"
-rm -rf "${resources_dir}"/*
-mkdir -p "${helpers_dir}"
-mkdir -p "${helper_macos_dir}" "${helper_resources_dir}"
-rm -f "${launcher_path}"
-rm -rf "${iconset_dir}"
-cp -f "${build_bin}" "${launcher_path}"
-chmod +x "${launcher_path}"
-cp -f "${notify_helper_bin}" "${helper_macos_dir}/dmux-notify-helper"
-chmod +x "${helper_macos_dir}/dmux-notify-helper"
-
-for bundle_path in "${build_products_dir}"/*.bundle; do
-  if [[ -d "${bundle_path}" ]]; then
-    cp -R "${bundle_path}" "${resources_dir}/"
-    copied_bundle="${resources_dir}/$(basename "${bundle_path}")"
-    compile_bundle_string_catalogs "${copied_bundle}"
-  fi
-done
-
-swiftc -framework AppKit "${root_dir}/scripts/release/generate-app-icon.swift" -o "${icon_generator_bin}"
-"${icon_generator_bin}" "${iconset_dir}" >/dev/null
-iconutil -c icns "${iconset_dir}" -o "${icns_path}"
-rm -rf "${iconset_dir}"
-cp -f "${icns_path}" "${helper_resources_dir}/AppIcon.icns"
-
-cat > "${plist_path}" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleAllowMixedLocalizations</key>
-  <true/>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>en</string>
-  <key>CFBundleDisplayName</key>
-  <string>dmux</string>
-  <key>CFBundleExecutable</key>
-  <string>dmux</string>
-  <key>CFBundleIconFile</key>
-  <string>AppIcon</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.dmux.dev</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleLocalizations</key>
-  <array>
-    <string>en</string>
-    <string>zh-Hans</string>
-    <string>zh-Hant</string>
-    <string>de</string>
-    <string>es</string>
-    <string>fr</string>
-    <string>ja</string>
-    <string>ko</string>
-    <string>pt-BR</string>
-    <string>ru</string>
-  </array>
-  <key>CFBundleName</key>
-  <string>dmux</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
-  <key>CFBundleVersion</key>
-  <string>1</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>14.0</string>
-  <key>LSEnvironment</key>
-  <dict>
-    <key>DMUX_WORKSPACE_ROOT</key>
-    <string>__DMUX_WORKSPACE_ROOT__</string>
-  </dict>
-  <key>NSHighResolutionCapable</key>
-  <true/>
-  <key>NSPrincipalClass</key>
-  <string>NSApplication</string>
-</dict>
-</plist>
-PLIST
-
-cat > "${helper_plist_path}" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDisplayName</key>
-  <string>dmux</string>
-  <key>CFBundleExecutable</key>
-  <string>dmux-notify-helper</string>
-  <key>CFBundleIconFile</key>
-  <string>AppIcon</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.dmux.dev.notify-helper</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>dmux</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
-  <key>CFBundleVersion</key>
-  <string>1</string>
-  <key>LSUIElement</key>
-  <true/>
-  <key>NSPrincipalClass</key>
-  <string>NSApplication</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>14.0</string>
-</dict>
-</plist>
-PLIST
-
-perl -0pi -e "s#__DMUX_WORKSPACE_ROOT__#${root_dir//\#/\\#}#g" "${plist_path}"
-printf 'APPL????' > "${pkginfo_path}"
-printf 'APPL????' > "${helper_pkginfo_path}"
-codesign --force --deep --sign - --timestamp=none "${app_dir}" >/dev/null
-
-open -n "${app_dir}"
+ensure_metal_toolchain
+build_app
+install_dev_bundle
+update_dev_metadata
+generate_app_icons
+sign_and_launch
