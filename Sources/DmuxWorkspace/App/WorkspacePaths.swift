@@ -30,6 +30,10 @@ enum WorkspacePaths {
         let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).standardizedFileURL
         candidates.append(currentDirectory)
 
+        if let resourceURL = Bundle.main.resourceURL?.resolvingSymlinksInPath().standardizedFileURL {
+            candidates.append(resourceURL.appendingPathComponent("runtime-root", isDirectory: true))
+        }
+
         if let executableURL = Bundle.main.executableURL?.resolvingSymlinksInPath().standardizedFileURL {
             candidates.append(executableURL)
         }

@@ -29,8 +29,7 @@ helper_contents_dir="${helper_app_dir}/Contents"
 helper_macos_dir="${helper_contents_dir}/MacOS"
 helper_resources_dir="${helper_contents_dir}/Resources"
 runtime_root="${resources_dir}/runtime-root"
-launcher_path="${macos_dir}/${binary_name}"
-binary_path="${macos_dir}/${binary_name}-bin"
+binary_path="${macos_dir}/${binary_name}"
 helper_binary_path="${helper_macos_dir}/dmux-notify-helper"
 plist_path="${contents_dir}/Info.plist"
 helper_plist_path="${helper_contents_dir}/Info.plist"
@@ -147,20 +146,6 @@ else
   lipo -create "${notify_helper_bins[@]}" -output "${helper_binary_path}"
 fi
 chmod +x "${binary_path}" "${helper_binary_path}"
-
-cat > "${launcher_path}" <<'EOF'
-#!/bin/bash
-set -euo pipefail
-
-script_dir="$(cd "$(dirname "$0")" && pwd)"
-contents_dir="$(cd "${script_dir}/.." && pwd)"
-resources_dir="${contents_dir}/Resources"
-runtime_root="${resources_dir}/runtime-root"
-
-export DMUX_WORKSPACE_ROOT="${runtime_root}"
-exec "${script_dir}/dmux-bin" "$@"
-EOF
-chmod +x "${launcher_path}"
 
 for bundle_path in "${build_product_dirs[0]}"/*.bundle; do
   if [[ -d "${bundle_path}" ]]; then
