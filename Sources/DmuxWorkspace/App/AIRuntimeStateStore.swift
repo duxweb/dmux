@@ -6,6 +6,7 @@ import Observation
 final class AIRuntimeStateStore {
     static let shared = AIRuntimeStateStore()
     private let logger = AppDebugLog.shared
+    private let toolDriverFactory = AIToolDriverFactory.shared
 
     struct SessionState: Equatable {
         var sessionID: UUID
@@ -26,6 +27,7 @@ final class AIRuntimeStateStore {
         var contextWindow: Int?
         var contextUsedTokens: Int?
         var contextUsagePercent: Double?
+        var interruptedAt: Double?
     }
 
     var renderVersion: UInt64 = 0
@@ -47,17 +49,30 @@ final class AIRuntimeStateStore {
             return existing?.sessionInstanceID != incoming
         }()
         let incomingResponseState: AIResponseState? = {
-            if envelope.tool == "codex" {
-                // Codex response activity is hook-driven. Ignore the shell live file's
-                // static idle state so it does not overwrite an in-memory responding state.
-                return existing?.responseState
-            }
             if envelope.updatedAt < existingUpdatedAt,
                existing?.responseState == .responding,
                envelope.responseState != .responding {
                 return existing?.responseState
             }
+            if let interruptedAt = existing?.interruptedAt,
+               envelope.responseState == .responding,
+               envelope.updatedAt <= interruptedAt {
+                return existing?.responseState ?? .idle
+            }
             return envelope.responseState ?? (isNewInstance ? nil : existing?.responseState)
+        }()
+        let nextInterruptedAt: Double? = {
+            guard isNewInstance == false else {
+                return nil
+            }
+            guard let interruptedAt = existing?.interruptedAt else {
+                return nil
+            }
+            if envelope.updatedAt > interruptedAt,
+               envelope.responseState == .responding {
+                return nil
+            }
+            return interruptedAt
         }()
         let next = SessionState(
             sessionID: sessionID,
@@ -77,7 +92,8 @@ final class AIRuntimeStateStore {
             totalTokens: isNewInstance ? max(0, envelope.totalTokens ?? 0) : max(envelope.totalTokens ?? 0, existing?.totalTokens ?? 0),
             contextWindow: isNewInstance ? envelope.contextWindow : (envelope.contextWindow ?? existing?.contextWindow),
             contextUsedTokens: isNewInstance ? envelope.contextUsedTokens : (envelope.contextUsedTokens ?? existing?.contextUsedTokens),
-            contextUsagePercent: isNewInstance ? envelope.contextUsagePercent : (envelope.contextUsagePercent ?? existing?.contextUsagePercent)
+            contextUsagePercent: isNewInstance ? envelope.contextUsagePercent : (envelope.contextUsagePercent ?? existing?.contextUsagePercent),
+            interruptedAt: nextInterruptedAt
         )
         let didChange = sessionsByID[sessionID] != next
         apply(next, for: sessionID)
@@ -96,13 +112,34 @@ final class AIRuntimeStateStore {
         guard var existing = sessionsByID[sessionID] else {
             return
         }
-        let didChange = existing.tool != payload.tool || existing.responseState != payload.responseState
+        let nextResponseState: AIResponseState? = {
+            if let interruptedAt = existing.interruptedAt,
+               payload.responseState == .responding,
+               payload.updatedAt <= interruptedAt {
+                return existing.responseState ?? .idle
+            }
+            return payload.responseState
+        }()
+        let nextInterruptedAt: Double? = {
+            guard let interruptedAt = existing.interruptedAt else {
+                return nil
+            }
+            if payload.updatedAt > interruptedAt,
+               payload.responseState == .responding {
+                return nil
+            }
+            return interruptedAt
+        }()
+        let didChange = existing.tool != payload.tool
+            || existing.responseState != nextResponseState
+            || existing.interruptedAt != nextInterruptedAt
         guard didChange else {
             return
         }
         existing.tool = payload.tool
-        existing.responseState = payload.responseState
+        existing.responseState = nextResponseState
         existing.updatedAt = max(existing.updatedAt, payload.updatedAt)
+        existing.interruptedAt = nextInterruptedAt
         apply(existing, for: sessionID)
         logger.log(
             "runtime-store",
@@ -114,6 +151,7 @@ final class AIRuntimeStateStore {
         guard var existing = sessionsByID[sessionID] else {
             return
         }
+        let prefersHookDrivenResponseState = toolDriverFactory.prefersHookDrivenResponseState(for: snapshot.tool)
         existing.tool = snapshot.tool
         existing.externalSessionID = snapshot.externalSessionID ?? existing.externalSessionID
         existing.model = snapshot.model ?? existing.model
@@ -121,7 +159,20 @@ final class AIRuntimeStateStore {
         existing.outputTokens = snapshot.outputTokens
         existing.totalTokens = snapshot.totalTokens
         existing.updatedAt = max(existing.updatedAt, snapshot.updatedAt)
-        existing.responseState = snapshot.responseState ?? existing.responseState
+        if prefersHookDrivenResponseState == false || existing.responseState == nil {
+            if let interruptedAt = existing.interruptedAt,
+               snapshot.responseState == .responding,
+               snapshot.updatedAt <= interruptedAt {
+                existing.responseState = existing.responseState ?? .idle
+            } else {
+                existing.responseState = snapshot.responseState ?? existing.responseState
+                if let interruptedAt = existing.interruptedAt,
+                   snapshot.updatedAt > interruptedAt,
+                   snapshot.responseState == .responding {
+                    existing.interruptedAt = nil
+                }
+            }
+        }
         let didChange = sessionsByID[sessionID] != existing
         apply(existing, for: sessionID)
         if didChange {
@@ -130,6 +181,24 @@ final class AIRuntimeStateStore {
                 "snapshot session=\(sessionID.uuidString) tool=\(existing.tool) model=\(existing.model ?? "nil") response=\(existing.responseState?.rawValue ?? "nil") total=\(existing.totalTokens) external=\(existing.externalSessionID ?? "nil")"
             )
         }
+    }
+
+    @discardableResult
+    func markInterrupted(sessionID: UUID, updatedAt: Double = Date().timeIntervalSince1970) -> Bool {
+        guard var existing = sessionsByID[sessionID],
+              existing.responseState == .responding else {
+            return false
+        }
+
+        existing.responseState = .idle
+        existing.updatedAt = max(existing.updatedAt, updatedAt)
+        existing.interruptedAt = max(existing.interruptedAt ?? 0, updatedAt)
+        apply(existing, for: sessionID)
+        logger.log(
+            "runtime-store",
+            "interrupt session=\(sessionID.uuidString) tool=\(existing.tool) state=\(existing.responseState?.rawValue ?? "nil") updatedAt=\(existing.updatedAt)"
+        )
+        return true
     }
 
     func clearSession(_ sessionID: UUID) {
@@ -191,6 +260,22 @@ final class AIRuntimeStateStore {
 
     func sessionTitle(for sessionID: UUID) -> String? {
         sessionsByID[sessionID]?.sessionTitle
+    }
+
+    func debugSummary(projectID: UUID) -> String {
+        let sessions = sessionsByID.values
+            .filter { $0.projectID == projectID }
+            .sorted { $0.updatedAt > $1.updatedAt }
+
+        guard !sessions.isEmpty else {
+            return "none"
+        }
+
+        return sessions.map { session in
+            let updatedAt = String(format: "%.3f", session.updatedAt)
+            return "session=\(session.sessionID.uuidString) tool=\(session.tool) status=\(session.status) response=\(session.responseState?.rawValue ?? "nil") updatedAt=\(updatedAt)"
+        }
+        .joined(separator: " | ")
     }
 
     private func apply(_ state: SessionState, for sessionID: UUID) {

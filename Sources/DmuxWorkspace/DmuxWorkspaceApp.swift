@@ -176,10 +176,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @MainActor
     private func handleLocalKeyDown(_ event: NSEvent) -> NSEvent? {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let modifiers = normalizedShortcutModifiers(for: event)
+
         if modifiers == [.control],
            event.charactersIgnoringModifiers?.lowercased() == "c",
            handleTerminalInterruptIfNeeded() {
+            return nil
+        }
+
+        if modifiers == [.command],
+           (event.keyCode == 123 || event.keyCode == 124),
+           handleTerminalCommandArrowIfNeeded(event) {
             return nil
         }
 
@@ -203,6 +210,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         model.confirmCloseSelectedSession()
         return nil
+    }
+
+    @MainActor
+    private func normalizedShortcutModifiers(for event: NSEvent) -> NSEvent.ModifierFlags {
+        var modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        modifiers.remove(.numericPad)
+        modifiers.remove(.function)
+        return modifiers
+    }
+
+    @MainActor
+    private func handleTerminalCommandArrowIfNeeded(_ event: NSEvent) -> Bool {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              isStandardChromeWindow(window) == false else {
+            return false
+        }
+
+        return SwiftTermTerminalRegistry.shared.sendNativeCommandArrow(
+            keyCode: event.keyCode,
+            responder: window.firstResponder
+        )
     }
 
     @MainActor

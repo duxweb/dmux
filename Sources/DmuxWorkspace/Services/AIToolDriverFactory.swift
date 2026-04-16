@@ -111,6 +111,15 @@ struct AIToolDriverFactory: Sendable {
         driver(for: tool)?.isRealtimeTool ?? false
     }
 
+    func prefersHookDrivenResponseState(for tool: String) -> Bool {
+        switch canonicalToolName(tool) {
+        case "claude", "codex":
+            return true
+        default:
+            return false
+        }
+    }
+
     func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities {
         driver(for: session.lastTool)?.sessionCapabilities(for: session) ?? .none
     }

@@ -1024,21 +1024,26 @@ final class AppModel {
     }
 
     func selectSession(_ sessionID: UUID) {
+        guard selectedSessionID != sessionID else {
+            return
+        }
         mutateSelectedWorkspace { workspace, _ in
             workspace.selectedSessionID = sessionID
+            terminalFocusRequestID = sessionID
         }
-        terminalFocusRenderVersion &+= 1
         refreshAIStatsIfNeeded()
     }
 
     func selectBottomTabSession(_ sessionID: UUID) {
+        guard selectedSessionID != sessionID else {
+            return
+        }
         mutateSelectedWorkspace { workspace, _ in
             guard workspace.bottomTabSessionIDs.contains(sessionID) else { return }
             workspace.selectedBottomTabSessionID = sessionID
             workspace.selectedSessionID = sessionID
             terminalFocusRequestID = sessionID
         }
-        terminalFocusRenderVersion &+= 1
         refreshAIStatsIfNeeded()
     }
 
@@ -1059,7 +1064,24 @@ final class AppModel {
             return false
         }
         terminalFocusRequestID = sessionID
-        return SwiftTermTerminalRegistry.shared.sendInterrupt(to: sessionID)
+        let didSend = SwiftTermTerminalRegistry.shared.sendInterrupt(to: sessionID)
+        guard didSend else {
+            return false
+        }
+
+        if runtimeStore.markInterrupted(sessionID: sessionID) {
+            NotificationCenter.default.post(
+                name: .dmuxAIRuntimeActivityPulse,
+                object: nil
+            )
+            NotificationCenter.default.post(
+                name: .dmuxAIRuntimeBridgeDidChange,
+                object: nil,
+                userInfo: ["kind": "interrupt"]
+            )
+        }
+
+        return true
     }
 
     func session(for sessionID: UUID) -> TerminalSession? {
@@ -1069,14 +1091,18 @@ final class AppModel {
     func activityPhase(for projectID: UUID) -> ProjectActivityPhase {
         let runtimePhase = runtimeStore.projectPhase(projectID: projectID)
         if runtimePhase != .idle {
+            logActivityPhaseResolution(projectID: projectID, source: "runtime", phase: runtimePhase)
             return runtimePhase
         }
         if let phase = activityByProjectID[projectID], phase != .idle {
             if case .running(let tool) = phase, isRealtimeAITool(tool) {
+                logActivityPhaseResolution(projectID: projectID, source: "cached-realtime->idle", phase: .idle)
                 return .idle
             }
+            logActivityPhaseResolution(projectID: projectID, source: "cached", phase: phase)
             return phase
         }
+        logActivityPhaseResolution(projectID: projectID, source: "default", phase: .idle)
         return .idle
     }
 
@@ -1991,6 +2017,7 @@ final class AppModel {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                self?.logApplicationActivationActivity()
                 self?.performanceMonitor.setApplicationActive(true)
                 self?.updateGitRemoteSyncPolling()
                 self?.refreshAIStatsIfNeeded()
@@ -2509,6 +2536,31 @@ final class AppModel {
         case .completed(let tool, _, let exitCode):
             return "completed:\(tool):\(exitCode.map(String.init) ?? "nil")"
         }
+    }
+
+    private func logActivityPhaseResolution(projectID: UUID, source: String, phase: ProjectActivityPhase) {
+        let projectName = projects.first(where: { $0.id == projectID })?.name ?? projectID.uuidString
+        let cachedPhase = activityByProjectID[projectID].map(debugActivityDescription) ?? "nil"
+        let runtimeSummary = runtimeStore.debugSummary(projectID: projectID)
+        debugLog.log(
+            "activity-phase",
+            "project=\(projectName) source=\(source) phase=\(debugActivityDescription(phase)) cached=\(cachedPhase) runtime=\(runtimeSummary)"
+        )
+    }
+
+    private func logApplicationActivationActivity() {
+        guard let project = selectedProject else {
+            debugLog.log("app-activation", "selectedProject=nil")
+            return
+        }
+
+        let runtimePhase = runtimeStore.projectPhase(projectID: project.id)
+        let cachedPhase = activityByProjectID[project.id].map(debugActivityDescription) ?? "nil"
+        let runtimeSummary = runtimeStore.debugSummary(projectID: project.id)
+        debugLog.log(
+            "app-activation",
+            "project=\(project.name) runtimePhase=\(debugActivityDescription(runtimePhase)) cached=\(cachedPhase) runtime=\(runtimeSummary)"
+        )
     }
 
     private func isRealtimeAITool(_ tool: String) -> Bool {

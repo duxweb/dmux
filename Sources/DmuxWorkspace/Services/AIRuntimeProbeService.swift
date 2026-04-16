@@ -21,54 +21,6 @@ struct AIRuntimeSourceLocator {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/state_5.sqlite", isDirectory: false)
     }
 
-    static func codexSessionDirectoryURL(startedAt: Double?) -> URL? {
-        let date = startedAt.map { Date(timeIntervalSince1970: $0) } ?? Date()
-        let calendar = Calendar(identifier: .gregorian)
-        let components = calendar.dateComponents(in: TimeZone(secondsFromGMT: 0) ?? .gmt, from: date)
-        guard let year = components.year,
-              let month = components.month,
-              let day = components.day else {
-            return nil
-        }
-
-        return URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".codex/sessions", isDirectory: true)
-            .appendingPathComponent(String(format: "%04d", year), isDirectory: true)
-            .appendingPathComponent(String(format: "%02d", month), isDirectory: true)
-            .appendingPathComponent(String(format: "%02d", day), isDirectory: true)
-    }
-
-    static func codexLatestSessionFile(projectPath: String, startedAt: Double?) -> URL? {
-        guard let directoryURL = codexSessionDirectoryURL(startedAt: startedAt),
-              let fileURLs = try? FileManager.default.contentsOfDirectory(
-                  at: directoryURL,
-                  includingPropertiesForKeys: [.contentModificationDateKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
-
-        let candidates = fileURLs
-            .filter { $0.pathExtension == "jsonl" }
-            .sorted {
-                let lhs = ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast)
-                let rhs = ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast)
-                return lhs > rhs
-            }
-
-        for candidate in candidates {
-            guard let data = try? Data(contentsOf: candidate),
-                  let text = String(data: data.suffix(131_072), encoding: .utf8) else {
-                continue
-            }
-            if text.contains(projectPath) {
-                return candidate
-            }
-        }
-
-        return candidates.first
-    }
-
     static func opencodeDatabaseURL() -> URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/share/opencode/opencode.db", isDirectory: false)
     }
@@ -150,13 +102,6 @@ struct AIRuntimeContextSnapshot {
     var responseState: AIResponseState?
 }
 
-struct CodexParsedRuntimeState {
-    var model: String?
-    var totalTokens: Int?
-    var updatedAt: Double?
-    var responseState: AIResponseState?
-}
-
 struct GeminiParsedRuntimeState {
     var externalSessionID: String
     var title: String?
@@ -167,121 +112,6 @@ struct GeminiParsedRuntimeState {
     var startedAt: Double
     var updatedAt: Double
     var responseState: AIResponseState?
-}
-
-func parseCodexRolloutRuntimeState(fileURL: URL?) -> CodexParsedRuntimeState? {
-    parseCodexRuntimeState(fileURL: fileURL, projectPath: nil)
-}
-
-func parseCodexSessionRuntimeState(fileURL: URL?, projectPath: String) -> CodexParsedRuntimeState? {
-    parseCodexRuntimeState(fileURL: fileURL, projectPath: projectPath)
-}
-
-private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> CodexParsedRuntimeState? {
-    guard let fileURL,
-          FileManager.default.fileExists(atPath: fileURL.path) else {
-        return nil
-    }
-
-    let lines = tailJSONLinesFromFile(at: fileURL)
-    guard !lines.isEmpty else {
-        return nil
-    }
-
-    var latestModel: String?
-    var latestUpdatedAt: Double?
-    var latestStartedAt: Double?
-    var latestCompletedAt: Double?
-    var totalTokens: Int?
-
-    for line in lines {
-        guard let data = line.data(using: .utf8),
-              let row = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            continue
-        }
-
-        let timestamp = (row["timestamp"] as? String).flatMap(parseCodexISO8601Date)?.timeIntervalSince1970
-        if let timestamp {
-            latestUpdatedAt = max(latestUpdatedAt ?? timestamp, timestamp)
-        }
-
-        let payload = row["payload"] as? [String: Any] ?? [:]
-        if row["type"] as? String == "turn_context",
-           let model = payload["model"] as? String,
-           !model.isEmpty,
-           projectPath == nil || (payload["cwd"] as? String) == projectPath {
-            latestModel = model
-            continue
-        }
-
-        guard row["type"] as? String == "event_msg",
-              let eventType = payload["type"] as? String else {
-            continue
-        }
-
-        switch eventType {
-        case "task_started":
-            if let started = payload["started_at"] as? NSNumber {
-                latestStartedAt = started.doubleValue
-            } else if let timestamp {
-                latestStartedAt = timestamp
-            }
-        case "task_complete":
-            if let completed = payload["completed_at"] as? NSNumber {
-                latestCompletedAt = completed.doubleValue
-            } else if let timestamp {
-                latestCompletedAt = timestamp
-            }
-        case "token_count":
-            let info = payload["info"] as? [String: Any] ?? [:]
-            let totalUsage = info["total_token_usage"] as? [String: Any] ?? [:]
-            if let total = totalUsage["total_tokens"] as? NSNumber {
-                totalTokens = total.intValue
-            }
-        default:
-            continue
-        }
-    }
-
-    let responseState: AIResponseState? = {
-        guard let latestStartedAt else {
-            return nil
-        }
-        if let latestCompletedAt, latestCompletedAt >= latestStartedAt {
-            return .idle
-        }
-        return .responding
-    }()
-
-    return CodexParsedRuntimeState(
-        model: latestModel,
-        totalTokens: totalTokens,
-        updatedAt: latestUpdatedAt,
-        responseState: responseState
-    )
-}
-
-private func tailJSONLinesFromFile(at fileURL: URL, maxBytes: Int = 262_144) -> [String] {
-    guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
-        return []
-    }
-    defer {
-        try? handle.close()
-    }
-
-    let fileSize = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-    let offset = max(0, fileSize - maxBytes)
-    try? handle.seek(toOffset: UInt64(offset))
-    let data = handle.readDataToEndOfFile()
-    guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
-        return []
-    }
-
-    let lines = text.split(separator: "\n").map(String.init)
-    if offset == 0 {
-        return lines
-    }
-    return Array(lines.dropFirst())
 }
 
 private func parseCodexISO8601Date(_ value: String) -> Date? {
@@ -608,7 +438,11 @@ private actor ClaudeRuntimeLogCache {
             )
             let rowType = row["type"] as? String
             if rowType == "user" {
-                aggregate.lastUserAt = max(aggregate.lastUserAt, timestamp)
+                if isClaudeInterruptedRow(row) {
+                    aggregate.lastCompletionAt = max(aggregate.lastCompletionAt, timestamp)
+                } else {
+                    aggregate.lastUserAt = max(aggregate.lastUserAt, timestamp)
+                }
             } else if rowType == "assistant" {
                 let stopReason = message["stop_reason"] as? String
                 if stopReason == "end_turn" {
@@ -658,6 +492,28 @@ private actor ClaudeRuntimeLogCache {
         aggregate.lastUserAt = max(aggregate.lastUserAt, contribution.lastUserAt)
         aggregate.lastCompletionAt = max(aggregate.lastCompletionAt, contribution.lastCompletionAt)
         return aggregate
+    }
+
+    private func isClaudeInterruptedRow(_ row: [String: Any]) -> Bool {
+        if let toolUseResult = row["toolUseResult"] as? [String: Any],
+           let interrupted = toolUseResult["interrupted"] as? Bool,
+           interrupted {
+            return true
+        }
+
+        let message = row["message"] as? [String: Any] ?? [:]
+        if let content = message["content"] as? String {
+            return content.contains("[Request interrupted by user]")
+        }
+        if let items = message["content"] as? [[String: Any]] {
+            for item in items {
+                if let text = item["text"] as? String,
+                   text.contains("[Request interrupted by user]") {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private func parseISO8601Date(_ value: String) -> Date? {
@@ -758,22 +614,9 @@ actor AIRuntimeContextProbe {
                 return nil
             }
 
-            var model = sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 0))
-            var totalTokens = Int(sqlite3_column_int64(statement, 1))
-            var updatedAt = sqlite3_column_double(statement, 2)
-            let parsedState = parseCodexSessionRuntimeState(
-                fileURL: AIRuntimeSourceLocator.codexLatestSessionFile(projectPath: projectPath, startedAt: startedAt),
-                projectPath: projectPath
-            )
-            if let parsedModel = parsedState?.model, !parsedModel.isEmpty {
-                model = parsedModel
-            }
-            if let parsedTotalTokens = parsedState?.totalTokens {
-                totalTokens = parsedTotalTokens
-            }
-            if let parsedUpdatedAt = parsedState?.updatedAt {
-                updatedAt = max(updatedAt, parsedUpdatedAt)
-            }
+            let model = sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 0))
+            let totalTokens = Int(sqlite3_column_int64(statement, 1))
+            let updatedAt = sqlite3_column_double(statement, 2)
             return AIRuntimeContextSnapshot(
                 tool: "codex",
                 externalSessionID: threadID,
@@ -782,7 +625,7 @@ actor AIRuntimeContextProbe {
                 outputTokens: 0,
                 totalTokens: totalTokens,
                 updatedAt: updatedAt,
-                responseState: parsedState?.responseState
+                responseState: nil
             )
         }
 
@@ -813,22 +656,9 @@ actor AIRuntimeContextProbe {
 
         codexThreadIDByRuntimeSessionID[runtimeSessionID] = threadID
 
-        var model = sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 1))
-        var totalTokens = Int(sqlite3_column_int64(statement, 2))
-        var updatedAt = sqlite3_column_double(statement, 3)
-        let parsedState = parseCodexSessionRuntimeState(
-            fileURL: AIRuntimeSourceLocator.codexLatestSessionFile(projectPath: projectPath, startedAt: startedAt),
-            projectPath: projectPath
-        )
-        if let parsedModel = parsedState?.model, !parsedModel.isEmpty {
-            model = parsedModel
-        }
-        if let parsedTotalTokens = parsedState?.totalTokens {
-            totalTokens = parsedTotalTokens
-        }
-        if let parsedUpdatedAt = parsedState?.updatedAt {
-            updatedAt = max(updatedAt, parsedUpdatedAt)
-        }
+        let model = sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 1))
+        let totalTokens = Int(sqlite3_column_int64(statement, 2))
+        let updatedAt = sqlite3_column_double(statement, 3)
         return AIRuntimeContextSnapshot(
             tool: "codex",
             externalSessionID: threadID,
@@ -837,7 +667,7 @@ actor AIRuntimeContextProbe {
             outputTokens: 0,
             totalTokens: totalTokens,
             updatedAt: updatedAt,
-            responseState: parsedState?.responseState
+            responseState: nil
         )
     }
 

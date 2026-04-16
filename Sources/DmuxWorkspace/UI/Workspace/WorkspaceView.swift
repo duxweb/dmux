@@ -69,6 +69,10 @@ private struct WorkspaceProjectView: View {
             }
         )
         .background(model.terminalChromeColor)
+        .id("workspace-\(workspace.projectID.uuidString)")
+        .transaction { transaction in
+            transaction.disablesAnimations = true
+        }
     }
 }
 
@@ -136,10 +140,13 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
     private let logger = AppDebugLog.shared
     private let paneSplitView = DividerStyledHorizontalSplitView()
     private var paneHosts: [UUID: NSHostingController<TerminalPaneView>] = [:]
+    private var lastRenderedSessionByID: [UUID: TerminalSession] = [:]
     private var currentSessionIDs: [UUID] = []
     private var currentWorkspace: ProjectWorkspace
     private var activeTerminalSessionID: UUID?
+    private var lastRenderedFocusedSessionID: UUID?
     private var showsInactiveOverlay: Bool
+    private var lastRenderedShowsInactiveOverlay: Bool
     private var dividerColor: NSColor
     private let minimumPaneWidth: CGFloat = 220
     private var isApplyingLayout = false
@@ -150,6 +157,7 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         self.currentWorkspace = workspace
         self.activeTerminalSessionID = activeTerminalSessionID
         self.showsInactiveOverlay = showsInactiveOverlay
+        self.lastRenderedShowsInactiveOverlay = showsInactiveOverlay
         self.dividerColor = dividerColor
         super.init(nibName: nil, bundle: nil)
         logger.log(
@@ -226,20 +234,10 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
                 logger.log("startup-ui", "top-pane reuse-host session=\(session.id.uuidString)")
             } else {
                 host = NSHostingController(
-                    rootView: TerminalPaneView(
-                        model: model,
-                        session: session,
-                        terminalBackgroundPreset: model.terminalBackgroundPreset,
-                        isFocused: sessionID == activeTerminalSessionID,
-                        isVisible: true,
-                        showsInactiveOverlay: showsInactiveOverlay,
-                        prefersReducedMemoryMode: showsInactiveOverlay,
-                        onSelect: { self.model.selectSession(sessionID) },
-                        onClose: { self.model.closeSession(sessionID) },
-                        showsCloseButton: true
-                    )
+                    rootView: makePaneView(session: session, sessionID: sessionID)
                 )
                 paneHosts[sessionID] = host
+                lastRenderedSessionByID[sessionID] = session
                 logger.log("startup-ui", "top-pane create-host session=\(session.id.uuidString)")
             }
 
@@ -256,6 +254,8 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
 
         let validIDs = Set(workspace.topSessionIDs)
         paneHosts = paneHosts.filter { validIDs.contains($0.key) }
+        lastRenderedSessionByID = lastRenderedSessionByID.filter { validIDs.contains($0.key) }
+        lastRenderedFocusedSessionID = activeTerminalSessionID
 
         DispatchQueue.main.async { [weak self] in
             self?.applyRatiosIfNeeded()
@@ -263,21 +263,45 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
     }
 
     private func updatePaneViews(for workspace: ProjectWorkspace) {
-        for sessionID in workspace.topSessionIDs {
-            guard let session = workspace.sessions.first(where: { $0.id == sessionID }), let host = paneHosts[sessionID] else { continue }
-            host.rootView = TerminalPaneView(
-                model: model,
-                session: session,
-                terminalBackgroundPreset: model.terminalBackgroundPreset,
-                isFocused: sessionID == activeTerminalSessionID,
-                isVisible: true,
-                showsInactiveOverlay: showsInactiveOverlay,
-                prefersReducedMemoryMode: showsInactiveOverlay,
-                onSelect: { self.model.selectSession(sessionID) },
-                onClose: { self.model.closeSession(sessionID) },
-                showsCloseButton: true
-            )
+        let sessionsByID = Dictionary(uniqueKeysWithValues: workspace.sessions.map { ($0.id, $0) })
+        var sessionsToUpdate = Set<UUID>()
+
+        if lastRenderedShowsInactiveOverlay != showsInactiveOverlay {
+            sessionsToUpdate.formUnion(workspace.topSessionIDs)
+        } else {
+            sessionsToUpdate.formUnion([lastRenderedFocusedSessionID, activeTerminalSessionID].compactMap { $0 })
         }
+
+        for sessionID in workspace.topSessionIDs {
+            guard let session = sessionsByID[sessionID] else { continue }
+            if lastRenderedSessionByID[sessionID] != session {
+                sessionsToUpdate.insert(sessionID)
+            }
+        }
+
+        for sessionID in sessionsToUpdate {
+            guard let session = sessionsByID[sessionID], let host = paneHosts[sessionID] else { continue }
+            host.rootView = makePaneView(session: session, sessionID: sessionID)
+            lastRenderedSessionByID[sessionID] = session
+        }
+
+        lastRenderedFocusedSessionID = activeTerminalSessionID
+        lastRenderedShowsInactiveOverlay = showsInactiveOverlay
+    }
+
+    private func makePaneView(session: TerminalSession, sessionID: UUID) -> TerminalPaneView {
+        TerminalPaneView(
+            model: model,
+            session: session,
+            terminalBackgroundPreset: model.terminalBackgroundPreset,
+            isFocused: sessionID == activeTerminalSessionID,
+            isVisible: true,
+            showsInactiveOverlay: showsInactiveOverlay,
+            prefersReducedMemoryMode: showsInactiveOverlay,
+            onSelect: { self.model.selectSession(sessionID) },
+            onClose: { self.model.closeSession(sessionID) },
+            showsCloseButton: true
+        )
     }
 
     private func applyRatiosIfNeeded() {
@@ -706,9 +730,6 @@ private struct TerminalPaneView: View {
             }
         }
         .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded {
-            onSelect()
-        })
         .onHover { hovering in
             isHovered = hovering
         }

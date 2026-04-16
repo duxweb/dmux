@@ -40,8 +40,6 @@ private struct TitlebarOverlayView: View {
     let model: AppModel
     @State private var isShowingLevelPopover = false
 
-    private let rowHeight: CGFloat = 24
-
     var body: some View {
         let _ = model.aiStatsStore.renderVersion
         let _ = model.performanceMonitor.renderVersion
@@ -70,7 +68,7 @@ private struct TitlebarOverlayView: View {
                     }
                 }
                 .padding(.leading, 86)
-                .frame(height: rowHeight, alignment: .center)
+                .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
                 .frame(maxHeight: .infinity, alignment: .leading)
 
                 Spacer(minLength: 0)
@@ -123,13 +121,13 @@ private struct TitlebarOverlayView: View {
                     }
                 }
                 .padding(.trailing, 16)
-                .frame(height: rowHeight, alignment: .center)
+                .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
                 .frame(maxHeight: .infinity, alignment: .center)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
             ProjectTitleView(project: model.selectedProject)
-                .frame(height: rowHeight, alignment: .center)
+                .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -145,6 +143,15 @@ private struct TitlebarOverlayView: View {
         }
         return model.aiStatsStore.totalTodayTokensAcrossProjects(model.projects)
     }
+}
+
+private enum TitlebarControlMetrics {
+    static let rowHeight: CGFloat = 30
+    static let iconButtonSize: CGFloat = 30
+    static let glyphIconSize: CGFloat = 15
+    static let pillHeight: CGFloat = 26
+    static let glyphCornerRadius: CGFloat = 7
+    static let pillCornerRadius: CGFloat = 9
 }
 
 private struct TitlebarPerformanceMonitorView: View {
@@ -195,15 +202,16 @@ private struct TitlebarPerformanceMonitorView: View {
         .environment(\.symbolVariants, .none)
         .padding(.leading, 9)
         .padding(.trailing, 10)
-        .frame(height: 26)
+        .frame(height: TitlebarControlMetrics.pillHeight)
         .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous)
                 .fill(AppTheme.emphasizedControlFill)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous)
                 .stroke(AppTheme.titlebarControlBorder, lineWidth: 0.5)
         )
+        .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
         .floatingTooltip(
             String(localized: "settings.developer.performance_monitor", defaultValue: "Performance Monitor HUD", bundle: .module),
             placement: .below
@@ -597,15 +605,13 @@ private struct TitlebarGlyphButton: View {
     let help: String
     let action: () -> Void
     @State private var isHovered = false
-    private let buttonSize: CGFloat = 30
-    private let iconSize: CGFloat = 15
 
     private var opticalOffset: CGFloat {
         switch symbol {
         case "terminal":
             return -0.5
         case "rectangle.split.2x1", "rectangle.split.1x2":
-            return 0.5
+            return 0
         case "sidebar.left", "sidebar.right":
             return 0.25
         case "scroll":
@@ -618,19 +624,19 @@ private struct TitlebarGlyphButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: TitlebarControlMetrics.glyphCornerRadius, style: .continuous)
                     .fill(isHovered ? Color(nsColor: .quaternarySystemFill) : Color.clear)
 
                 Image(systemName: symbol)
-                    .font(.system(size: iconSize, weight: .regular))
+                    .font(.system(size: TitlebarControlMetrics.glyphIconSize, weight: .regular))
                     .foregroundStyle(isHovered ? AppTheme.textPrimary : AppTheme.textSecondary)
                     .offset(y: opticalOffset)
-                    .frame(width: iconSize, height: iconSize)
+                    .frame(width: TitlebarControlMetrics.glyphIconSize, height: TitlebarControlMetrics.glyphIconSize)
             }
-            .frame(width: buttonSize, height: buttonSize)
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .frame(width: TitlebarControlMetrics.iconButtonSize, height: TitlebarControlMetrics.iconButtonSize)
+            .contentShape(RoundedRectangle(cornerRadius: TitlebarControlMetrics.glyphCornerRadius, style: .continuous))
         }
-        .frame(width: buttonSize, height: buttonSize)
+        .frame(width: TitlebarControlMetrics.iconButtonSize, height: TitlebarControlMetrics.iconButtonSize)
         .buttonStyle(.plain)
         .floatingTooltip(help, placement: .below)
         .onHover { hovering in
@@ -653,7 +659,6 @@ private struct TitlebarOpenSplitButton: View {
 
     @State private var isHovered = false
 
-    private let controlHeight: CGFloat = 26
     private let primaryWidth: CGFloat = 30
     private let menuWidth: CGFloat = 22
 
@@ -662,7 +667,7 @@ private struct TitlebarOpenSplitButton: View {
             Button(action: primaryAction) {
                 PrimaryOpenIconView(prefersVSCode: prefersVSCode)
                     .frame(width: 16, height: 16)
-                    .frame(width: primaryWidth, height: controlHeight)
+                    .frame(width: primaryWidth, height: TitlebarControlMetrics.pillHeight)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -730,30 +735,31 @@ private struct TitlebarOpenSplitButton: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(isEnabled ? AppTheme.textSecondary : AppTheme.textMuted)
-                    .frame(width: menuWidth, height: controlHeight)
+                    .frame(width: menuWidth, height: TitlebarControlMetrics.pillHeight)
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .disabled(!isEnabled)
         }
-        .frame(width: primaryWidth + menuWidth + 1, height: controlHeight)
+        .frame(width: primaryWidth + menuWidth + 1, height: TitlebarControlMetrics.pillHeight)
         .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous)
                 .fill(isHovered ? AppTheme.titlebarControlHoverFill : AppTheme.emphasizedControlFill)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous)
                 .stroke(isHovered ? AppTheme.titlebarControlHoverBorder : AppTheme.titlebarControlBorder, lineWidth: 0.5)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous))
         .floatingTooltip(
             prefersVSCode
             ? String(localized: "open.project.vscode", defaultValue: "Open Project in VS Code", bundle: .module)
             : String(localized: "open.project.finder", defaultValue: "Open Project in Finder", bundle: .module),
             placement: .below
         )
+        .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
         .onHover { hovering in
             isHovered = hovering
         }
@@ -777,19 +783,17 @@ private struct TitlebarAITodayLevelButton: View {
         } label: {
             HStack(alignment: .center, spacing: 6) {
                 AITodayLevelBadge(level: level, size: 19, compact: true)
-                    .offset(y: 0.4)
 
                 Text(level.localizedTitle(using: model))
                     .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(AppTheme.textPrimary.opacity(isShowingPopover || isHovered ? 1 : 0.9))
                     .lineLimit(1)
-                    .offset(y: 0.4)
             }
             .padding(.leading, 8)
             .padding(.trailing, 10)
-            .frame(height: 26)
+            .frame(height: TitlebarControlMetrics.pillHeight)
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous)
                     .fill(
                         isShowingPopover
                         ? level.accent.opacity(0.2)
@@ -797,7 +801,7 @@ private struct TitlebarAITodayLevelButton: View {
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous)
                     .stroke(
                         isShowingPopover
                         ? level.accent.opacity(0.3)
@@ -805,14 +809,15 @@ private struct TitlebarAITodayLevelButton: View {
                         lineWidth: 0.5
                     )
             )
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .floatingTooltip(String(localized: "ai.today_level", defaultValue: "Today's Level", bundle: .module), enabled: !isShowingPopover, placement: .below)
         .popover(isPresented: $isShowingPopover, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
             AITodayLevelPopover(model: model, tokens: tokens, currentLevel: level)
         }
+        .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
         .onHover { hovering in
             isHovered = hovering
         }
@@ -1104,6 +1109,6 @@ private struct ProjectTitleView: View {
             .foregroundStyle(AppTheme.textPrimary)
             .lineLimit(1)
             .frame(maxWidth: 260)
-            .frame(height: 28, alignment: .center)
+            .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
     }
 }

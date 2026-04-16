@@ -69,17 +69,25 @@ log_line() {
   print -r -- "[$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')] [wrapper] $1" >> "${DMUX_LOG_FILE}"
 }
 
+now() {
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    printf "%.3f" "${EPOCHREALTIME}"
+  elif [[ -n "${EPOCHSECONDS:-}" ]]; then
+    printf "%.3f" "${EPOCHSECONDS}"
+  else
+    /bin/date +%s | awk '{ printf "%.3f", $1 }'
+  fi
+}
+
 send_usage_runtime_event() {
+  local phase="${1:-running}"
+  local external_session_id="${2:-}"
+  local model="${3:-}"
+
   [[ -n "${DMUX_RUNTIME_SOCKET:-}" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_PROJECT_ID:-}" ]] || return 0
   command -v /usr/bin/nc >/dev/null 2>&1 || return 0
-  local external_session_id="${1:-}"
-  local model="${2:-}"
   local now
-  now="$(python3 - <<'PY'
-import time
-print(f"{time.time():.3f}")
-PY
-)"
+  now="$(now)"
   local payload
   payload="$(
     {
@@ -100,17 +108,25 @@ PY
       print -rn -- "\"projectName\":\"$(json_escape "${DMUX_PROJECT_NAME:-Workspace}")\","
       print -rn -- "\"projectPath\":\"$(json_escape "${DMUX_PROJECT_PATH:-}")\","
       print -rn -- "\"sessionTitle\":\"$(json_escape "${DMUX_SESSION_TITLE:-Terminal}")\","
-      print -rn -- "\"tool\":\"$(json_escape "${tool_name}")\","
+      print -rn -- "\"tool\":\"$(json_escape "${DMUX_ACTIVE_AI_TOOL:-$tool_name}")\","
       if [[ -n "${model}" ]]; then
         print -rn -- "\"model\":\"$(json_escape "${model}")\","
       else
         print -rn -- "\"model\":null,"
       fi
-      print -rn -- "\"status\":\"running\","
-      print -rn -- "\"responseState\":null,"
+      print -rn -- "\"status\":\"$(json_escape "${phase}")\","
+      if [[ "${phase}" == "running" && ( "${DMUX_ACTIVE_AI_TOOL:-$tool_name}" == "codex" || "${DMUX_ACTIVE_AI_TOOL:-$tool_name}" == "claude" || "${DMUX_ACTIVE_AI_TOOL:-$tool_name}" == "claude-code" || "${DMUX_ACTIVE_AI_TOOL:-$tool_name}" == "gemini" ) ]]; then
+        print -rn -- "\"responseState\":null,"
+      else
+        print -rn -- "\"responseState\":\"idle\","
+      fi
       print -rn -- "\"updatedAt\":${now},"
-      print -rn -- "\"startedAt\":${now},"
-      print -rn -- "\"finishedAt\":null,"
+      print -rn -- "\"startedAt\":${DMUX_ACTIVE_AI_STARTED_AT:-$now},"
+      if [[ "${phase}" == "running" ]]; then
+        print -rn -- "\"finishedAt\":null,"
+      else
+        print -rn -- "\"finishedAt\":${now},"
+      fi
       print -rn -- "\"inputTokens\":0,"
       print -rn -- "\"outputTokens\":0,"
       print -rn -- "\"totalTokens\":0,"
@@ -121,7 +137,19 @@ PY
     }
   )"
   print -r -- "${payload}" | /usr/bin/nc -U -w 1 "${DMUX_RUNTIME_SOCKET}" >/dev/null 2>&1 || true
-  log_line "launch usage event tool=${tool_name} session=${DMUX_SESSION_ID} externalSession=${external_session_id:-nil}"
+  log_line "usage event tool=${DMUX_ACTIVE_AI_TOOL:-$tool_name} phase=${phase} session=${DMUX_SESSION_ID} externalSession=${external_session_id:-nil}"
+}
+
+run_wrapped_command() {
+  local external_session_id="${1:-}"
+  local model="${2:-}"
+  shift 2
+
+  "$@"
+  local exit_code=$?
+  send_usage_runtime_event completed "${external_session_id}" "${model}"
+  log_line "process exit tool=${DMUX_ACTIVE_AI_TOOL:-$tool_name} session=${DMUX_SESSION_ID:-nil} code=${exit_code} externalSession=${external_session_id:-nil}"
+  return "${exit_code}"
 }
 
 extract_resume_target() {
@@ -186,13 +214,16 @@ if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
     hooks_json='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_start_command}"'","timeout":5}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_command}"'","timeout":5}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_end_command}"'","timeout":5}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"'"${prompt_submit_command}"'","timeout":5}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'"${pre_tool_use_command}"'","timeout":5,"async":true}]}]}}'
 
     if [[ "$skip_session_id" == true ]]; then
-      exec env PATH="$search_path" "$real_bin" --settings "$hooks_json" "$@"
+      resume_target="$(extract_resume_target "$@" || true)"
+      run_wrapped_command "${resume_target}" "" env PATH="$search_path" "$real_bin" --settings "$hooks_json" "$@"
+      exit $?
     else
       claude_external_session_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
       write_claude_session_map "${claude_external_session_id}"
-      send_usage_runtime_event "${claude_external_session_id}"
+      send_usage_runtime_event running "${claude_external_session_id}"
       log_line "launch claude session=${DMUX_SESSION_ID} externalSession=${claude_external_session_id}"
-      exec env PATH="$search_path" DMUX_EXTERNAL_SESSION_ID="${claude_external_session_id}" "$real_bin" --session-id "${claude_external_session_id}" --settings "$hooks_json" "$@"
+      run_wrapped_command "${claude_external_session_id}" "" env PATH="$search_path" DMUX_EXTERNAL_SESSION_ID="${claude_external_session_id}" "$real_bin" --session-id "${claude_external_session_id}" --settings "$hooks_json" "$@"
+      exit $?
     fi
   fi
 fi
@@ -201,7 +232,8 @@ if [[ "$tool_name" == "codex" ]]; then
   helper_script="${wrapper_dir}/dmux-ai-state.sh"
   if [[ "${1:-}" != "app-server" && -x "$helper_script" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_SOCKET:-}" ]]; then
     log_line "launch codex managed session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} binary=${real_bin} hooks=enabled"
-    exec env PATH="$search_path" "$real_bin" --enable codex_hooks "$@"
+    run_wrapped_command "" "" env PATH="$search_path" "$real_bin" --enable codex_hooks "$@"
+    exit $?
   fi
 fi
 
@@ -209,9 +241,11 @@ if [[ "$tool_name" == "gemini" ]]; then
   resume_target=""
   resume_target="$(extract_resume_target "$@" || true)"
   if [[ -n "${resume_target}" ]]; then
-    send_usage_runtime_event "${resume_target}"
+    send_usage_runtime_event running "${resume_target}"
   fi
   log_line "launch managed tool=${tool_name} session=${DMUX_SESSION_ID:-nil} project=${DMUX_PROJECT_ID:-nil} binary=${real_bin} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil} resume=${resume_target:-nil}"
+  run_wrapped_command "${resume_target}" "" env PATH="$search_path" "$real_bin" "$@"
+  exit $?
 fi
 
 exec env PATH="$search_path" "$real_bin" "$@"

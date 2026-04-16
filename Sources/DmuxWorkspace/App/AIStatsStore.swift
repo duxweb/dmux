@@ -1045,6 +1045,7 @@ final class AIStatsStore {
             sessionStartedAtBySessionID[sessionID] = envelope.startedAt ?? envelope.updatedAt
 
             let runtimeStateSnapshot = runtimeStateBySessionID[sessionID]
+            let prefersHookDrivenResponseState = toolDriverFactory.prefersHookDrivenResponseState(for: envelope.tool)
             if let existing = activeRuntimeBySessionID[sessionID], existing.tool == envelope.tool {
                 var mergedRuntime = existing
                 if (existing.externalSessionID?.isEmpty ?? true),
@@ -1064,7 +1065,9 @@ final class AIStatsStore {
                     mergedRuntime.inputTokens = max(existing.inputTokens, runtimeStateSnapshot.inputTokens)
                     mergedRuntime.outputTokens = max(existing.outputTokens, runtimeStateSnapshot.outputTokens)
                     mergedRuntime.totalTokens = max(existing.totalTokens, runtimeStateSnapshot.totalTokens)
-                    mergedRuntime.responseState = runtimeStateSnapshot.responseState ?? mergedRuntime.responseState
+                    if prefersHookDrivenResponseState == false || mergedRuntime.responseState == nil {
+                        mergedRuntime.responseState = runtimeStateSnapshot.responseState ?? mergedRuntime.responseState
+                    }
                     mergedRuntime.updatedAt = max(existing.updatedAt, runtimeStateSnapshot.updatedAt)
                 }
                 mergedRuntime.updatedAt = max(mergedRuntime.updatedAt, envelope.updatedAt)
@@ -1080,7 +1083,7 @@ final class AIStatsStore {
                 outputTokens: max(max(0, envelope.outputTokens ?? 0), runtimeStateSnapshot?.outputTokens ?? 0),
                 totalTokens: max(max(0, envelope.totalTokens ?? 0), runtimeStateSnapshot?.totalTokens ?? 0),
                 updatedAt: max(envelope.updatedAt, runtimeStateSnapshot?.updatedAt ?? 0),
-                responseState: runtimeStateSnapshot?.responseState ?? envelope.responseState
+                responseState: envelope.responseState ?? runtimeStateSnapshot?.responseState
             )
         }
 
@@ -1290,7 +1293,11 @@ final class AIStatsStore {
                 }
 
                 let previousRuntime = self.activeRuntimeBySessionID[sessionID]
-                if let runtime {
+                if var runtime = runtime {
+                    if self.toolDriverFactory.prefersHookDrivenResponseState(for: tool),
+                       let existingResponseState = previousRuntime?.responseState {
+                        runtime.responseState = existingResponseState
+                    }
                     let changed = self.runtimeDisplayDidChange(previous: previousRuntime, current: runtime)
                     self.activeRuntimeBySessionID[sessionID] = runtime
                     self.runtimeStateStore.applyRuntimeSnapshot(sessionID: sessionID, snapshot: runtime)

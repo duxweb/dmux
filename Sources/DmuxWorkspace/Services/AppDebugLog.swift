@@ -11,6 +11,7 @@ final class AppDebugLog: @unchecked Sendable {
 
     private let fileManager = FileManager.default
     private let queue = DispatchQueue(label: "dmux.debug.log", qos: .utility)
+    private var lastLoggedAtByDedupKey: [String: Date] = [:]
     private let dateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -75,18 +76,19 @@ final class AppDebugLog: @unchecked Sendable {
     }
 
     func log(_ category: String, _ message: String) {
-        guard shouldLog(category: category, message: message) else {
-            return
-        }
-
-        let timestamp = dateFormatter.string(from: Date())
-        let line = "[\(timestamp)] [\(category)] \(message)\n"
         let fileURL = logFileURL()
 
-        queue.async {
+        queue.async { [self] in
+            let now = Date()
+            guard shouldLog(category: category, message: message, now: now) else {
+                return
+            }
+
             let fileManager = FileManager.default
             Self.rotateIfNeeded(fileURL: fileURL, fileManager: fileManager)
 
+            let timestamp = dateFormatter.string(from: now)
+            let line = "[\(timestamp)] [\(category)] \(message)\n"
             let data = Data(line.utf8)
             if fileManager.fileExists(atPath: fileURL.path) == false {
                 fileManager.createFile(atPath: fileURL.path, contents: data)
@@ -113,6 +115,7 @@ final class AppDebugLog: @unchecked Sendable {
         let archivedURL = previousLogFileURL()
         let performanceSummaryURL = performanceSummaryFileURL()
         queue.sync {
+            lastLoggedAtByDedupKey.removeAll()
             try? fileManager.removeItem(at: fileURL)
             try? fileManager.removeItem(at: archivedURL)
             try? fileManager.removeItem(at: performanceSummaryURL)
@@ -120,7 +123,7 @@ final class AppDebugLog: @unchecked Sendable {
         }
     }
 
-    private func shouldLog(category: String, message: String) -> Bool {
+    private func shouldLog(category: String, message: String, now: Date) -> Bool {
         if loggingProfile == .compact {
             switch category {
             case "startup-ui", "runtime-hooks", "terminal-start", "terminal-ready", "terminal-env":
@@ -139,7 +142,37 @@ final class AppDebugLog: @unchecked Sendable {
             return !message.hasPrefix("ingest files=")
                 && !message.hasPrefix("skip file=")
         default:
+            break
+        }
+
+        guard let dedupeInterval = dedupeInterval(for: category, message: message) else {
             return true
+        }
+
+        let key = "\(category)|\(message)"
+        if let lastLoggedAt = lastLoggedAtByDedupKey[key],
+           now.timeIntervalSince(lastLoggedAt) < dedupeInterval {
+            return false
+        }
+
+        lastLoggedAtByDedupKey[key] = now
+        return true
+    }
+
+    private func dedupeInterval(for category: String, message: String) -> TimeInterval? {
+        switch category {
+        case "activity-phase":
+            return 5
+        case "startup-ui":
+            if message.hasPrefix("workspace-view ")
+                || message.hasPrefix("top-pane ")
+                || message.hasPrefix("terminal-pane appear")
+                || message.hasPrefix("terminal-host make") {
+                return 1.5
+            }
+            return nil
+        default:
+            return nil
         }
     }
 

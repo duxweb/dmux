@@ -93,20 +93,18 @@ actor CodexHookRuntimeService {
             )
 
         case "Stop":
-            let transcriptPath = stringValue(in: payloadObject, key: "transcript_path")
-            let parsedState = parseCodexRolloutRuntimeState(fileURL: transcriptPath.map(URL.init(fileURLWithPath:)))
             logger.log(
                 "codex-hook",
-                "stop session=\(sessionID.uuidString) transcript=\(transcriptPath ?? "nil") parsedModel=\(parsedState?.model ?? "nil") parsedTokens=\(parsedState?.totalTokens.map(String.init) ?? "nil")"
+                "stop session=\(sessionID.uuidString) external=\(externalSessionID ?? "nil") model=\(model ?? "nil")"
             )
             let runtimeSnapshot = AIRuntimeContextSnapshot(
                 tool: "codex",
                 externalSessionID: externalSessionID,
-                model: parsedState?.model ?? model,
-                inputTokens: parsedState?.totalTokens ?? max(liveEnvelope?.inputTokens ?? 0, existingSnapshot?.inputTokens ?? 0),
+                model: model,
+                inputTokens: max(liveEnvelope?.inputTokens ?? 0, existingSnapshot?.inputTokens ?? 0),
                 outputTokens: 0,
-                totalTokens: parsedState?.totalTokens ?? max(liveEnvelope?.totalTokens ?? 0, existingSnapshot?.totalTokens ?? 0),
-                updatedAt: max(updatedAt, parsedState?.updatedAt ?? 0),
+                totalTokens: max(liveEnvelope?.totalTokens ?? 0, existingSnapshot?.totalTokens ?? 0),
+                updatedAt: updatedAt,
                 responseState: .idle
             )
             return (
