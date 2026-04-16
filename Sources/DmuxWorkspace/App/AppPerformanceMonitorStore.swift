@@ -283,17 +283,9 @@ final class AppPerformanceMonitorStore {
                 occurredAt: now,
                 occurredAtISO8601: Self.isoTimestamp(now),
                 cpuPercent: snapshot.cpuPercent,
-                cpuDisplay: String(
-                    localized: "performance.monitor.cpu_format",
-                    defaultValue: "CPU %@",
-                    bundle: .module
-                ).replacingOccurrences(of: "%@", with: String(format: "%.0f%%", snapshot.cpuPercent)),
+                cpuDisplay: Self.cpuDisplay(snapshot.cpuPercent),
                 memoryBytes: snapshot.memoryBytes,
-                memoryDisplay: String(
-                    localized: "performance.monitor.memory_format",
-                    defaultValue: "MEM %@",
-                    bundle: .module
-                ).replacingOccurrences(of: "%@", with: Self.shortMemoryString(bytes: snapshot.memoryBytes)),
+                memoryDisplay: Self.memoryDisplay(snapshot.memoryBytes),
                 detail: detail,
                 project: context.projectName,
                 panel: context.panelName,
@@ -305,19 +297,27 @@ final class AppPerformanceMonitorStore {
     }
 
     var formattedCPU: String {
+        Self.cpuDisplay(cpuPercent)
+    }
+
+    var formattedMemory: String {
+        Self.memoryDisplay(memoryBytes)
+    }
+
+    private static func cpuDisplay(_ percent: Double) -> String {
         String(
             localized: "performance.monitor.cpu_format",
             defaultValue: "CPU %@",
             bundle: .module
-        ).replacingOccurrences(of: "%@", with: String(format: "%.0f%%", cpuPercent))
+        ).replacingOccurrences(of: "%@", with: String(format: "%.0f%%", percent))
     }
 
-    var formattedMemory: String {
+    private static func memoryDisplay(_ bytes: UInt64) -> String {
         String(
             localized: "performance.monitor.memory_format",
             defaultValue: "MEM %@",
             bundle: .module
-        ).replacingOccurrences(of: "%@", with: Self.shortMemoryString(bytes: memoryBytes))
+        ).replacingOccurrences(of: "%@", with: Self.shortMemoryString(bytes: bytes))
     }
 
     private static func shortMemoryString(bytes: UInt64) -> String {

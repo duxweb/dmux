@@ -2738,24 +2738,25 @@ final class AppModel {
     }
 
     func updateDeveloperPerformanceMonitorEnabled(_ enabled: Bool) {
-        var settings = appSettings
-        settings.developer.showsPerformanceMonitor = enabled
-        appSettings = settings
-        performanceMonitor.configure(
-            isEnabled: enabled,
-            sampleInterval: settings.developer.performanceMonitorSamplingInterval
-        )
-        persist()
+        applyPerformanceMonitorSettings { developer in
+            developer.showsPerformanceMonitor = enabled
+        }
     }
 
     func updateDeveloperPerformanceMonitorSamplingInterval(_ interval: TimeInterval) {
         let normalizedInterval = max(1, interval)
+        applyPerformanceMonitorSettings { developer in
+            developer.performanceMonitorSamplingInterval = normalizedInterval
+        }
+    }
+
+    private func applyPerformanceMonitorSettings(_ update: (inout AppDeveloperSettings) -> Void) {
         var settings = appSettings
-        settings.developer.performanceMonitorSamplingInterval = normalizedInterval
+        update(&settings.developer)
         appSettings = settings
         performanceMonitor.configure(
             isEnabled: settings.developer.showsPerformanceMonitor,
-            sampleInterval: normalizedInterval
+            sampleInterval: settings.developer.performanceMonitorSamplingInterval
         )
         persist()
     }
