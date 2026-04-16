@@ -38,7 +38,7 @@ Options:
 
 Examples:
   bash scripts/release/run-test-build.sh
-  bash scripts/release/run-test-build.sh -v 0.1.3 -p 0.1.3-test-20260416 -r main -c Release
+  bash scripts/release/run-test-build.sh -v 0.1.6 -p 0.1.6-test-20260416 -r main -c Release
   bash scripts/release/run-test-build.sh -w
 EOF
 }
@@ -100,7 +100,11 @@ fi
 
 if [[ -z "${package_version}" ]]; then
   date_suffix="$(date +%Y%m%d)"
-  package_version="${version}-test-${date_suffix}"
+  if [[ "${configuration}" == "Debug" ]]; then
+    package_version="${version}-debug-${date_suffix}"
+  else
+    package_version="${version}-test-${date_suffix}"
+  fi
 fi
 
 echo "[test-build] triggering Test Build"

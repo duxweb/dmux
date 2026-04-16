@@ -6,9 +6,10 @@ struct AppSettings: Codable, Equatable {
     var language: AppLanguage = .system
     var themeMode: AppThemeMode = .system
     var terminalBackgroundPreset: AppTerminalBackgroundPreset = .obsidian
+    var terminalGPUAccelerationEnabled = true
     var iconStyle: AppIconStyle = .default
     var defaultTerminal: AppTerminalProfile = .zsh
-    var showsDockBadge = false
+    var showsDockBadge = true
     var gitAutoRefreshInterval: TimeInterval = 60
     var aiAutoRefreshInterval: TimeInterval = 180
     var aiBackgroundRefreshInterval: TimeInterval = 600
@@ -21,6 +22,7 @@ struct AppSettings: Codable, Equatable {
         case language
         case themeMode
         case terminalBackgroundPreset
+        case terminalGPUAccelerationEnabled
         case iconStyle
         case defaultTerminal
         case showsDockBadge
@@ -36,9 +38,10 @@ struct AppSettings: Codable, Equatable {
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
         themeMode = try container.decodeIfPresent(AppThemeMode.self, forKey: .themeMode) ?? .system
         terminalBackgroundPreset = try container.decodeIfPresent(AppTerminalBackgroundPreset.self, forKey: .terminalBackgroundPreset) ?? .obsidian
+        terminalGPUAccelerationEnabled = try container.decodeIfPresent(Bool.self, forKey: .terminalGPUAccelerationEnabled) ?? true
         iconStyle = try container.decodeIfPresent(AppIconStyle.self, forKey: .iconStyle) ?? .default
         defaultTerminal = try container.decodeIfPresent(AppTerminalProfile.self, forKey: .defaultTerminal) ?? .zsh
-        showsDockBadge = try container.decodeIfPresent(Bool.self, forKey: .showsDockBadge) ?? false
+        showsDockBadge = try container.decodeIfPresent(Bool.self, forKey: .showsDockBadge) ?? true
         gitAutoRefreshInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .gitAutoRefreshInterval) ?? 60
         aiAutoRefreshInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .aiAutoRefreshInterval) ?? 180
         aiBackgroundRefreshInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .aiBackgroundRefreshInterval) ?? 600
@@ -51,6 +54,28 @@ struct AppSettings: Codable, Equatable {
 struct AppDeveloperSettings: Codable, Equatable {
     var showsNotificationTestButton = false
     var showsDebugLogButton = false
+    var showsPerformanceMonitor = false
+    var performanceMonitorSamplingInterval: TimeInterval = 3
+
+    init() {}
+
+    enum CodingKeys: String, CodingKey {
+        case showsNotificationTestButton
+        case showsDebugLogButton
+        case showsPerformanceMonitor
+        case performanceMonitorSamplingInterval
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        showsNotificationTestButton = try container.decodeIfPresent(Bool.self, forKey: .showsNotificationTestButton) ?? false
+        showsDebugLogButton = try container.decodeIfPresent(Bool.self, forKey: .showsDebugLogButton) ?? false
+        showsPerformanceMonitor = try container.decodeIfPresent(Bool.self, forKey: .showsPerformanceMonitor) ?? false
+        performanceMonitorSamplingInterval = max(
+            1,
+            try container.decodeIfPresent(TimeInterval.self, forKey: .performanceMonitorSamplingInterval) ?? 3
+        )
+    }
 }
 
 enum AppLanguage: String, Codable, CaseIterable, Identifiable {

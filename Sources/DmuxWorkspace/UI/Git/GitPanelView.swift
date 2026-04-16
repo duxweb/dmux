@@ -107,6 +107,14 @@ private struct GitEmptyRepositoryView: View {
                     Button(String(localized: "git.empty.clone_remote_repository", defaultValue: "Clone Remote Repository", bundle: .module), action: model.cloneGitRepository)
                         .buttonStyle(.bordered)
                         .disabled(model.gitPanelState.isGitLoading)
+
+                    Button {
+                        model.refreshGitState()
+                    } label: {
+                        Label(String(localized: "git.status.refresh", defaultValue: "Refresh Git Status", bundle: .module), systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(model.gitPanelState.isGitLoading)
                 }
                 .controlSize(.regular)
             }

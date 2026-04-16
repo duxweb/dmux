@@ -175,6 +175,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @MainActor
     private func handleLocalKeyDown(_ event: NSEvent) -> NSEvent? {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers == [.control],
+           event.charactersIgnoringModifiers?.lowercased() == "c",
+           handleTerminalInterruptIfNeeded() {
+            return nil
+        }
+
         guard modifiers == [.command],
               event.charactersIgnoringModifiers?.lowercased() == "w" else {
             return event
@@ -195,6 +201,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         model.confirmCloseSelectedSession()
         return nil
+    }
+
+    @MainActor
+    private func handleTerminalInterruptIfNeeded() -> Bool {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              !isStandardChromeWindow(window),
+              let model else {
+            return false
+        }
+
+        let responder = window.firstResponder
+        if responder is NSTextView,
+           SwiftTermTerminalRegistry.shared.ownsResponder(responder) == false {
+            return false
+        }
+
+        guard responder == nil || SwiftTermTerminalRegistry.shared.ownsResponder(responder) else {
+            return false
+        }
+
+        return model.sendInterruptToSelectedSession()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -233,6 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.isRestorable = false
 
         if isStandardChromeWindow(window) {
+            applyStandardWindowChrome(window, toolbarStyle: .preference)
             return
         }
 

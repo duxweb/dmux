@@ -96,6 +96,10 @@ struct AppDiagnosticsExportService {
             to: logsDirectoryURL.appendingPathComponent("dmux-debug.previous.log", isDirectory: false)
         )
         copyIfExists(
+            from: appSupportRootURL.appendingPathComponent("logs/performance-summary.json", isDirectory: false),
+            to: logsDirectoryURL.appendingPathComponent("performance-summary.json", isDirectory: false)
+        )
+        copyIfExists(
             from: appSupportRootURL.appendingPathComponent("state.json", isDirectory: false),
             to: stateDirectoryURL.appendingPathComponent("state.json", isDirectory: false)
         )

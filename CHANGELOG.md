@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.6] - 2026-04-16
+
+### Added
+
+- Added a dedicated Open Project action on the welcome screen so existing folders can be opened without going through project creation flow.
+- Added configurable terminal GPU acceleration and performance-monitor settings in Preferences, including localized labels and adjustable sampling intervals.
+- Added a helper release script plus release packaging updates so published builds include the signed zip, dmg, debug dmg, and SHA256 checksums together.
+
+### Changed
+
+- Refined the AI today-level presentation, welcome-screen buttons, and split-pane inactive overlay styling for more consistent macOS 14/15 appearance.
+- Defaulted the Dock badge preference to enabled for new installs and for older snapshots that do not yet carry that setting.
+- Split app logging into release-friendly compact mode and verbose debug packaging mode for easier user diagnostics.
+
+### Fixed
+
+- Fixed startup recovery and project-open fallback flow so failed terminal restoration no longer blocks entering the project shell.
+- Fixed repeated terminal host/environment rebuild churn and improved diagnostics around terminal startup on macOS 14.
+- Fixed the VS Code open action crash by avoiding main-actor state updates from LaunchServices completion callbacks.
+- Fixed the Settings window standard-titlebar restoration on macOS 14.5 so the traffic-light controls no longer render offset into the content area.
+- Fixed performance-monitor logging/session rollover behavior so each launch starts with a fresh rotating log set.
+
 ## [0.1.5] - 2026-04-16
 
 ### Changed

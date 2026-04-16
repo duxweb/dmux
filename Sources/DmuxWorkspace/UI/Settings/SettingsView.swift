@@ -52,6 +52,11 @@ struct SettingsView: View {
         .id(model.appSettings.themeMode)
         .frame(width: 640, height: 460)
         .background(Color(nsColor: .windowBackgroundColor))
+        .background(
+            SettingsWindowConfigurator(
+                title: String(localized: "menu.settings", defaultValue: "Settings", bundle: .module)
+            )
+        )
     }
 }
 
@@ -79,6 +84,11 @@ private struct GeneralSettingsPane: View {
                     Text(terminal.title).tag(terminal)
                 }
             }
+
+            Toggle(String(localized: "settings.terminal_gpu_acceleration", defaultValue: "Terminal GPU Acceleration", bundle: .module), isOn: Binding(
+                get: { model.appSettings.terminalGPUAccelerationEnabled },
+                set: { model.updateTerminalGPUAccelerationEnabled($0) }
+            ))
 
             Toggle(String(localized: "settings.dock_badge", defaultValue: "Dock Badge", bundle: .module), isOn: Binding(
                 get: { model.appSettings.showsDockBadge },
@@ -238,10 +248,67 @@ private struct DeveloperSettingsPane: View {
                 get: { model.appSettings.developer.showsDebugLogButton },
                 set: { model.updateDeveloperDebugLogButtonEnabled($0) }
             ))
+
+            Toggle(String(localized: "settings.developer.performance_monitor", defaultValue: "Performance Monitor HUD", bundle: .module), isOn: Binding(
+                get: { model.appSettings.developer.showsPerformanceMonitor },
+                set: { model.updateDeveloperPerformanceMonitorEnabled($0) }
+            ))
+
+            Picker(String(localized: "settings.developer.performance_monitor_interval", defaultValue: "Performance Monitor Interval", bundle: .module), selection: Binding(
+                get: { model.appSettings.developer.performanceMonitorSamplingInterval },
+                set: { model.updateDeveloperPerformanceMonitorSamplingInterval($0) }
+            )) {
+                ForEach(RefreshIntervalOption.performanceMonitorOptions, id: \.seconds) { option in
+                    Text(option.title(model: model)).tag(option.seconds)
+                }
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct SettingsWindowConfigurator: NSViewRepresentable {
+    let title: String
+
+    func makeNSView(context: Context) -> NSView {
+        ConfigView(title: title)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let configView = nsView as? ConfigView else {
+            return
+        }
+        configView.title = title
+        configView.applyWindowConfigurationIfNeeded()
+    }
+
+    private final class ConfigView: NSView {
+        var title: String
+
+        init(title: String) {
+            self.title = title
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            applyWindowConfigurationIfNeeded()
+        }
+
+        func applyWindowConfigurationIfNeeded() {
+            guard let window else {
+                return
+            }
+            window.identifier = AppWindowIdentifier.settings
+            applyStandardWindowChrome(window, title: title, toolbarStyle: .preference)
+        }
     }
 }
 
@@ -261,6 +328,7 @@ private struct RefreshIntervalOption {
     static let gitOptions = [30, 60, 120, 300, 600].map { RefreshIntervalOption(seconds: TimeInterval($0)) }
     static let aiOptions = [60, 120, 180, 300, 600].map { RefreshIntervalOption(seconds: TimeInterval($0)) }
     static let backgroundAIOptions = [300, 600, 900, 1800].map { RefreshIntervalOption(seconds: TimeInterval($0)) }
+    static let performanceMonitorOptions = [1, 2, 3, 5, 10].map { RefreshIntervalOption(seconds: TimeInterval($0)) }
 }
 
 // MARK: - Theme Preview Card

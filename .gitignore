@@ -9,8 +9,11 @@ dist/
 DerivedData/
 .xcode-derive/
 .xcode-release/
-.xcode-release-check/
+.xcode-release-*/
+.xcode-check/
+.xcode-check-*/
 .xcode-dev/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
+dmux.xcodeproj/

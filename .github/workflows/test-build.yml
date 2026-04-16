@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "App version, for example 0.1.3"
+        description: "App version, for example 0.1.6"
         required: true
       package_version:
-        description: "Artifact label, for example 0.1.3-test-20260416"
+        description: "Artifact label, for example 0.1.6-test-20260416"
         required: false
       build_number:
         description: "Build number override"
@@ -57,7 +57,12 @@ jobs:
           fi
 
           if [[ -z "${package_version}" ]]; then
-            package_version="${version}"
+            date_suffix="$(date +%Y%m%d)"
+            if [[ "${configuration}" == "Debug" ]]; then
+              package_version="${version}-debug-${date_suffix}"
+            else
+              package_version="${version}-test-${date_suffix}"
+            fi
           fi
 
           if [[ -z "${configuration}" ]]; then
@@ -75,12 +80,17 @@ jobs:
           DMUX_PACKAGE_VERSION: ${{ steps.meta.outputs.package_version }}
           DMUX_BUILD_NUMBER: ${{ steps.meta.outputs.build_number }}
           DMUX_CONFIGURATION: ${{ steps.meta.outputs.configuration }}
+          DMUX_LOG_PROFILE: ${{ steps.meta.outputs.configuration == 'Debug' && 'verbose' || 'compact' }}
+          DMUX_APP_VARIANT_SUFFIX: ${{ steps.meta.outputs.configuration == 'Debug' && '-debug' || '' }}
+          DMUX_APP_DISPLAY_NAME: ${{ steps.meta.outputs.configuration == 'Debug' && 'Codux-debug' || 'Codux' }}
+          DMUX_APP_BUNDLE_NAME: ${{ steps.meta.outputs.configuration == 'Debug' && 'Codux-debug' || 'Codux' }}
+          DMUX_BUNDLE_IDENTIFIER_SUFFIX: ${{ steps.meta.outputs.configuration == 'Debug' && '.debug' || '' }}
         run: ./build.sh
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: codux-${{ steps.meta.outputs.package_version }}-${{ steps.meta.outputs.configuration }}-manual
+          name: codux-${{ steps.meta.outputs.package_version }}-manual
           path: |
             dist/*.dmg
             dist/*.zip

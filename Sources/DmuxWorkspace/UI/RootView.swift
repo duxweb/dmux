@@ -30,6 +30,9 @@ struct RootView: View {
         }
         .background(Color.clear)
         .ignoresSafeArea(.container, edges: .top)
+        .onAppear {
+            model.noteRootViewAppeared()
+        }
     }
 }
 
@@ -41,6 +44,7 @@ private struct TitlebarOverlayView: View {
 
     var body: some View {
         let _ = model.aiStatsStore.renderVersion
+        let _ = model.performanceMonitor.renderVersion
 
         ZStack {
             TitlebarZoomSurface()
@@ -59,6 +63,10 @@ private struct TitlebarOverlayView: View {
 
                     TitlebarGlyphButton(symbol: "rectangle.split.2x1", help: String(localized: "titlebar.split", defaultValue: "Split", bundle: .module)) {
                         model.splitSelectedPane(axis: .horizontal)
+                    }
+
+                    if model.appSettings.developer.showsPerformanceMonitor {
+                        TitlebarPerformanceMonitorView(model: model)
                     }
                 }
                 .padding(.leading, 86)
@@ -139,6 +147,59 @@ private struct TitlebarOverlayView: View {
     }
 }
 
+private struct TitlebarPerformanceMonitorView: View {
+    let model: AppModel
+
+    private var cpuColor: Color {
+        if model.performanceMonitor.cpuPercent >= 85 {
+            return AppTheme.warning
+        }
+        if model.performanceMonitor.cpuPercent >= 60 {
+            return AppTheme.warning.opacity(0.78)
+        }
+        return AppTheme.textSecondary
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(model.performanceMonitor.formattedCPU)
+            }
+            .foregroundStyle(cpuColor)
+
+            Rectangle()
+                .fill(AppTheme.titlebarControlBorder)
+                .frame(width: 0.5, height: 12)
+
+            HStack(spacing: 4) {
+                Image(systemName: "memorychip")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(model.performanceMonitor.formattedMemory)
+            }
+            .foregroundStyle(AppTheme.textSecondary)
+        }
+        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+        .environment(\.symbolVariants, .none)
+        .padding(.leading, 9)
+        .padding(.trailing, 10)
+        .frame(height: 26)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(AppTheme.emphasizedControlFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(AppTheme.titlebarControlBorder, lineWidth: 0.5)
+        )
+        .floatingTooltip(
+            String(localized: "settings.developer.performance_monitor", defaultValue: "Performance Monitor HUD", bundle: .module),
+            placement: .below
+        )
+    }
+}
+
 private struct TitlebarZoomSurface: NSViewRepresentable {
     func makeNSView(context: Context) -> TitlebarZoomNSView {
         TitlebarZoomNSView()
@@ -152,10 +213,6 @@ private final class TitlebarZoomNSView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-
-        let recognizer = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleClick))
-        recognizer.numberOfClicksRequired = 2
-        addGestureRecognizer(recognizer)
     }
 
     @available(*, unavailable)
@@ -163,9 +220,20 @@ private final class TitlebarZoomNSView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    @objc
-    private func handleDoubleClick() {
-        window?.performZoom(nil)
+    override var mouseDownCanMoveWindow: Bool {
+        true
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if event.clickCount == 2 {
+            window?.performZoom(nil)
+            return
+        }
+        super.mouseUp(with: event)
     }
 }
 
@@ -888,7 +956,16 @@ private enum AITodayLevelTier: String, CaseIterable, Identifiable {
         case .blankSlate: return Color(hex: 0x5B616D)
         case .bronze: return Color(hex: 0xC98663)
         case .silver: return Color(hex: 0xC8D1E3)
-        case .gold: return Color(hex: 0xF4C44C)
+        case .gold:
+            return Color(
+                nsColor: NSColor(name: nil) { appearance in
+                    let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    if isDark {
+                        return NSColor(calibratedRed: 232 / 255, green: 170 / 255, blue: 52 / 255, alpha: 1)
+                    }
+                    return NSColor(calibratedRed: 221 / 255, green: 126 / 255, blue: 27 / 255, alpha: 1)
+                }
+            )
         case .platinum: return Color(hex: 0x7ED6D8)
         case .diamond: return Color(hex: 0x59A7FF)
         case .master: return Color(hex: 0x9A72FF)

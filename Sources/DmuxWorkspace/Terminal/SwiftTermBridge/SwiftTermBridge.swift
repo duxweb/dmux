@@ -2,6 +2,9 @@ import AppKit
 import Darwin
 import SwiftTerm
 import SwiftUI
+#if canImport(MetalKit)
+import MetalKit
+#endif
 
 extension Notification.Name {
     static let dmuxTerminalFocusDidChange = Notification.Name("dmux.terminalFocusDidChange")
@@ -48,6 +51,10 @@ private final class DmuxLocalProcessTerminalView: LocalProcessTerminalView {
     var onFirstOutput: (() -> Void)?
     private var hasObservedOutput = false
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     override func dataReceived(slice: ArraySlice<UInt8>) {
         if let sessionID, !slice.isEmpty {
             SwiftTermOutputEventEmitter.shared.noteOutput(sessionID: sessionID)
@@ -82,20 +89,30 @@ struct SwiftTermTerminalHostView: NSViewRepresentable {
     let session: TerminalSession
     let environment: [(String, String)]
     let terminalBackgroundPreset: AppTerminalBackgroundPreset
+    let useMetalRendering: Bool
     let shouldFocus: Bool
     var onInteraction: (() -> Void)? = nil
     var onFocusConsumed: (() -> Void)? = nil
+    var onStartupSucceeded: (() -> Void)? = nil
+    var onStartupFailure: ((String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(sessionID: session.id)
     }
 
     func makeNSView(context: Context) -> SwiftTermTerminalContainerView {
+        AppDebugLog.shared.log(
+            "startup-ui",
+            "terminal-host make session=\(session.id.uuidString) project=\(session.projectID.uuidString)"
+        )
         let view = SwiftTermTerminalRegistry.shared.containerView(
             for: session,
             environment: environment,
             terminalBackgroundPreset: terminalBackgroundPreset,
-            onInteraction: onInteraction
+            useMetalRendering: useMetalRendering,
+            onInteraction: onInteraction,
+            onStartupSucceeded: onStartupSucceeded,
+            onStartupFailure: onStartupFailure
         )
         context.coordinator.containerView = view
         if shouldFocus {
@@ -112,7 +129,10 @@ struct SwiftTermTerminalHostView: NSViewRepresentable {
             session,
             environment: environment,
             terminalBackgroundPreset: terminalBackgroundPreset,
-            onInteraction: onInteraction
+            useMetalRendering: useMetalRendering,
+            onInteraction: onInteraction,
+            onStartupSucceeded: onStartupSucceeded,
+            onStartupFailure: onStartupFailure
         )
         if shouldFocus {
             DispatchQueue.main.async {
@@ -139,53 +159,98 @@ final class SwiftTermTerminalContainerView: NSView {
     private var configuredSession: TerminalSession
     private var configuredEnvironment: [(String, String)]
     private var terminalBackgroundPreset: AppTerminalBackgroundPreset
+    private var preferredMetalRenderingEnabled = true
     private let processInstanceID = UUID().uuidString.lowercased()
     private let processDelegateProxy = SwiftTermProcessDelegateProxy()
     private var onInteraction: (() -> Void)?
+    private var onStartupSucceeded: (() -> Void)?
+    private var onStartupFailure: ((String) -> Void)?
     private var hasStartedProcess = false
     private var hasReceivedInitialOutput = false
     private var pendingFocusRequest = false
+    private var pendingStartWorkItem: DispatchWorkItem?
+    private var startupWatchdogWorkItem: DispatchWorkItem?
+    private var startupAliveWithoutOutputWorkItem: DispatchWorkItem?
+    private var hasReportedStartupFailure = false
+    private var acceleratedRenderingUnavailable = false
     private let logger = AppDebugLog.shared
     private let debugAIFocus = ProcessInfo.processInfo.environment["DMUX_DEBUG_AI_FOCUS"] == "1"
+    private let startupDelay: TimeInterval = 0.22
+    private let startupWatchdogDelay: TimeInterval = 3.5
+    private let startupAliveWithoutOutputGraceDelay: TimeInterval = 4.5
     private lazy var clickRecognizer: NSClickGestureRecognizer = {
         let recognizer = NSClickGestureRecognizer(target: self, action: #selector(handleContainerClick))
         recognizer.buttonMask = 0x1
         return recognizer
     }()
 
-    init(session: TerminalSession, environment: [(String, String)], onInteraction: (() -> Void)?) {
+    init(
+        session: TerminalSession,
+        environment: [(String, String)],
+        onInteraction: (() -> Void)?,
+        onStartupSucceeded: (() -> Void)?,
+        onStartupFailure: ((String) -> Void)?
+    ) {
         self.configuredSession = session
         self.configuredEnvironment = environment
         self.terminalBackgroundPreset = .obsidian
         self.terminalView = DmuxLocalProcessTerminalView(frame: .zero)
         self.onInteraction = onInteraction
+        self.onStartupSucceeded = onStartupSucceeded
+        self.onStartupFailure = onStartupFailure
         super.init(frame: .zero)
+        logger.log(
+            "startup-ui",
+            "terminal-container init session=\(session.id.uuidString) project=\(session.projectID.uuidString) cwd=\(session.cwd)"
+        )
         setup()
-        startProcessIfPossible()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func updateSession(_ session: TerminalSession, environment: [(String, String)], terminalBackgroundPreset: AppTerminalBackgroundPreset, onInteraction: (() -> Void)?) {
+    func updateSession(
+        _ session: TerminalSession,
+        environment: [(String, String)],
+        terminalBackgroundPreset: AppTerminalBackgroundPreset,
+        useMetalRendering: Bool,
+        onInteraction: (() -> Void)?,
+        onStartupSucceeded: (() -> Void)?,
+        onStartupFailure: ((String) -> Void)?
+    ) {
         configuredEnvironment = environment
         applyTheme(terminalBackgroundPreset)
+        preferredMetalRenderingEnabled = useMetalRendering
         self.onInteraction = onInteraction
+        self.onStartupSucceeded = onStartupSucceeded
+        self.onStartupFailure = onStartupFailure
+        configureAcceleratedRenderingIfPossible()
         guard configuredSession.id != session.id else {
-            startProcessIfPossible()
+            scheduleProcessStartIfPossible(reason: "update-same-session")
             return
         }
+        pendingStartWorkItem?.cancel()
+        pendingStartWorkItem = nil
+        startupWatchdogWorkItem?.cancel()
+        startupWatchdogWorkItem = nil
+        startupAliveWithoutOutputWorkItem?.cancel()
+        startupAliveWithoutOutputWorkItem = nil
         SwiftTermOutputEventEmitter.shared.clear(sessionID: configuredSession.id)
         configuredSession = session
         terminalView.sessionID = session.id
         terminalView.resetOutputObservation()
         hasReceivedInitialOutput = false
         pendingFocusRequest = false
+        hasReportedStartupFailure = false
         updateLoadingShieldVisibility()
         terminalView.terminate()
         hasStartedProcess = false
-        startProcessIfPossible()
+        logger.log(
+            "startup-ui",
+            "terminal-container rebind session=\(session.id.uuidString) project=\(session.projectID.uuidString)"
+        )
+        scheduleProcessStartIfPossible(reason: "update-new-session")
     }
 
     func prepareForHostReuse() {
@@ -265,6 +330,10 @@ final class SwiftTermTerminalContainerView: NSView {
     private func setup() {
         wantsLayer = true
         applyTheme(.obsidian)
+        logger.log(
+            "startup-ui",
+            "terminal-container setup session=\(configuredSession.id.uuidString)"
+        )
 
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminalView.processDelegate = processDelegateProxy
@@ -272,6 +341,11 @@ final class SwiftTermTerminalContainerView: NSView {
         terminalView.optionAsMetaKey = false
         terminalView.allowMouseReporting = false
         terminalView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
+        terminalView.syncSequenceSettleMs = 8
+        terminalView.disableFullRedrawOnAnyChanges = true
+#if canImport(MetalKit)
+        terminalView.metalBufferingMode = .perRowPersistent
+#endif
         terminalView.onFirstOutput = { [weak self] in
             self?.handleInitialTerminalOutput()
         }
@@ -323,15 +397,95 @@ final class SwiftTermTerminalContainerView: NSView {
     override func layout() {
         super.layout()
         terminalView.needsLayout = true
-        startProcessIfPossible()
+        scheduleProcessStartIfPossible(reason: "layout")
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        startProcessIfPossible()
+        if window == nil {
+            pendingStartWorkItem?.cancel()
+            pendingStartWorkItem = nil
+            startupWatchdogWorkItem?.cancel()
+            startupWatchdogWorkItem = nil
+            startupAliveWithoutOutputWorkItem?.cancel()
+            startupAliveWithoutOutputWorkItem = nil
+            return
+        }
+        configureAcceleratedRenderingIfPossible()
+        scheduleProcessStartIfPossible(reason: "window-attached")
     }
 
-    private func startProcessIfPossible() {
+    private func configureAcceleratedRenderingIfPossible() {
+#if canImport(MetalKit)
+        guard window != nil else {
+            return
+        }
+
+        if preferredMetalRenderingEnabled {
+            guard terminalView.isUsingMetalRenderer == false else {
+                return
+            }
+            guard acceleratedRenderingUnavailable == false else {
+                return
+            }
+            do {
+                try terminalView.setUseMetal(true)
+                logger.log(
+                    "terminal-renderer",
+                    "session=\(configuredSession.id.uuidString) renderer=metal buffering=\(String(describing: terminalView.metalBufferingMode))"
+                )
+            } catch {
+                acceleratedRenderingUnavailable = true
+                logger.log(
+                    "terminal-renderer",
+                    "session=\(configuredSession.id.uuidString) renderer=coregraphics reason=\(error.localizedDescription)"
+                )
+            }
+        } else {
+            acceleratedRenderingUnavailable = false
+            guard terminalView.isUsingMetalRenderer else {
+                return
+            }
+            do {
+                try terminalView.setUseMetal(false)
+                logger.log(
+                    "terminal-renderer",
+                    "session=\(configuredSession.id.uuidString) renderer=coregraphics reason=disabled-by-settings"
+                )
+            } catch {
+                logger.log(
+                    "terminal-renderer",
+                    "session=\(configuredSession.id.uuidString) renderer=metal-disable-failed reason=\(error.localizedDescription)"
+                )
+            }
+        }
+#endif
+    }
+
+    private func scheduleProcessStartIfPossible(reason: String) {
+        guard hasStartedProcess == false else {
+            return
+        }
+        guard pendingStartWorkItem == nil else {
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.pendingStartWorkItem = nil
+            self.startProcessIfPossible(trigger: reason)
+        }
+        pendingStartWorkItem = workItem
+        logger.log(
+            "terminal-start",
+            "schedule session=\(configuredSession.id.uuidString) project=\(configuredSession.projectID.uuidString) reason=\(reason) delayMs=\(Int(startupDelay * 1000))"
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + startupDelay, execute: workItem)
+    }
+
+    private func startProcessIfPossible(trigger: String) {
         guard hasStartedProcess == false else {
             return
         }
@@ -340,10 +494,12 @@ final class SwiftTermTerminalContainerView: NSView {
               bounds.height > 0,
               terminalView.bounds.width > 0,
               terminalView.bounds.height > 0 else {
+            scheduleProcessStartIfPossible(reason: "\(trigger)-awaiting-layout")
             return
         }
 
         hasStartedProcess = true
+        hasReportedStartupFailure = false
         forceTerminalResizeSync(reason: "pre-start")
         terminalView.sessionID = configuredSession.id
         let shell = configuredSession.shell
@@ -355,7 +511,7 @@ final class SwiftTermTerminalContainerView: NSView {
         }
         logger.log(
             "terminal-start",
-            "session=\(configuredSession.id.uuidString) project=\(configuredSession.projectID.uuidString) shell=\(shell) cwd=\(configuredSession.cwd) size=\(Int(bounds.width))x\(Int(bounds.height)) termSize=\(Int(terminalView.bounds.width))x\(Int(terminalView.bounds.height)) cols=\(terminalView.getTerminal().cols) rows=\(terminalView.getTerminal().rows)"
+            "begin session=\(configuredSession.id.uuidString) project=\(configuredSession.projectID.uuidString) reason=\(trigger) shell=\(shell) cwd=\(configuredSession.cwd) size=\(Int(bounds.width))x\(Int(bounds.height)) termSize=\(Int(terminalView.bounds.width))x\(Int(terminalView.bounds.height)) cols=\(terminalView.getTerminal().cols) rows=\(terminalView.getTerminal().rows)"
         )
         terminalView.startProcess(
             executable: shell,
@@ -364,6 +520,7 @@ final class SwiftTermTerminalContainerView: NSView {
             execName: launch.execName,
             currentDirectory: configuredSession.cwd
         )
+        installStartupWatchdog()
         DispatchQueue.main.async { [weak self] in
             self?.forceTerminalResizeSync(reason: "post-start")
         }
@@ -398,11 +555,17 @@ final class SwiftTermTerminalContainerView: NSView {
             return
         }
         hasReceivedInitialOutput = true
+        startupWatchdogWorkItem?.cancel()
+        startupWatchdogWorkItem = nil
+        startupAliveWithoutOutputWorkItem?.cancel()
+        startupAliveWithoutOutputWorkItem = nil
+        hasReportedStartupFailure = false
         updateLoadingShieldVisibility()
         logger.log(
             "terminal-ready",
             "session=\(configuredSession.id.uuidString) project=\(configuredSession.projectID.uuidString) cols=\(terminalView.getTerminal().cols) rows=\(terminalView.getTerminal().rows)"
         )
+        onStartupSucceeded?()
         if pendingFocusRequest {
             pendingFocusRequest = false
             focusTerminal()
@@ -411,15 +574,76 @@ final class SwiftTermTerminalContainerView: NSView {
 
     private func handleProcessTermination(exitCode: Int32?) {
         resetTransientTerminalModes()
+        startupWatchdogWorkItem?.cancel()
+        startupWatchdogWorkItem = nil
+        startupAliveWithoutOutputWorkItem?.cancel()
+        startupAliveWithoutOutputWorkItem = nil
         if hasReceivedInitialOutput == false {
             hasReceivedInitialOutput = true
             updateLoadingShieldVisibility()
+            reportStartupFailureIfNeeded(
+                "process exited before terminal became ready (exit=\(exitCode.map(String.init) ?? "nil"))"
+            )
         }
         pendingFocusRequest = false
         logger.log(
             "terminal-exit",
             "session=\(configuredSession.id.uuidString) project=\(configuredSession.projectID.uuidString) exit=\(exitCode.map(String.init) ?? "nil")"
         )
+    }
+
+    private func installStartupWatchdog() {
+        startupWatchdogWorkItem?.cancel()
+        startupAliveWithoutOutputWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.startupWatchdogWorkItem = nil
+            guard self.hasReceivedInitialOutput == false else {
+                return
+            }
+            guard self.terminalShellPID == nil else {
+                self.logger.log(
+                    "terminal-start",
+                    "watchdog session=\(self.configuredSession.id.uuidString) shellPID=\(self.terminalShellPID.map(String.init) ?? "nil") result=alive-without-output"
+                )
+                self.installAliveWithoutOutputWatchdog()
+                return
+            }
+            self.reportStartupFailureIfNeeded("shell pid not available after \(Int(self.startupWatchdogDelay * 1000))ms")
+        }
+        startupWatchdogWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + startupWatchdogDelay, execute: workItem)
+    }
+
+    private func installAliveWithoutOutputWatchdog() {
+        startupAliveWithoutOutputWorkItem?.cancel()
+        let totalDelayMs = Int((startupWatchdogDelay + startupAliveWithoutOutputGraceDelay) * 1000)
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.startupAliveWithoutOutputWorkItem = nil
+            guard self.hasReceivedInitialOutput == false else {
+                return
+            }
+            self.reportStartupFailureIfNeeded("shell alive without output after \(totalDelayMs)ms")
+        }
+        startupAliveWithoutOutputWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + startupAliveWithoutOutputGraceDelay, execute: workItem)
+    }
+
+    private func reportStartupFailureIfNeeded(_ detail: String) {
+        guard hasReportedStartupFailure == false else {
+            return
+        }
+        hasReportedStartupFailure = true
+        logger.log(
+            "terminal-recovery",
+            "container-failed session=\(configuredSession.id.uuidString) project=\(configuredSession.projectID.uuidString) detail=\(detail)"
+        )
+        onStartupFailure?(detail)
     }
 
     private func updateLoadingShieldVisibility() {
@@ -499,6 +723,32 @@ final class SwiftTermTerminalContainerView: NSView {
         terminalView.send(source: terminalView, data: bytes[...])
     }
 
+    func sendInterrupt() {
+        let interrupt: [UInt8] = [3]
+        terminalView.send(source: terminalView, data: interrupt[...])
+    }
+
+    func ownsResponder(_ responder: NSResponder?) -> Bool {
+        guard let responder else {
+            return false
+        }
+        if responder === terminalView {
+            return true
+        }
+        if let view = responder as? NSView, view.isDescendant(of: terminalView) {
+            return true
+        }
+
+        var next: NSResponder? = responder.nextResponder
+        while let current = next {
+            if current === terminalView {
+                return true
+            }
+            next = current.nextResponder
+        }
+        return false
+    }
+
     private func notifyInteraction() {
         onInteraction?()
     }
@@ -518,18 +768,48 @@ final class SwiftTermTerminalRegistry {
     private var explicitFocusedSessionID: UUID?
     private let debugAIFocus = ProcessInfo.processInfo.environment["DMUX_DEBUG_AI_FOCUS"] == "1"
 
-    func containerView(for session: TerminalSession, environment: [(String, String)], terminalBackgroundPreset: AppTerminalBackgroundPreset, onInteraction: (() -> Void)?) -> SwiftTermTerminalContainerView {
+    func containerView(
+        for session: TerminalSession,
+        environment: [(String, String)],
+        terminalBackgroundPreset: AppTerminalBackgroundPreset,
+        useMetalRendering: Bool,
+        onInteraction: (() -> Void)?,
+        onStartupSucceeded: (() -> Void)?,
+        onStartupFailure: ((String) -> Void)?
+    ) -> SwiftTermTerminalContainerView {
         if let existing = containers[session.id] {
             if debugAIFocus {
                 print("[TerminalRegistry] reuse sessionID=\(session.id.uuidString) shellPID=\(existing.terminalShellPID.map(String.init) ?? "nil")")
             }
             existing.prepareForHostReuse()
-            existing.updateSession(session, environment: environment, terminalBackgroundPreset: terminalBackgroundPreset, onInteraction: onInteraction)
+            existing.updateSession(
+                session,
+                environment: environment,
+                terminalBackgroundPreset: terminalBackgroundPreset,
+                useMetalRendering: useMetalRendering,
+                onInteraction: onInteraction,
+                onStartupSucceeded: onStartupSucceeded,
+                onStartupFailure: onStartupFailure
+            )
             return existing
         }
 
-        let created = SwiftTermTerminalContainerView(session: session, environment: environment, onInteraction: onInteraction)
-        created.updateSession(session, environment: environment, terminalBackgroundPreset: terminalBackgroundPreset, onInteraction: onInteraction)
+        let created = SwiftTermTerminalContainerView(
+            session: session,
+            environment: environment,
+            onInteraction: onInteraction,
+            onStartupSucceeded: onStartupSucceeded,
+            onStartupFailure: onStartupFailure
+        )
+        created.updateSession(
+            session,
+            environment: environment,
+            terminalBackgroundPreset: terminalBackgroundPreset,
+            useMetalRendering: useMetalRendering,
+            onInteraction: onInteraction,
+            onStartupSucceeded: onStartupSucceeded,
+            onStartupFailure: onStartupFailure
+        )
         containers[session.id] = created
         if debugAIFocus {
             print("[TerminalRegistry] create sessionID=\(session.id.uuidString) cwd=\(session.cwd)")
@@ -578,6 +858,14 @@ final class SwiftTermTerminalRegistry {
         return true
     }
 
+    func sendInterrupt(to sessionID: UUID) -> Bool {
+        guard let container = containers[sessionID] else {
+            return false
+        }
+        container.sendInterrupt()
+        return true
+    }
+
     func focusedSessionID() -> UUID? {
         if let explicitFocusedSessionID,
            containers[explicitFocusedSessionID] != nil {
@@ -595,6 +883,10 @@ final class SwiftTermTerminalRegistry {
         }
         explicitFocusedSessionID = sessionID
         NotificationCenter.default.post(name: .dmuxTerminalFocusDidChange, object: sessionID)
+    }
+
+    func ownsResponder(_ responder: NSResponder?) -> Bool {
+        containers.values.contains { $0.ownsResponder(responder) }
     }
 
     func debugSnapshot() -> String {

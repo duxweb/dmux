@@ -4,8 +4,10 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 project_path="${root_dir}/dmux.xcodeproj"
 scheme="dmux"
-app_name="Codux"
-version="${DMUX_VERSION:-0.1.3}"
+base_app_name="Codux"
+app_variant_suffix="${DMUX_APP_VARIANT_SUFFIX:-}"
+app_name="${DMUX_APP_NAME:-${base_app_name}${app_variant_suffix}}"
+version="${DMUX_VERSION:-0.1.6}"
 package_version="${DMUX_PACKAGE_VERSION:-${version}}"
 build_number="${DMUX_BUILD_NUMBER:-1}"
 configuration="${DMUX_CONFIGURATION:-Release}"
@@ -20,7 +22,7 @@ notary_api_issuer_id="${APPLE_API_ISSUER_ID:-}"
 dist_dir="${root_dir}/dist"
 build_dir="${root_dir}/.xcode-release"
 build_products_dir="${build_dir}/Build/Products/${configuration}"
-built_app_dir="${build_products_dir}/${app_name}.app"
+built_app_dir="${build_products_dir}/${base_app_name}.app"
 app_dir="${dist_dir}/${app_name}.app"
 package_basename="${app_name}-${package_version}-macos-universal"
 dmg_staging_dir="${dist_dir}/dmg"
@@ -29,6 +31,7 @@ zip_path="${dist_dir}/${package_basename}.zip"
 checksums_path="${dist_dir}/SHA256SUMS.txt"
 iconset_dir="${dist_dir}/AppIcon.iconset"
 main_icns_path="${app_dir}/Contents/Resources/AppIcon.icns"
+main_plist_path="${app_dir}/Contents/Info.plist"
 icon_generator_bin="$(mktemp "${TMPDIR:-/tmp}/dmux-generate-app-icon.XXXXXX")"
 
 cleanup() {
@@ -88,6 +91,38 @@ build_app() {
   fi
 
   cp -R "${built_app_dir}" "${app_dir}"
+}
+
+update_app_metadata_if_needed() {
+  if [[ ! -f "${main_plist_path}" ]]; then
+    return
+  fi
+
+  local display_name="${DMUX_APP_DISPLAY_NAME:-${app_name}}"
+  local bundle_name="${DMUX_APP_BUNDLE_NAME:-${app_name}}"
+  local bundle_identifier_suffix="${DMUX_BUNDLE_IDENTIFIER_SUFFIX:-}"
+  local log_profile="${DMUX_LOG_PROFILE:-}"
+
+  if [[ "${display_name}" != "${base_app_name}" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${display_name}" "${main_plist_path}" >/dev/null 2>&1 || true
+  fi
+
+  if [[ "${bundle_name}" != "${base_app_name}" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName ${bundle_name}" "${main_plist_path}" >/dev/null 2>&1 || true
+  fi
+
+  if [[ -n "${bundle_identifier_suffix}" ]]; then
+    local existing_identifier
+    existing_identifier="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "${main_plist_path}" 2>/dev/null || true)"
+    if [[ -n "${existing_identifier}" && "${existing_identifier}" != *"${bundle_identifier_suffix}" ]]; then
+      /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${existing_identifier}${bundle_identifier_suffix}" "${main_plist_path}" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if [[ -n "${log_profile}" ]]; then
+    /usr/libexec/PlistBuddy -c "Delete :DMUXLogProfile" "${main_plist_path}" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c "Add :DMUXLogProfile string ${log_profile}" "${main_plist_path}" >/dev/null 2>&1 || true
+  fi
 }
 
 sign_app() {
@@ -177,6 +212,7 @@ fi
 
 ensure_metal_toolchain
 build_app
+update_app_metadata_if_needed
 generate_app_icons
 sign_app
 verify_app_signature

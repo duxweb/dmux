@@ -32,6 +32,11 @@ final class AppModel {
         var finishedAt: Date
     }
 
+    struct TerminalRecoveryIssue: Equatable {
+        var message: String
+        var detail: String
+    }
+
     var projects: [Project]
     var workspaces: [ProjectWorkspace]
     var selectedProjectID: UUID?
@@ -45,20 +50,24 @@ final class AppModel {
     var rightPanelWidth: CGFloat = 360
     var isGeneratingCommitMessage = false
     var terminalFocusRequestID: UUID?
+    var terminalFocusRenderVersion: UInt64 = 0
     let runtimeStore = AIRuntimeStateStore.shared
     let aiStatsStore = AIStatsStore()
     let gitStore = GitStore()
+    let performanceMonitor = AppPerformanceMonitorStore()
 
     private let persistenceService: PersistenceService
     private let gitService = GitService()
     private let gitCredentialStore = GitCredentialStore()
     private let activityService = ProjectActivityService()
     private let diagnosticsExportService = AppDiagnosticsExportService()
+    private let runtimeBridgeService = AIRuntimeBridgeService()
     private let runtimeIngressService = AIRuntimeIngressService.shared
     private let toolDriverFactory = AIToolDriverFactory.shared
     private let debugLog = AppDebugLog.shared
     private var activityStatusWatcher: DispatchSourceFileSystemObject?
     private var appActivationObservers: [NSObjectProtocol] = []
+    private var terminalFocusObserver: NSObjectProtocol?
     private var runtimeBridgeObserver: NSObjectProtocol?
     private var runtimeActivityObserver: NSObjectProtocol?
     private var pendingActivityRefreshTask: Task<Void, Never>?
@@ -72,6 +81,12 @@ final class AppModel {
     private var lastRealtimeResponseBySessionID: [UUID: AIResponseState?] = [:]
     private var realtimeProjectIDBySessionID: [UUID: UUID] = [:]
     private var isSystemUIReady = false
+    private var isTerminalStartupUnlocked = false
+    private var hasLoggedRootViewAppearance = false
+    private var lastWorkspaceAppearanceToken: String?
+    private var pendingTerminalStartupUnlockTask: Task<Void, Never>?
+    private var terminalRecoveryIssueBySessionID: [UUID: TerminalRecoveryIssue] = [:]
+    private var terminalRecoveryRetryTokenBySessionID: [UUID: Int] = [:]
     private var pendingStartupRecoveryDialog: ConfirmDialogState?
     private var hasPresentedStartupRecoveryDialog = false
 
@@ -95,9 +110,11 @@ final class AppModel {
         resetActivityState()
         activityService.clearAllStatuses()
         runtimeIngressService.resetEphemeralState()
+        runtimeBridgeService.prepareManagedRuntimeSupportIfNeeded()
         refreshProjectActivity(sendNotifications: false)
         activityService.requestNotificationPermission()
         observeApplicationActivation()
+        observeTerminalFocusChanges()
         startActivityWatchers()
         debugLog.log("app", "launch selectedProject=\(selectedProject?.name ?? "nil")")
         aiStatsStore.configureIntervals(
@@ -116,7 +133,14 @@ final class AppModel {
             isEnabled: { NSApplication.shared.isActive && self.rightPanel == .git }
         )
         updateGitRemoteSyncPolling()
-        refreshAIStatsIfNeeded()
+        performanceMonitor.setContextProvider { [weak self] in
+            self?.performanceMonitorContextSnapshot() ?? .empty
+        }
+        performanceMonitor.setApplicationActive(NSApplication.shared.isActive)
+        performanceMonitor.configure(
+            isEnabled: appSettings.developer.showsPerformanceMonitor,
+            sampleInterval: appSettings.developer.performanceMonitorSamplingInterval
+        )
 
         pendingStartupRecoveryDialog = startupRecoveryDialog(for: startupIssues)
         if pendingStartupRecoveryDialog != nil {
@@ -141,6 +165,10 @@ final class AppModel {
         realtimeCompletionByProjectID.removeAll()
         lastRealtimeResponseBySessionID.removeAll()
         realtimeProjectIDBySessionID.removeAll()
+    }
+
+    var allowsDeferredTerminalStartup: Bool {
+        isTerminalStartupUnlocked
     }
 
     static func bootstrap() -> AppModel {
@@ -173,6 +201,95 @@ final class AppModel {
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { _ in }
     }
 
+    func noteRootViewAppeared() {
+        guard hasLoggedRootViewAppearance == false else {
+            return
+        }
+        hasLoggedRootViewAppearance = true
+        debugLog.log("startup-ui", "root-view appeared selectedProject=\(selectedProject?.name ?? "nil")")
+        unlockDeferredTerminalStartupAfterInitialPresentation()
+    }
+
+    func noteWorkspaceViewAppeared() {
+        let token: String
+        if let workspace = selectedWorkspace {
+            token = "project:\(workspace.projectID.uuidString):top=\(workspace.topSessionIDs.count):bottom=\(workspace.bottomTabSessionIDs.count):selected=\(workspace.selectedSessionID.uuidString)"
+        } else {
+            token = "empty"
+        }
+
+        guard lastWorkspaceAppearanceToken != token else {
+            return
+        }
+        lastWorkspaceAppearanceToken = token
+
+        if let workspace = selectedWorkspace {
+            debugLog.log(
+                "startup-ui",
+                "workspace-view project=\(workspace.projectID.uuidString) topSessions=\(workspace.topSessionIDs.count) bottomTabs=\(workspace.bottomTabSessionIDs.count) selectedSession=\(workspace.selectedSessionID.uuidString)"
+            )
+        } else {
+            debugLog.log("startup-ui", "workspace-view empty")
+        }
+    }
+
+    func terminalRecoveryIssue(for sessionID: UUID) -> TerminalRecoveryIssue? {
+        terminalRecoveryIssueBySessionID[sessionID]
+    }
+
+    func terminalRecoveryRetryToken(for sessionID: UUID) -> Int {
+        terminalRecoveryRetryTokenBySessionID[sessionID] ?? 0
+    }
+
+    func noteTerminalStartupFailure(_ sessionID: UUID, detail: String) {
+        let message = String(
+            localized: "terminal.recovery.failed",
+            defaultValue: "Terminal recovery failed. Showing the project shell instead.",
+            bundle: .module
+        )
+        let issue = TerminalRecoveryIssue(message: message, detail: detail)
+        guard terminalRecoveryIssueBySessionID[sessionID] != issue else {
+            return
+        }
+
+        terminalRecoveryIssueBySessionID[sessionID] = issue
+        if let context = terminalRecoveryContext(for: sessionID) {
+            debugLog.log(
+                "terminal-recovery",
+                "failed session=\(sessionID.uuidString) project=\(context.projectID.uuidString) title=\(context.title) detail=\(detail)"
+            )
+        } else {
+            debugLog.log(
+                "terminal-recovery",
+                "failed session=\(sessionID.uuidString) detail=\(detail)"
+            )
+        }
+        SwiftTermTerminalRegistry.shared.release(sessionID: sessionID)
+
+        if selectedSessionID == sessionID {
+            statusMessage = message
+        }
+    }
+
+    func noteTerminalStartupSucceeded(_ sessionID: UUID) {
+        guard terminalRecoveryIssueBySessionID.removeValue(forKey: sessionID) != nil else {
+            return
+        }
+        debugLog.log("terminal-recovery", "recovered session=\(sessionID.uuidString)")
+    }
+
+    func retryTerminalRecovery(_ sessionID: UUID) {
+        terminalRecoveryIssueBySessionID[sessionID] = nil
+        terminalRecoveryRetryTokenBySessionID[sessionID, default: 0] += 1
+        SwiftTermTerminalRegistry.shared.release(sessionID: sessionID)
+        terminalFocusRequestID = sessionID
+        debugLog.log(
+            "terminal-recovery",
+            "retry session=\(sessionID.uuidString) token=\(terminalRecoveryRetryTokenBySessionID[sessionID] ?? 0)"
+        )
+        statusMessage = String(localized: "terminal.recovery.retrying", defaultValue: "Retrying terminal recovery.", bundle: .module)
+    }
+
     var selectedWorkspace: ProjectWorkspace? {
         guard let selectedProjectID else {
             return nil
@@ -183,6 +300,41 @@ final class AppModel {
 
     var selectedSessionID: UUID? {
         selectedWorkspace?.selectedSessionID
+    }
+
+    var displayedFocusedTerminalSessionID: UUID? {
+        SwiftTermTerminalRegistry.shared.focusedSessionID() ?? selectedSessionID
+    }
+
+    private func unlockDeferredTerminalStartupAfterInitialPresentation() {
+        guard isTerminalStartupUnlocked == false else {
+            return
+        }
+        pendingTerminalStartupUnlockTask?.cancel()
+        pendingTerminalStartupUnlockTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(260))
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            self.isTerminalStartupUnlocked = true
+            self.pendingTerminalStartupUnlockTask = nil
+            self.debugLog.log("startup-ui", "terminal-startup unlocked")
+            self.refreshAIStatsIfNeeded()
+        }
+    }
+
+    private func clearTerminalRecoveryState(for sessionID: UUID) {
+        terminalRecoveryIssueBySessionID[sessionID] = nil
+        terminalRecoveryRetryTokenBySessionID[sessionID] = nil
+    }
+
+    private func terminalRecoveryContext(for sessionID: UUID) -> (projectID: UUID, title: String)? {
+        for workspace in workspaces {
+            if let session = workspace.sessions.first(where: { $0.id == sessionID }) {
+                return (workspace.projectID, session.title)
+            }
+        }
+        return nil
     }
 
     var aiStatsState: AIStatsPanelState {
@@ -875,6 +1027,7 @@ final class AppModel {
         mutateSelectedWorkspace { workspace, _ in
             workspace.selectedSessionID = sessionID
         }
+        terminalFocusRenderVersion &+= 1
         refreshAIStatsIfNeeded()
     }
 
@@ -885,6 +1038,7 @@ final class AppModel {
             workspace.selectedSessionID = sessionID
             terminalFocusRequestID = sessionID
         }
+        terminalFocusRenderVersion &+= 1
         refreshAIStatsIfNeeded()
     }
 
@@ -898,6 +1052,14 @@ final class AppModel {
     func consumeTerminalFocusRequest(_ sessionID: UUID) {
         guard terminalFocusRequestID == sessionID else { return }
         terminalFocusRequestID = nil
+    }
+
+    func sendInterruptToSelectedSession() -> Bool {
+        guard let sessionID = selectedSessionID else {
+            return false
+        }
+        terminalFocusRequestID = sessionID
+        return SwiftTermTerminalRegistry.shared.sendInterrupt(to: sessionID)
     }
 
     func session(for sessionID: UUID) -> TerminalSession? {
@@ -1091,6 +1253,7 @@ final class AppModel {
                 selectedSessionID: selectedSessionID
             )
             SwiftTermTerminalRegistry.shared.release(sessionID: sessionID)
+            clearTerminalRecoveryState(for: sessionID)
             statusMessage = String(localized: "terminal.closed", defaultValue: "Closed terminal.", bundle: .module)
         }
     }
@@ -1828,6 +1991,7 @@ final class AppModel {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                self?.performanceMonitor.setApplicationActive(true)
                 self?.updateGitRemoteSyncPolling()
                 self?.refreshAIStatsIfNeeded()
             }
@@ -1839,11 +2003,52 @@ final class AppModel {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                self?.performanceMonitor.setApplicationActive(false)
                 self?.updateGitRemoteSyncPolling()
             }
         }
 
         appActivationObservers = [becameActive, resignedActive]
+    }
+
+    private func observeTerminalFocusChanges() {
+        if let terminalFocusObserver {
+            NotificationCenter.default.removeObserver(terminalFocusObserver)
+        }
+
+        terminalFocusObserver = NotificationCenter.default.addObserver(
+            forName: .dmuxTerminalFocusDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.terminalFocusRenderVersion &+= 1
+            }
+        }
+    }
+
+    private func performanceMonitorContextSnapshot() -> AppPerformanceMonitorStore.ContextSnapshot {
+        let activityLabel: String
+        if let project = selectedProject,
+           let phase = activityByProjectID[project.id] {
+            switch phase {
+            case .idle:
+                activityLabel = "idle"
+            case .running(let tool):
+                activityLabel = "running:\(tool)"
+            case .completed(let tool, _, let exitCode):
+                activityLabel = "completed:\(tool):\(exitCode.map(String.init) ?? "nil")"
+            }
+        } else {
+            activityLabel = "idle"
+        }
+
+        return AppPerformanceMonitorStore.ContextSnapshot(
+            projectName: selectedProject?.name,
+            panelName: rightPanel?.rawValue ?? "none",
+            selectedSessionID: selectedSessionID?.uuidString,
+            activity: activityLabel
+        )
     }
 
     private func presentRemoteSyncConflictAlert(repositoryPath: String) {
@@ -1964,14 +2169,18 @@ final class AppModel {
 
     private func openSelectedProjectInApplication(_ project: Project, bundleIdentifier: String, fallbackURL: URL? = nil, successMessage: String, failureMessage: String) {
         let projectURL = URL(fileURLWithPath: project.path, isDirectory: true)
-
-        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.activates = true
-            NSWorkspace.shared.open([projectURL], withApplicationAt: appURL, configuration: configuration) { [weak self] _, error in
-                Task { @MainActor in
+        if NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil {
+            Task.detached(priority: .userInitiated) { [weak self] in
+                let didOpen = Self.openProjectURL(projectURL, withBundleIdentifier: bundleIdentifier)
+                await MainActor.run {
                     guard let self else { return }
-                    self.statusMessage = error == nil ? successMessage : failureMessage
+                    if didOpen {
+                        self.statusMessage = successMessage
+                    } else if let fallbackURL, NSWorkspace.shared.open(fallbackURL) {
+                        self.statusMessage = successMessage
+                    } else {
+                        self.statusMessage = failureMessage
+                    }
                 }
             }
             return
@@ -1983,6 +2192,20 @@ final class AppModel {
         }
 
         statusMessage = failureMessage
+    }
+
+    private nonisolated static func openProjectURL(_ projectURL: URL, withBundleIdentifier bundleIdentifier: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-b", bundleIdentifier, projectURL.path]
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     private func vscodeOpenURL(for path: String) -> URL? {
@@ -2423,6 +2646,13 @@ final class AppModel {
         persist()
     }
 
+    func updateTerminalGPUAccelerationEnabled(_ enabled: Bool) {
+        var settings = appSettings
+        settings.terminalGPUAccelerationEnabled = enabled
+        appSettings = settings
+        persist()
+    }
+
     func updateDefaultTerminal(_ terminal: AppTerminalProfile) {
         let previousShell = appSettings.defaultTerminal.shellPath
         var settings = appSettings
@@ -2503,6 +2733,29 @@ final class AppModel {
         var settings = appSettings
         settings.developer.showsDebugLogButton = enabled
         appSettings = settings
+        persist()
+    }
+
+    func updateDeveloperPerformanceMonitorEnabled(_ enabled: Bool) {
+        var settings = appSettings
+        settings.developer.showsPerformanceMonitor = enabled
+        appSettings = settings
+        performanceMonitor.configure(
+            isEnabled: enabled,
+            sampleInterval: settings.developer.performanceMonitorSamplingInterval
+        )
+        persist()
+    }
+
+    func updateDeveloperPerformanceMonitorSamplingInterval(_ interval: TimeInterval) {
+        let normalizedInterval = max(1, interval)
+        var settings = appSettings
+        settings.developer.performanceMonitorSamplingInterval = normalizedInterval
+        appSettings = settings
+        performanceMonitor.configure(
+            isEnabled: settings.developer.showsPerformanceMonitor,
+            sampleInterval: normalizedInterval
+        )
         persist()
     }
 

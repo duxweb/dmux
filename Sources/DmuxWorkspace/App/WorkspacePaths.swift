@@ -9,6 +9,11 @@ enum WorkspacePaths {
             }
         }
 
+        if let bundledRuntimeRoot = bundledRuntimeRootURL(),
+           isRepositoryRoot(bundledRuntimeRoot) {
+            return bundledRuntimeRoot
+        }
+
         for candidate in repositoryRootCandidates(environment: environment) {
             if let root = findRepositoryRoot(startingAt: candidate) {
                 return root
@@ -24,26 +29,29 @@ enum WorkspacePaths {
             .standardizedFileURL
     }
 
+    private static func bundledRuntimeRootURL() -> URL? {
+        guard let resourceURL = Bundle.main.resourceURL?.standardizedFileURL else {
+            return nil
+        }
+        return resourceURL.appendingPathComponent("runtime-root", isDirectory: true)
+    }
+
     private static func repositoryRootCandidates(environment: [String: String]) -> [URL] {
         var candidates: [URL] = []
 
         let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).standardizedFileURL
         candidates.append(currentDirectory)
 
-        if let resourceURL = Bundle.main.resourceURL?.resolvingSymlinksInPath().standardizedFileURL {
-            candidates.append(resourceURL.appendingPathComponent("runtime-root", isDirectory: true))
-        }
-
-        if let executableURL = Bundle.main.executableURL?.resolvingSymlinksInPath().standardizedFileURL {
+        if let executableURL = Bundle.main.executableURL?.standardizedFileURL {
             candidates.append(executableURL)
         }
 
-        if let bundleURL = Bundle.main.bundleURL.resolvingSymlinksInPath().standardizedFileURL as URL? {
+        if let bundleURL = Bundle.main.bundleURL.standardizedFileURL as URL? {
             candidates.append(bundleURL)
         }
 
         if let processPath = environment["_"] {
-            candidates.append(URL(fileURLWithPath: processPath).resolvingSymlinksInPath().standardizedFileURL)
+            candidates.append(URL(fileURLWithPath: processPath).standardizedFileURL)
         }
 
         var deduplicated: [URL] = []

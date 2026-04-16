@@ -12,12 +12,27 @@ struct WorkspaceView: View {
                 WorkspaceEmptyStateView(model: model)
             }
         }
+        .onAppear {
+            model.noteWorkspaceViewAppeared()
+        }
+        .onChange(of: model.selectedProjectID) { _, _ in
+            model.noteWorkspaceViewAppeared()
+        }
     }
 }
 
 private struct WorkspaceProjectView: View {
     let model: AppModel
     let workspace: ProjectWorkspace
+
+    private var activeTerminalSessionID: UUID? {
+        let _ = model.terminalFocusRenderVersion
+        return model.displayedFocusedTerminalSessionID
+    }
+
+    private var hasMultipleVisibleTerminalPanes: Bool {
+        workspace.topSessionIDs.count + (workspace.hasBottomTabs ? 1 : 0) > 1
+    }
 
     var body: some View {
         VerticalTerminalSplitView(
@@ -27,14 +42,24 @@ private struct WorkspaceProjectView: View {
             hasBottomRegion: workspace.hasBottomTabs,
             bottomHeight: workspace.hasBottomTabs ? workspace.bottomPaneHeight : 160,
             top: {
-                TopPaneRowView(model: model, workspace: workspace)
+                TopPaneRowView(
+                    model: model,
+                    workspace: workspace,
+                    activeTerminalSessionID: activeTerminalSessionID,
+                    showsInactiveOverlay: hasMultipleVisibleTerminalPanes
+                )
                     .frame(minHeight: 220, maxHeight: .infinity)
             },
             bottom: {
                 AnyView(
                     Group {
                         if workspace.hasBottomTabs {
-                            WorkspaceBottomRegion(model: model, workspace: workspace)
+                            WorkspaceBottomRegion(
+                                model: model,
+                                workspace: workspace,
+                                activeTerminalSessionID: activeTerminalSessionID,
+                                showsInactiveOverlay: hasMultipleVisibleTerminalPanes
+                            )
                                 .frame(minHeight: 160, idealHeight: workspace.bottomPaneHeight, maxHeight: .infinity)
                         } else {
                             EmptyView()
@@ -50,9 +75,16 @@ private struct WorkspaceProjectView: View {
 private struct WorkspaceBottomRegion: View {
     let model: AppModel
     let workspace: ProjectWorkspace
+    let activeTerminalSessionID: UUID?
+    let showsInactiveOverlay: Bool
 
     var body: some View {
-        BottomTabbedPaneView(model: model, workspace: workspace)
+        BottomTabbedPaneView(
+            model: model,
+            workspace: workspace,
+            activeTerminalSessionID: activeTerminalSessionID,
+            showsInactiveOverlay: showsInactiveOverlay
+        )
         .clipped()
     }
 }
@@ -60,41 +92,70 @@ private struct WorkspaceBottomRegion: View {
 private struct TopPaneRowView: View {
     let model: AppModel
     let workspace: ProjectWorkspace
+    let activeTerminalSessionID: UUID?
+    let showsInactiveOverlay: Bool
 
     var body: some View {
-        TopPaneSplitContainer(model: model, workspace: workspace)
+        TopPaneSplitContainer(
+            model: model,
+            workspace: workspace,
+            activeTerminalSessionID: activeTerminalSessionID,
+            showsInactiveOverlay: showsInactiveOverlay
+        )
     }
 }
 
 private struct TopPaneSplitContainer: NSViewControllerRepresentable {
     let model: AppModel
     let workspace: ProjectWorkspace
+    let activeTerminalSessionID: UUID?
+    let showsInactiveOverlay: Bool
 
     func makeNSViewController(context: Context) -> TopPaneSplitController {
-        TopPaneSplitController(model: model, workspace: workspace, dividerColor: model.terminalDividerNSColor)
+        TopPaneSplitController(
+            model: model,
+            workspace: workspace,
+            activeTerminalSessionID: activeTerminalSessionID,
+            showsInactiveOverlay: showsInactiveOverlay,
+            dividerColor: model.terminalDividerNSColor
+        )
     }
 
     func updateNSViewController(_ controller: TopPaneSplitController, context: Context) {
-        controller.update(workspace: workspace, dividerColor: model.terminalDividerNSColor)
+        controller.update(
+            workspace: workspace,
+            activeTerminalSessionID: activeTerminalSessionID,
+            showsInactiveOverlay: showsInactiveOverlay,
+            dividerColor: model.terminalDividerNSColor
+        )
     }
 }
 
 private final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
     private let model: AppModel
+    private let logger = AppDebugLog.shared
     private let paneSplitView = DividerStyledHorizontalSplitView()
     private var paneHosts: [UUID: NSHostingController<TerminalPaneView>] = [:]
     private var currentSessionIDs: [UUID] = []
     private var currentWorkspace: ProjectWorkspace
+    private var activeTerminalSessionID: UUID?
+    private var showsInactiveOverlay: Bool
     private var dividerColor: NSColor
     private let minimumPaneWidth: CGFloat = 220
     private var isApplyingLayout = false
     private var needsEqualDistribution = false
 
-    init(model: AppModel, workspace: ProjectWorkspace, dividerColor: NSColor) {
+    init(model: AppModel, workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
         self.model = model
         self.currentWorkspace = workspace
+        self.activeTerminalSessionID = activeTerminalSessionID
+        self.showsInactiveOverlay = showsInactiveOverlay
         self.dividerColor = dividerColor
         super.init(nibName: nil, bundle: nil)
+        logger.log(
+            "startup-ui",
+            "top-pane init project=\(workspace.projectID.uuidString) topSessions=\(workspace.topSessionIDs.count) bottomTabs=\(workspace.bottomTabSessionIDs.count)"
+        )
         paneSplitView.dividerStyle = NSSplitView.DividerStyle.thin
         paneSplitView.isVertical = true
         paneSplitView.delegate = self
@@ -125,8 +186,10 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         applyRatiosIfNeeded()
     }
 
-    func update(workspace: ProjectWorkspace, dividerColor: NSColor) {
+    func update(workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
         currentWorkspace = workspace
+        self.activeTerminalSessionID = activeTerminalSessionID
+        self.showsInactiveOverlay = showsInactiveOverlay
         self.dividerColor = dividerColor
         paneSplitView.customDividerColor = dividerColor
         rebuildPanes(for: workspace)
@@ -141,6 +204,10 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         guard currentSessionIDs != workspace.topSessionIDs else { return }
         currentSessionIDs = workspace.topSessionIDs
         needsEqualDistribution = true
+        logger.log(
+            "startup-ui",
+            "top-pane rebuild project=\(workspace.projectID.uuidString) sessions=\(workspace.topSessionIDs.count)"
+        )
 
         for view in paneSplitView.arrangedSubviews {
             view.removeFromSuperview()
@@ -148,30 +215,40 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
 
         for sessionID in workspace.topSessionIDs {
             guard let session = workspace.sessions.first(where: { $0.id == sessionID }) else { continue }
+            logger.log(
+                "startup-ui",
+                "top-pane prepare-host session=\(session.id.uuidString) project=\(session.projectID.uuidString)"
+            )
 
             let host: NSHostingController<TerminalPaneView>
             if let existing = paneHosts[sessionID] {
                 host = existing
+                logger.log("startup-ui", "top-pane reuse-host session=\(session.id.uuidString)")
             } else {
                 host = NSHostingController(
                     rootView: TerminalPaneView(
                         model: model,
                         session: session,
                         terminalBackgroundPreset: model.terminalBackgroundPreset,
-                        isFocused: sessionID == workspace.selectedSessionID,
+                        isFocused: sessionID == activeTerminalSessionID,
+                        showsInactiveOverlay: showsInactiveOverlay,
                         onSelect: { self.model.selectSession(sessionID) },
                         onClose: { self.model.closeSession(sessionID) },
                         showsCloseButton: true
                     )
                 )
                 paneHosts[sessionID] = host
+                logger.log("startup-ui", "top-pane create-host session=\(session.id.uuidString)")
             }
 
             if host.parent == nil {
                 addChild(host)
+                logger.log("startup-ui", "top-pane add-child session=\(session.id.uuidString)")
             }
 
+            logger.log("startup-ui", "top-pane access-host-view session=\(session.id.uuidString)")
             paneSplitView.addArrangedSubview(host.view)
+            logger.log("startup-ui", "top-pane attached-host-view session=\(session.id.uuidString)")
             host.view.translatesAutoresizingMaskIntoConstraints = true
         }
 
@@ -190,7 +267,8 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
                 model: model,
                 session: session,
                 terminalBackgroundPreset: model.terminalBackgroundPreset,
-                isFocused: sessionID == workspace.selectedSessionID,
+                isFocused: sessionID == activeTerminalSessionID,
+                showsInactiveOverlay: showsInactiveOverlay,
                 onSelect: { self.model.selectSession(sessionID) },
                 onClose: { self.model.closeSession(sessionID) },
                 showsCloseButton: true
@@ -252,6 +330,8 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
 private struct BottomTabbedPaneView: View {
     let model: AppModel
     let workspace: ProjectWorkspace
+    let activeTerminalSessionID: UUID?
+    let showsInactiveOverlay: Bool
 
     private var selectedBottomSessionID: UUID? {
         if let selected = workspace.selectedBottomTabSessionID,
@@ -301,7 +381,8 @@ private struct BottomTabbedPaneView: View {
                             model: model,
                             session: session,
                             terminalBackgroundPreset: model.terminalBackgroundPreset,
-                            isFocused: sessionID == selectedBottomSessionID,
+                            isFocused: sessionID == activeTerminalSessionID,
+                            showsInactiveOverlay: showsInactiveOverlay,
                             onSelect: { model.selectBottomTabSession(sessionID) },
                             onClose: {},
                             showsCloseButton: false
@@ -547,23 +628,52 @@ private struct TerminalPaneView: View {
     let session: TerminalSession
     let terminalBackgroundPreset: AppTerminalBackgroundPreset
     let isFocused: Bool
+    let showsInactiveOverlay: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let showsCloseButton: Bool
 
     @State private var isHovered = false
+    @State private var hasLoggedMount = false
 
     private let terminalEnvironmentService = AIRuntimeBridgeService()
     private let terminalInsets = EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+    private var recoveryIssue: AppModel.TerminalRecoveryIssue? {
+        model.terminalRecoveryIssue(for: session.id)
+    }
+
+    private var inactiveOverlayColor: Color {
+        terminalBackgroundPreset.isLight
+            ? Color.black.opacity(0.07)
+            : Color.black.opacity(0.22)
+    }
 
     var body: some View {
         ZStack {
             Rectangle()
                 .fill(model.terminalChromeColor)
 
-            terminalHost
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(terminalInsets)
+            Group {
+                if let recoveryIssue {
+                    TerminalRecoveryFallbackView(
+                        model: model,
+                        session: session,
+                        issue: recoveryIssue,
+                        onRetry: { model.retryTerminalRecovery(session.id) }
+                    )
+                } else {
+                    terminalHost
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(terminalInsets)
+
+            if showsInactiveOverlay && !isFocused {
+                Rectangle()
+                    .fill(inactiveOverlayColor)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
 
             if showsCloseButton && (isHovered || isFocused) {
                 VStack {
@@ -594,17 +704,127 @@ private struct TerminalPaneView: View {
         .onHover { hovering in
             isHovered = hovering
         }
+        .onAppear {
+            guard hasLoggedMount == false else {
+                return
+            }
+            hasLoggedMount = true
+            AppDebugLog.shared.log(
+                "startup-ui",
+                "terminal-pane appear session=\(session.id.uuidString) project=\(session.projectID.uuidString)"
+            )
+        }
     }
 
     @ViewBuilder
     private var terminalHost: some View {
         SwiftTermTerminalHostView(
             session: session,
-            environment: terminalEnvironmentService.environment(for: session),
+            environment: terminalEnvironment(),
             terminalBackgroundPreset: terminalBackgroundPreset,
+            useMetalRendering: model.appSettings.terminalGPUAccelerationEnabled,
             shouldFocus: model.terminalFocusRequestID == session.id,
             onInteraction: onSelect,
-            onFocusConsumed: { model.consumeTerminalFocusRequest(session.id) }
+            onFocusConsumed: { model.consumeTerminalFocusRequest(session.id) },
+            onStartupSucceeded: { model.noteTerminalStartupSucceeded(session.id) },
+            onStartupFailure: { detail in model.noteTerminalStartupFailure(session.id, detail: detail) }
         )
+        .id("terminal-\(session.id.uuidString)-\(model.terminalRecoveryRetryToken(for: session.id))")
+    }
+
+    private func terminalEnvironment() -> [(String, String)] {
+        let logger = AppDebugLog.shared
+        let resolution = terminalEnvironmentService.environmentResolution(for: session)
+        if resolution.isCacheHit == false {
+            logger.log(
+                "startup-ui",
+                "terminal-pane host-build-start session=\(session.id.uuidString) project=\(session.projectID.uuidString)"
+            )
+            logger.log(
+                "startup-ui",
+                "terminal-pane host-build-env-ready session=\(session.id.uuidString) envCount=\(resolution.pairs.count)"
+            )
+        }
+        return resolution.pairs
+    }
+}
+
+private struct TerminalRecoveryFallbackView: View {
+    let model: AppModel
+    let session: TerminalSession
+    let issue: AppModel.TerminalRecoveryIssue
+    let onRetry: () -> Void
+
+    private var cardFill: Color {
+        model.terminalBackgroundPreset.isLight ? Color.black.opacity(0.035) : Color.white.opacity(0.05)
+    }
+
+    private var cardStroke: Color {
+        model.terminalBackgroundPreset.isLight ? Color.black.opacity(0.1) : Color.white.opacity(0.1)
+    }
+
+    private var accent: Color {
+        model.terminalBackgroundPreset.isLight ? AppTheme.warning.opacity(0.88) : AppTheme.warning.opacity(0.92)
+    }
+
+    var body: some View {
+        VStack {
+            Spacer()
+
+            VStack(spacing: 14) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(accent)
+
+                VStack(spacing: 6) {
+                    Text(issue.message)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(model.terminalTextColor.opacity(0.92))
+                        .multilineTextAlignment(.center)
+
+                    Text(session.cwd)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(model.terminalMutedTextColor.opacity(0.78))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+
+                    Text(issue.detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(model.terminalMutedTextColor.opacity(0.82))
+                        .multilineTextAlignment(.center)
+                }
+
+                HStack(spacing: 10) {
+                    Button(action: onRetry) {
+                        Label(String(localized: "common.retry", defaultValue: "Retry", bundle: .module), systemImage: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button(action: { model.openSelectedProjectInTerminal() }) {
+                        Label(String(localized: "open.terminal", defaultValue: "Open in Terminal", bundle: .module), systemImage: "terminal")
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 24)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(cardFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(cardStroke, lineWidth: 1)
+            )
+
+            Spacer()
+        }
+        .padding(20)
     }
 }

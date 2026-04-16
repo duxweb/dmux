@@ -4,6 +4,11 @@ import Foundation
 final class AppDebugLog: @unchecked Sendable {
     static let shared = AppDebugLog()
 
+    private enum LoggingProfile {
+        case verbose
+        case compact
+    }
+
     private let fileManager = FileManager.default
     private let queue = DispatchQueue(label: "dmux.debug.log", qos: .utility)
     private let dateFormatter: ISO8601DateFormatter = {
@@ -11,14 +16,62 @@ final class AppDebugLog: @unchecked Sendable {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+    private lazy var loggingProfile: LoggingProfile = {
+        if let override = ProcessInfo.processInfo.environment["DMUX_LOG_PROFILE"]?.lowercased() {
+            if override == "verbose" || override == "debug" {
+                return .verbose
+            }
+            if override == "compact" || override == "release" {
+                return .compact
+            }
+        }
+
+        if let defaultsOverride = UserDefaults.standard.object(forKey: "dmux.logProfile") as? String {
+            let normalized = defaultsOverride.lowercased()
+            if normalized == "verbose" || normalized == "debug" {
+                return .verbose
+            }
+            if normalized == "compact" || normalized == "release" {
+                return .compact
+            }
+        }
+
+        if let infoOverride = Bundle.main.object(forInfoDictionaryKey: "DMUXLogProfile") as? String {
+            let normalized = infoOverride.lowercased()
+            if normalized == "verbose" || normalized == "debug" {
+                return .verbose
+            }
+            if normalized == "compact" || normalized == "release" {
+                return .compact
+            }
+        }
+
+        #if DEBUG
+        return .verbose
+        #else
+        return .compact
+        #endif
+    }()
 
     private init() {}
 
-    func logFileURL() -> URL {
+    func logsDirectoryURL() -> URL {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let directoryURL = appSupport.appendingPathComponent("dmux/logs", isDirectory: true)
         try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        return directoryURL.appendingPathComponent("dmux-debug.log", isDirectory: false)
+        return directoryURL
+    }
+
+    func logFileURL() -> URL {
+        logsDirectoryURL().appendingPathComponent("dmux-debug.log", isDirectory: false)
+    }
+
+    func previousLogFileURL() -> URL {
+        logsDirectoryURL().appendingPathComponent("dmux-debug.previous.log", isDirectory: false)
+    }
+
+    func performanceSummaryFileURL() -> URL {
+        logsDirectoryURL().appendingPathComponent("performance-summary.json", isDirectory: false)
     }
 
     func log(_ category: String, _ message: String) {
@@ -57,17 +110,26 @@ final class AppDebugLog: @unchecked Sendable {
 
     func reset() {
         let fileURL = logFileURL()
-        let archivedURL = fileURL.deletingLastPathComponent().appendingPathComponent("dmux-debug.previous.log", isDirectory: false)
+        let archivedURL = previousLogFileURL()
+        let performanceSummaryURL = performanceSummaryFileURL()
         queue.sync {
+            try? fileManager.removeItem(at: fileURL)
             try? fileManager.removeItem(at: archivedURL)
-            if fileManager.fileExists(atPath: fileURL.path) {
-                try? fileManager.moveItem(at: fileURL, to: archivedURL)
-            }
+            try? fileManager.removeItem(at: performanceSummaryURL)
             fileManager.createFile(atPath: fileURL.path, contents: Data())
         }
     }
 
     private func shouldLog(category: String, message: String) -> Bool {
+        if loggingProfile == .compact {
+            switch category {
+            case "startup-ui", "runtime-hooks", "terminal-start", "terminal-ready", "terminal-env":
+                return false
+            default:
+                break
+            }
+        }
+
         switch category {
         case "terminal-env":
             return false

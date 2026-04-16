@@ -113,6 +113,7 @@ The diagnostics archive includes the most important files for troubleshooting, i
 
 - app runtime logs
 - previous rotated logs
+- performance event summary from the current app session
 - saved app state files
 - invalid state backups when available
 - related crash / hang / spin reports from macOS when available
@@ -121,6 +122,13 @@ If you need to collect logs manually, Codux writes runtime logs to:
 
 - `~/Library/Application Support/dmux/logs/dmux-debug.log`
 - `~/Library/Application Support/dmux/logs/dmux-debug.previous.log`
+- `~/Library/Application Support/dmux/logs/performance-summary.json`
+
+Notes:
+
+- Codux clears the previous app session logs on each launch, then starts a fresh runtime log for the current session
+- `dmux-debug.previous.log` only appears if the current session log grows large enough to rotate
+- `performance-summary.json` contains recent performance spike / main-thread stall summaries for the current session
 
 You can also open the current log file from the app via the top bar action: `Debug Log`.
 
@@ -161,7 +169,8 @@ Please attach or paste:
 2. Steps to reproduce the issue
 3. `dmux-debug.log`
 4. `dmux-debug.previous.log` if it exists
-5. The matching crash report from `~/Library/Logs/DiagnosticReports/` if the app crashed
+5. `performance-summary.json` if it exists
+6. The matching crash report from `~/Library/Logs/DiagnosticReports/` if the app crashed
 
 If convenient, compress the relevant files into a single `.zip` before submitting the issue.
 
