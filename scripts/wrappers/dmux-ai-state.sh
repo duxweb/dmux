@@ -145,7 +145,6 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
       log_line "claude hook action=${action} clear-response session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
       clear_response_file
       clear_claude_session_map
-      exit 0
       ;;
   esac
 fi

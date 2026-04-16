@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.5] - 2026-04-16
+
+### Changed
+
+- Reduced real-time activity refresh pressure by coalescing runtime bridge and project activity updates instead of recomputing on every pulse.
+- Smoothed Git file row hover actions so the action slot stays layout-stable and avoids needless view churn while moving the pointer.
+
+### Fixed
+
+- Fixed Claude session-end handling so stopping a run clears the responding state correctly instead of leaving the sidebar activity indicator spinning.
+- Stopped the AI stats terminal-output path from repeatedly re-importing runtime state on every chunk of terminal output, reducing unnecessary CPU work during high-frequency responses.
+
 ## [0.1.4] - 2026-04-16
 
 ### Added

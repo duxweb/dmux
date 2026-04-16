@@ -55,6 +55,8 @@ final class AIStatsStore {
     private var terminalFocusObserver: NSObjectProtocol?
     private var terminalOutputObserver: NSObjectProtocol?
     private var runtimeTailRefreshTasksBySessionID: [UUID: Task<Void, Never>] = [:]
+    private var pendingRuntimeBridgeRefreshTask: Task<Void, Never>?
+    private var pendingRuntimeBridgeRefreshShouldForce = false
     private var currentProjectID: UUID?
     private var currentSelectedSessionID: UUID?
     private var currentProjects: [Project] = []
@@ -709,25 +711,52 @@ final class AIStatsStore {
                 return
             }
             let kind = notification.userInfo?["kind"] as? String
-            Task { @MainActor in
-                guard isPanelVisible(), let project = selectedProject() else {
-                    return
-                }
-                let currentProjects = projects()
-                let sessionID = self.effectiveSessionID(selectedSessionID())
-                _ = self.ingestRuntime(project: project, projects: currentProjects)
-                self.refreshLiveState(project: project, projects: currentProjects, selectedSessionID: sessionID)
-                self.scheduleRuntimeRefreshesForLiveSessions(
-                    project: project,
-                    projects: currentProjects,
-                    force: kind != nil
-                )
-                self.scheduleRuntimeTailRefreshesForLiveSessions(
-                    project: project,
-                    projects: currentProjects,
-                    selectedSessionID: sessionID
-                )
+            Task { @MainActor [weak self] in
+                self?.scheduleRuntimeBridgeRefresh(force: kind != nil)
             }
+        }
+    }
+
+    private func scheduleRuntimeBridgeRefresh(force: Bool) {
+        pendingRuntimeBridgeRefreshShouldForce = pendingRuntimeBridgeRefreshShouldForce || force
+
+        guard pendingRuntimeBridgeRefreshTask == nil else {
+            return
+        }
+
+        pendingRuntimeBridgeRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard let self else {
+                return
+            }
+
+            let shouldForce = self.pendingRuntimeBridgeRefreshShouldForce
+            self.pendingRuntimeBridgeRefreshShouldForce = false
+            self.pendingRuntimeBridgeRefreshTask = nil
+
+            guard let isPanelVisible = self.panelVisibilityProvider,
+                  let selectedProject = self.selectedProjectProvider,
+                  let selectedSessionID = self.selectedSessionIDProvider,
+                  let projects = self.projectsProvider,
+                  isPanelVisible(),
+                  let project = selectedProject() else {
+                return
+            }
+
+            let currentProjects = projects()
+            let sessionID = self.effectiveSessionID(selectedSessionID())
+            _ = self.ingestRuntime(project: project, projects: currentProjects)
+            self.refreshLiveState(project: project, projects: currentProjects, selectedSessionID: sessionID)
+            self.scheduleRuntimeRefreshesForLiveSessions(
+                project: project,
+                projects: currentProjects,
+                force: shouldForce
+            )
+            self.scheduleRuntimeTailRefreshesForLiveSessions(
+                project: project,
+                projects: currentProjects,
+                selectedSessionID: sessionID
+            )
         }
     }
 
@@ -797,50 +826,59 @@ final class AIStatsStore {
                     return
                 }
 
-                let rawLiveEnvelopes = self.ingestRuntime(project: project, projects: currentProjects)
-                guard let envelope = rawLiveEnvelopes.first(where: { UUID(uuidString: $0.sessionId) == sessionID }),
-                      self.isMeaningfulLiveEnvelope(envelope) else {
+                let liveSnapshot = self.runtimeStateStore
+                    .liveSnapshots(projectID: project.id)
+                    .first(where: { $0.sessionID == sessionID })
+                guard let tool = liveSnapshot?.tool ?? self.currentRuntimeTool(for: sessionID, projectID: project.id),
+                      self.toolDriverFactory.isRealtimeTool(tool),
+                      self.normalizedToolName(tool) != "codex" else {
                     return
                 }
 
-                if let driver = self.toolDriverFactory.driver(for: envelope.tool),
-                   !driver.runtimeSourceDescriptors(project: project, envelope: envelope).isEmpty {
+                if let driver = self.toolDriverFactory.driver(for: tool),
+                   !driver.runtimeSourceDescriptors(project: project, envelope: nil).isEmpty {
                     // Source-backed runtimes should normally rely on their own event sources.
                     // Bootstrap them once when the live context is still empty so the first
                     // model/token snapshot appears without requiring a focus change.
-                    if self.normalizedToolName(envelope.tool) == "codex"
-                        || !self.needsRuntimeBootstrap(sessionID: sessionID, envelope: envelope) {
+                    if !self.needsRuntimeBootstrap(
+                        sessionID: sessionID,
+                        tool: tool,
+                        liveSnapshot: liveSnapshot
+                    ) {
                         return
                     }
                 }
 
                 self.sessionProjectIDBySessionID[sessionID] = project.id
-                self.sessionToolBySessionID[sessionID] = envelope.tool
-                self.sessionStartedAtBySessionID[sessionID] = envelope.startedAt ?? envelope.updatedAt
-                if self.activeRuntimeBySessionID[sessionID] == nil {
-                self.activeRuntimeBySessionID[sessionID] = AIRuntimeContextSnapshot(
-                        tool: envelope.tool,
-                        externalSessionID: envelope.externalSessionID,
-                        model: envelope.model,
-                        inputTokens: max(0, envelope.inputTokens ?? 0),
-                        outputTokens: max(0, envelope.outputTokens ?? 0),
-                        totalTokens: max(0, envelope.totalTokens ?? 0),
-                        updatedAt: envelope.updatedAt,
-                        responseState: envelope.responseState
+                self.sessionToolBySessionID[sessionID] = tool
+                self.sessionStartedAtBySessionID[sessionID] =
+                    liveSnapshot?.startedAt?.timeIntervalSince1970
+                    ?? liveSnapshot?.updatedAt.timeIntervalSince1970
+                    ?? self.sessionStartedAtBySessionID[sessionID]
+                if self.activeRuntimeBySessionID[sessionID] == nil, let liveSnapshot {
+                    self.activeRuntimeBySessionID[sessionID] = AIRuntimeContextSnapshot(
+                        tool: tool,
+                        externalSessionID: liveSnapshot.externalSessionID,
+                        model: liveSnapshot.model,
+                        inputTokens: max(0, liveSnapshot.currentInputTokens),
+                        outputTokens: max(0, liveSnapshot.currentOutputTokens),
+                        totalTokens: max(0, liveSnapshot.currentTotalTokens),
+                        updatedAt: liveSnapshot.updatedAt.timeIntervalSince1970,
+                        responseState: liveSnapshot.responseState
                     )
                     self.runtimeStateStore.applyRuntimeSnapshot(sessionID: sessionID, snapshot: self.activeRuntimeBySessionID[sessionID]!)
                 }
 
                 self.scheduleRuntimeRefresh(
                     for: sessionID,
-                    tool: envelope.tool,
+                    tool: tool,
                     project: project,
                     projects: currentProjects,
                     force: true
                 )
                 self.scheduleRuntimeTailRefresh(
                     for: sessionID,
-                    tool: envelope.tool,
+                    tool: tool,
                     project: project,
                     projects: currentProjects,
                     selectedSessionID: effectiveSelectedSessionID
@@ -940,7 +978,11 @@ final class AIStatsStore {
         toolDriverFactory.canonicalToolName(tool)
     }
 
-    private func needsRuntimeBootstrap(sessionID: UUID, envelope: AIToolUsageEnvelope) -> Bool {
+    private func needsRuntimeBootstrap(
+        sessionID: UUID,
+        tool: String,
+        liveSnapshot: AITerminalSessionSnapshot?
+    ) -> Bool {
         guard let runtime = activeRuntimeBySessionID[sessionID] else {
             return true
         }
@@ -949,12 +991,13 @@ final class AIStatsStore {
             return true
         }
         if (runtime.externalSessionID?.isEmpty ?? true),
-           normalizedToolName(envelope.tool) == "claude" {
+           normalizedToolName(tool) == "claude",
+           (liveSnapshot?.externalSessionID?.isEmpty ?? true) {
             return true
         }
         if runtime.totalTokens <= 0,
-           (envelope.totalTokens ?? 0) <= 0,
-           envelope.responseState == .responding {
+           (liveSnapshot?.currentTotalTokens ?? 0) <= 0,
+           liveSnapshot?.responseState == .responding {
             return true
         }
 

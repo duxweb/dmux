@@ -1172,6 +1172,9 @@ private struct GitFileRow: View {
                     .help(entry.path)
 
                 GitStatusBadge(entry: entry, accent: accent)
+
+                Color.clear
+                    .frame(width: actionSlotWidth, height: 1)
             }
             .padding(.leading, 10)
             .padding(.trailing, 14)
@@ -1181,15 +1184,16 @@ private struct GitFileRow: View {
         .buttonStyle(.plain)
         .background(rowBackground)
         .overlay(alignment: .trailing) {
-            if isHovered {
-                GitHoverActions(
-                    primaryIcon: primaryIcon,
-                    primaryAction: primaryAction,
-                    secondaryIcon: secondaryIcon,
-                    secondaryAction: secondaryAction
-                )
-                .padding(.trailing, 10)
-            }
+            GitHoverActions(
+                primaryIcon: primaryIcon,
+                primaryAction: primaryAction,
+                secondaryIcon: secondaryIcon,
+                secondaryAction: secondaryAction
+            )
+            .frame(width: actionSlotWidth, alignment: .trailing)
+            .padding(.trailing, 10)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
         }
         .overlay {
             NativeContextMenuRegion(
@@ -1216,11 +1220,6 @@ private struct GitFileRow: View {
                         .frame(width: 2)
                 }
             }
-            .overlay(alignment: .trailing) {
-                if isHovered {
-                    Color.clear.frame(width: 88)
-                }
-            }
     }
 
     private var baseRowColor: Color {
@@ -1229,6 +1228,10 @@ private struct GitFileRow: View {
         }
 
         return isHovered ? Color(nsColor: .quaternarySystemFill) : Color.clear
+    }
+
+    private var actionSlotWidth: CGFloat {
+        secondaryIcon == nil ? 44 : 68
     }
 }
 

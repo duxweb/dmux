@@ -61,6 +61,11 @@ final class AppModel {
     private var appActivationObservers: [NSObjectProtocol] = []
     private var runtimeBridgeObserver: NSObjectProtocol?
     private var runtimeActivityObserver: NSObjectProtocol?
+    private var pendingActivityRefreshTask: Task<Void, Never>?
+    private var pendingActivityRefreshShouldNotify = false
+    private var pendingActivityRefreshShouldRefreshAIStats = false
+    private var pendingActivityRefreshRequiresFullRefresh = false
+    private var cachedActivityPayloadByProjectID: [UUID: ProjectActivityPayload] = [:]
     private var lastCompletionTokenByProjectID: [UUID: String] = [:]
     private var clearedCompletionTokenByProjectID: [UUID: String] = [:]
     private var realtimeCompletionByProjectID: [UUID: RealtimeCompletionState] = [:]
@@ -130,6 +135,7 @@ final class AppModel {
         runtimeStore.reset()
         activityByProjectID = [:]
         activityRenderVersion = 0
+        cachedActivityPayloadByProjectID.removeAll()
         lastCompletionTokenByProjectID.removeAll()
         clearedCompletionTokenByProjectID.removeAll()
         realtimeCompletionByProjectID.removeAll()
@@ -2094,11 +2100,12 @@ final class AppModel {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshProjectActivity(sendNotifications: true)
-                if self?.rightPanel == .aiStats {
-                    self?.refreshAIStatsIfNeeded()
-                }
+            Task { @MainActor [weak self] in
+                self?.scheduleProjectActivityRefresh(
+                    sendNotifications: true,
+                    refreshAIStats: true,
+                    requiresFullRefresh: true
+                )
             }
         }
         runtimeActivityObserver = NotificationCenter.default.addObserver(
@@ -2106,8 +2113,12 @@ final class AppModel {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshProjectActivity(sendNotifications: false)
+            Task { @MainActor [weak self] in
+                self?.scheduleProjectActivityRefresh(
+                    sendNotifications: false,
+                    refreshAIStats: false,
+                    requiresFullRefresh: false
+                )
             }
         }
     }
@@ -2124,11 +2135,12 @@ final class AppModel {
             queue: .main
         )
         watcher.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.refreshProjectActivity(sendNotifications: true)
-                if self?.rightPanel == .aiStats {
-                    self?.refreshAIStatsIfNeeded()
-                }
+            Task { @MainActor [weak self] in
+                self?.scheduleProjectActivityRefresh(
+                    sendNotifications: true,
+                    refreshAIStats: true,
+                    requiresFullRefresh: true
+                )
             }
         }
         watcher.setCancelHandler {
@@ -2138,15 +2150,65 @@ final class AppModel {
         return watcher
     }
 
+    private func scheduleProjectActivityRefresh(
+        sendNotifications: Bool,
+        refreshAIStats: Bool,
+        requiresFullRefresh: Bool
+    ) {
+        pendingActivityRefreshShouldNotify = pendingActivityRefreshShouldNotify || sendNotifications
+        pendingActivityRefreshShouldRefreshAIStats = pendingActivityRefreshShouldRefreshAIStats || refreshAIStats
+        pendingActivityRefreshRequiresFullRefresh = pendingActivityRefreshRequiresFullRefresh || requiresFullRefresh
+
+        guard pendingActivityRefreshTask == nil else {
+            return
+        }
+
+        pendingActivityRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            await MainActor.run {
+                guard let self else {
+                    return
+                }
+
+                let shouldNotify = self.pendingActivityRefreshShouldNotify
+                let shouldRefreshAIStats = self.pendingActivityRefreshShouldRefreshAIStats
+                let requiresFullRefresh = self.pendingActivityRefreshRequiresFullRefresh
+                self.pendingActivityRefreshTask = nil
+                self.pendingActivityRefreshShouldNotify = false
+                self.pendingActivityRefreshShouldRefreshAIStats = false
+                self.pendingActivityRefreshRequiresFullRefresh = false
+
+                self.refreshProjectActivity(
+                    sendNotifications: shouldNotify,
+                    useCachedStatusesOnly: !requiresFullRefresh
+                )
+                if shouldRefreshAIStats, self.rightPanel == .aiStats {
+                    self.refreshAIStatsIfNeeded()
+                }
+            }
+        }
+    }
+
     private func refreshAIStatsIfNeeded() {
         aiStatsStore.refreshIfNeeded(project: selectedProject, projects: projects, selectedSessionID: selectedSessionID)
     }
 
-    private func refreshProjectActivity(sendNotifications: Bool) {
-        let payloads = activityService.loadStatuses(projects: projects)
-        let liveEnvelopes = runtimeIngressService.importRuntime(projects: projects)
+    private func refreshProjectActivity(
+        sendNotifications: Bool,
+        useCachedStatusesOnly: Bool = false
+    ) {
         let currentProjects = projects
-        runtimeIngressService.refreshRuntimeSources(projects: currentProjects, liveEnvelopes: liveEnvelopes)
+        let payloads: [UUID: ProjectActivityPayload]
+        if useCachedStatusesOnly {
+            payloads = cachedActivityPayloadByProjectID
+        } else {
+            let latestPayloads = activityService.loadStatuses(projects: currentProjects)
+            cachedActivityPayloadByProjectID = latestPayloads
+            payloads = latestPayloads
+
+            let liveEnvelopes = runtimeIngressService.importRuntime(projects: currentProjects)
+            runtimeIngressService.refreshRuntimeSources(projects: currentProjects, liveEnvelopes: liveEnvelopes)
+        }
 
         var phases: [UUID: ProjectActivityPhase] = [:]
         let previousPhases = activityByProjectID
@@ -2159,6 +2221,7 @@ final class AppModel {
 
             if let payload, isRealtimeAITool(payload.tool) {
                 activityService.clearStatus(for: project.id)
+                cachedActivityPayloadByProjectID[project.id] = nil
                 phase = .idle
             }
 
@@ -2206,9 +2269,11 @@ final class AppModel {
             }
         }
 
-        activityByProjectID = phases
-        activityRenderVersion &+= 1
-        updateDockBadge()
+        if activityByProjectID != phases {
+            activityByProjectID = phases
+            activityRenderVersion &+= 1
+            updateDockBadge()
+        }
     }
 
     private func debugActivityDescription(_ phase: ProjectActivityPhase) -> String {
@@ -2292,6 +2357,7 @@ final class AppModel {
             let token = activityService.completionToken(for: payload)
             clearedCompletionTokenByProjectID[projectID] = token
             activityByProjectID[projectID] = .idle
+            cachedActivityPayloadByProjectID[projectID] = nil
             activityService.clearStatus(for: projectID)
             didClear = true
         }
