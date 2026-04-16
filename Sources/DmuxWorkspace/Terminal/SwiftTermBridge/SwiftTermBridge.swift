@@ -1066,6 +1066,15 @@ final class SwiftTermTerminalRegistry {
         return true
     }
 
+    @discardableResult
+    func focus(sessionID: UUID) -> Bool {
+        guard let container = containers[sessionID] else {
+            return false
+        }
+        container.focusTerminal()
+        return true
+    }
+
     func sendNativeCommandArrow(keyCode: UInt16, responder: NSResponder?) -> Bool {
         if let responder,
            let container = containers.values.first(where: { $0.ownsResponder(responder) }) {

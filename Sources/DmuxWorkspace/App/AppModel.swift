@@ -457,6 +457,7 @@ final class AppModel {
 
     func selectProject(_ projectID: UUID) {
         selectedProjectID = projectID
+        restoreSelectedTerminalFocusIfNeeded()
         restoreCachedGitPanelIfAvailable(for: projectID)
         clearCompletedActivityIfNeeded(for: projectID)
         persist()
@@ -836,10 +837,14 @@ final class AppModel {
     }
 
     func toggleRightPanel(_ kind: RightPanelKind) {
+        let wasShowingGitPanel = rightPanel == .git
         if rightPanel == kind {
             rightPanel = nil
         } else {
             rightPanel = kind
+        }
+        if rightPanel == .git && wasShowingGitPanel == false {
+            refreshGitState(presentation: .preserveVisibleState)
         }
         updateGitRemoteSyncPolling()
         refreshAIStatsIfNeeded()
@@ -1058,6 +1063,18 @@ final class AppModel {
     func consumeTerminalFocusRequest(_ sessionID: UUID) {
         guard terminalFocusRequestID == sessionID else { return }
         terminalFocusRequestID = nil
+    }
+
+    func restoreSelectedTerminalFocusIfNeeded() {
+        guard let sessionID = selectedSessionID else {
+            return
+        }
+        terminalFocusRequestID = sessionID
+        terminalFocusRenderVersion &+= 1
+        _ = SwiftTermTerminalRegistry.shared.focus(sessionID: sessionID)
+        DispatchQueue.main.async {
+            _ = SwiftTermTerminalRegistry.shared.focus(sessionID: sessionID)
+        }
     }
 
     func sendInterruptToSelectedSession() -> Bool {
@@ -1356,8 +1373,15 @@ final class AppModel {
         persist()
     }
 
-    func refreshGitState() {
-        gitStore.refresh(project: selectedProject)
+    func refreshGitState(
+        presentation: GitStore.RefreshPresentation = .fullScreen,
+        includesRemoteSync: Bool = true
+    ) {
+        gitStore.refresh(
+            project: selectedProject,
+            presentation: presentation,
+            includesRemoteSync: includesRemoteSync
+        )
     }
 
     func initializeGitRepository() {
@@ -2020,11 +2044,31 @@ final class AppModel {
         )
     }
 
+    private func startGitStatusAutoRefresh() {
+        gitStore.startStatusAutoRefresh(
+            selectedProject: { self.selectedProject },
+            isEnabled: { self.rightPanel == .git }
+        )
+    }
+
     private func stopGitRemoteSyncPolling() {
         gitStore.stopRemoteSyncPolling()
     }
 
+    private func stopGitStatusAutoRefresh() {
+        gitStore.stopStatusAutoRefresh()
+    }
+
+    private func updateGitStatusAutoRefresh() {
+        guard rightPanel == .git, selectedProject != nil else {
+            stopGitStatusAutoRefresh()
+            return
+        }
+        startGitStatusAutoRefresh()
+    }
+
     private func updateGitRemoteSyncPolling() {
+        updateGitStatusAutoRefresh()
         guard NSApplication.shared.isActive, rightPanel == .git, selectedProject != nil else {
             stopGitRemoteSyncPolling()
             return

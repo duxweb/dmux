@@ -8,6 +8,7 @@ private enum GitPanelFocusField: Hashable {
 
 struct GitPanelView: View {
     let model: AppModel
+    let gitStore: GitStore
     @State private var stagedExpanded = true
     @State private var changesExpanded = true
     @State private var untrackedExpanded = true
@@ -16,7 +17,7 @@ struct GitPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let gitState = model.gitPanelState.gitState {
+            if let gitState = gitStore.panelState.gitState {
                 VStack(spacing: 0) {
                     GitPanelHeader(model: model)
                         .contentShape(Rectangle())
@@ -45,7 +46,7 @@ struct GitPanelView: View {
 
                     GitPanelSeparator()
 
-                    GitHistoryRegion(model: model, history: model.gitPanelState.gitHistory, clearFocus: {
+                    GitHistoryRegion(model: model, history: gitStore.panelState.gitHistory, clearFocus: {
                         focusedField = nil
                         NSApp.keyWindow?.makeFirstResponder(nil)
                     })
@@ -53,10 +54,10 @@ struct GitPanelView: View {
 
                     GitPanelSeparator()
 
-                    GitRemoteSyncBar(model: model)
+                    GitRemoteSyncBar(model: model, gitStore: gitStore)
                 }
             } else {
-                GitEmptyRepositoryView(model: model)
+                GitEmptyRepositoryView(model: model, gitStore: gitStore)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(24)
             }
@@ -76,9 +77,10 @@ struct GitPanelView: View {
 
 private struct GitEmptyRepositoryView: View {
     let model: AppModel
+    let gitStore: GitStore
 
     private var isCheckingRepository: Bool {
-        model.gitPanelState.isGitLoading && model.gitPanelState.gitState == nil
+        gitStore.panelState.isGitLoading && gitStore.panelState.gitState == nil
     }
 
     var body: some View {
@@ -102,11 +104,11 @@ private struct GitEmptyRepositoryView: View {
                 HStack(spacing: 10) {
                     Button(String(localized: "git.empty.initialize_repository", defaultValue: "Initialize Repository", bundle: .module), action: model.initializeGitRepository)
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.gitPanelState.isGitLoading)
+                        .disabled(gitStore.panelState.isGitLoading)
 
                     Button(String(localized: "git.empty.clone_remote_repository", defaultValue: "Clone Remote Repository", bundle: .module), action: model.cloneGitRepository)
                         .buttonStyle(.bordered)
-                        .disabled(model.gitPanelState.isGitLoading)
+                        .disabled(gitStore.panelState.isGitLoading)
 
                     Button {
                         model.refreshGitState()
@@ -114,19 +116,19 @@ private struct GitEmptyRepositoryView: View {
                         Label(String(localized: "git.status.refresh", defaultValue: "Refresh Git Status", bundle: .module), systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
-                    .disabled(model.gitPanelState.isGitLoading)
+                    .disabled(gitStore.panelState.isGitLoading)
                 }
                 .controlSize(.regular)
             }
 
-            if let status = model.gitPanelState.gitOperationStatusText {
+            if let status = gitStore.panelState.gitOperationStatusText {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(status)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(AppTheme.textSecondary)
                         .frame(maxWidth: 280, alignment: .leading)
 
-                    ProgressView(value: model.gitPanelState.gitOperationProgress ?? 0.05)
+                    ProgressView(value: gitStore.panelState.gitOperationProgress ?? 0.05)
                         .tint(AppTheme.focus)
                         .frame(maxWidth: 280)
                 }
@@ -138,6 +140,7 @@ private struct GitEmptyRepositoryView: View {
 
 private struct GitRemoteSyncBar: View {
     let model: AppModel
+    let gitStore: GitStore
     @State private var hoveredAction: GitRemoteOperation?
 
     private let activeOperationColor = AppTheme.focus
@@ -169,8 +172,8 @@ private struct GitRemoteSyncBar: View {
                     title: String(localized: "git.remote.pull", defaultValue: "Pull", bundle: .module),
                     help: pullHelp,
                     systemImage: "arrow.down",
-                    isLoading: model.gitPanelState.activeGitRemoteOperation == .pull,
-                    badge: model.gitPanelState.gitRemoteSyncState.hasUpstream && model.gitPanelState.gitRemoteSyncState.incomingCount > 0 ? model.gitPanelState.gitRemoteSyncState.incomingCount : nil,
+                    isLoading: gitStore.panelState.activeGitRemoteOperation == .pull,
+                    badge: gitStore.panelState.gitRemoteSyncState.hasUpstream && gitStore.panelState.gitRemoteSyncState.incomingCount > 0 ? gitStore.panelState.gitRemoteSyncState.incomingCount : nil,
                     action: model.pullGitBranch
                 )
 
@@ -179,8 +182,8 @@ private struct GitRemoteSyncBar: View {
                     title: String(localized: "git.remote.push", defaultValue: "Push", bundle: .module),
                     help: pushHelp,
                     systemImage: "arrow.up",
-                    isLoading: model.gitPanelState.activeGitRemoteOperation == .push,
-                    badge: model.gitPanelState.gitRemoteSyncState.hasUpstream && model.gitPanelState.gitRemoteSyncState.outgoingCount > 0 ? model.gitPanelState.gitRemoteSyncState.outgoingCount : nil,
+                    isLoading: gitStore.panelState.activeGitRemoteOperation == .push,
+                    badge: gitStore.panelState.gitRemoteSyncState.hasUpstream && gitStore.panelState.gitRemoteSyncState.outgoingCount > 0 ? gitStore.panelState.gitRemoteSyncState.outgoingCount : nil,
                     action: model.pushGitBranch
                 )
             }
@@ -194,17 +197,17 @@ private struct GitRemoteSyncBar: View {
     }
 
     private var statusText: String {
-        if model.gitPanelState.activeGitRemoteOperation == .pull {
+        if gitStore.panelState.activeGitRemoteOperation == .pull {
             return String(localized: "git.remote.status.pulling", defaultValue: "Pulling Remote Updates", bundle: .module)
         }
-        if model.gitPanelState.activeGitRemoteOperation == .push {
+        if gitStore.panelState.activeGitRemoteOperation == .push {
             return String(localized: "git.remote.status.pushing", defaultValue: "Pushing Current Branch", bundle: .module)
         }
-        if model.gitPanelState.activeGitRemoteOperation == .forcePush {
+        if gitStore.panelState.activeGitRemoteOperation == .forcePush {
             return String(localized: "git.remote.status.force_pushing", defaultValue: "Force Pushing Current Branch", bundle: .module)
         }
 
-        let state = model.gitPanelState.gitRemoteSyncState
+        let state = gitStore.panelState.gitRemoteSyncState
         if !state.hasUpstream {
             return String(localized: "git.remote.status.no_remote_branch", defaultValue: "No Remote Branch", bundle: .module)
         }
@@ -215,21 +218,21 @@ private struct GitRemoteSyncBar: View {
     }
 
     private var pullHelp: String {
-        if !model.gitPanelState.gitRemoteSyncState.hasUpstream {
+        if !gitStore.panelState.gitRemoteSyncState.hasUpstream {
             return String(localized: "git.remote.no_upstream_description", defaultValue: "The current branch does not have a remote branch yet.", bundle: .module)
         }
         return String(localized: "git.remote.pull_description", defaultValue: "Pull remote updates.", bundle: .module)
     }
 
     private var pushHelp: String {
-        if !model.gitPanelState.gitRemoteSyncState.hasUpstream {
+        if !gitStore.panelState.gitRemoteSyncState.hasUpstream {
             return String(localized: "git.remote.no_upstream_description", defaultValue: "The current branch does not have a remote branch yet.", bundle: .module)
         }
         return String(localized: "git.remote.push_description", defaultValue: "Push the current branch to remote.", bundle: .module)
     }
 
     private var statusIcon: String {
-        let state = model.gitPanelState.gitRemoteSyncState
+        let state = gitStore.panelState.gitRemoteSyncState
         if !state.hasUpstream {
             return "arrow.triangle.branch"
         }
@@ -240,16 +243,16 @@ private struct GitRemoteSyncBar: View {
     }
 
     private var isRunningRemoteAction: Bool {
-        model.gitPanelState.activeGitRemoteOperation == .pull
-            || model.gitPanelState.activeGitRemoteOperation == .push
-            || model.gitPanelState.activeGitRemoteOperation == .forcePush
+        gitStore.panelState.activeGitRemoteOperation == .pull
+            || gitStore.panelState.activeGitRemoteOperation == .push
+            || gitStore.panelState.activeGitRemoteOperation == .forcePush
     }
 
     private var statusBackground: Color {
-        if model.gitPanelState.activeGitRemoteOperation != nil {
+        if gitStore.panelState.activeGitRemoteOperation != nil {
             return activeOperationColor
         }
-        return model.gitPanelState.gitRemoteSyncState.hasUpstream ? AppTheme.focus : AppTheme.textMuted.opacity(0.45)
+        return gitStore.panelState.gitRemoteSyncState.hasUpstream ? AppTheme.focus : AppTheme.textMuted.opacity(0.45)
     }
 
     @ViewBuilder
@@ -1179,30 +1182,17 @@ private struct GitFileRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help(entry.path)
 
-                GitStatusBadge(entry: entry, accent: accent)
-
-                Color.clear
-                    .frame(width: actionSlotWidth, height: 1)
+                trailingAccessorySlot
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 10)
             .padding(.trailing, 14)
             .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
-        .overlay(alignment: .trailing) {
-            GitHoverActions(
-                primaryIcon: primaryIcon,
-                primaryAction: primaryAction,
-                secondaryIcon: secondaryIcon,
-                secondaryAction: secondaryAction
-            )
-            .frame(width: actionSlotWidth, alignment: .trailing)
-            .padding(.trailing, 10)
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-        }
         .overlay {
             NativeContextMenuRegion(
                 onOpen: {
@@ -1241,11 +1231,35 @@ private struct GitFileRow: View {
     private var actionSlotWidth: CGFloat {
         secondaryIcon == nil ? 44 : 68
     }
+
+    private var trailingSlotWidth: CGFloat {
+        max(actionSlotWidth, GitStatusBadge.width)
+    }
+
+    private var trailingAccessorySlot: some View {
+        Color.clear
+            .frame(width: trailingSlotWidth, height: GitStatusBadge.height)
+            .overlay(alignment: .trailing) {
+                if isHovered {
+                    GitHoverActions(
+                        primaryIcon: primaryIcon,
+                        primaryAction: primaryAction,
+                        secondaryIcon: secondaryIcon,
+                        secondaryAction: secondaryAction
+                    )
+                } else {
+                    GitStatusBadge(entry: entry, accent: accent)
+                }
+            }
+    }
 }
 
 private struct GitStatusBadge: View {
     let entry: GitFileEntry
     let accent: Color
+
+    static let width: CGFloat = 14
+    static let height: CGFloat = 14
 
     private var label: String {
         switch entry.kind {
@@ -1262,7 +1276,7 @@ private struct GitStatusBadge: View {
         Text(label)
             .font(.system(size: 10, weight: .bold, design: .rounded))
             .foregroundStyle(accent)
-            .frame(width: 14, alignment: .trailing)
+            .frame(width: Self.width, height: Self.height, alignment: .trailing)
     }
 }
 

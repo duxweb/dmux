@@ -263,7 +263,7 @@ private struct RightPanelContainerView: View {
         Group {
             switch model.rightPanel {
             case .git:
-                GitPanelView(model: model)
+                GitPanelView(model: model, gitStore: model.gitStore)
             case .aiStats:
                 AIStatsPanelView(
                     model: model,

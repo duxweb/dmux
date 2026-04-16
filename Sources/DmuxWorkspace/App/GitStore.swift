@@ -1,5 +1,105 @@
+import CoreServices
 import Foundation
 import Observation
+
+private final class GitRepositoryWatcher {
+    private let repositoryPath: String
+    private let onChange: ([String]) -> Void
+    private var stream: FSEventStreamRef?
+
+    init?(repositoryPath: String, onChange: @escaping ([String]) -> Void) {
+        self.repositoryPath = URL(fileURLWithPath: repositoryPath).standardizedFileURL.path
+        self.onChange = onChange
+
+        var context = FSEventStreamContext(
+            version: 0,
+            info: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+        let flags = FSEventStreamCreateFlags(
+            kFSEventStreamCreateFlagFileEvents
+                | kFSEventStreamCreateFlagUseCFTypes
+                | kFSEventStreamCreateFlagNoDefer
+        )
+
+        guard let stream = FSEventStreamCreate(
+            nil,
+            { _, info, eventCount, eventPathsPointer, eventFlagsPointer, _ in
+                guard let info else {
+                    return
+                }
+
+                let watcher = Unmanaged<GitRepositoryWatcher>.fromOpaque(info).takeUnretainedValue()
+                let eventPaths = unsafeBitCast(eventPathsPointer, to: NSArray.self) as? [String] ?? []
+                let eventFlags = Array(UnsafeBufferPointer(start: eventFlagsPointer, count: eventCount))
+                watcher.handle(paths: eventPaths, flags: eventFlags)
+            },
+            &context,
+            [self.repositoryPath] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.35,
+            flags
+        ) else {
+            return nil
+        }
+
+        self.stream = stream
+        FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
+        guard FSEventStreamStart(stream) else {
+            invalidate()
+            return nil
+        }
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    func invalidate() {
+        guard let stream else {
+            return
+        }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+        self.stream = nil
+    }
+
+    private func handle(paths: [String], flags: [FSEventStreamEventFlags]) {
+        let interestingPaths = zip(paths, flags).compactMap { path, flags -> String? in
+            let normalizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard shouldForward(path: normalizedPath, flags: flags) else {
+                return nil
+            }
+            return normalizedPath
+        }
+
+        guard !interestingPaths.isEmpty else {
+            return
+        }
+        onChange(interestingPaths)
+    }
+
+    private func shouldForward(path: String, flags: FSEventStreamEventFlags) -> Bool {
+        let ignoredFlags = FSEventStreamEventFlags(
+            kFSEventStreamEventFlagHistoryDone
+                | kFSEventStreamEventFlagMount
+                | kFSEventStreamEventFlagUnmount
+        )
+        if (flags & ignoredFlags) != 0 {
+            return false
+        }
+
+        let gitDirectoryPath = repositoryPath + "/.git"
+        if path == gitDirectoryPath || path.hasPrefix(gitDirectoryPath + "/") {
+            return false
+        }
+
+        return true
+    }
+}
 
 @MainActor
 @Observable
@@ -22,6 +122,13 @@ final class GitStore {
     private var remoteSyncInterval: TimeInterval = 60
     private var selectedProjectProvider: (@MainActor () -> Project?)?
     private var remoteSyncEnabledProvider: (@MainActor () -> Bool)?
+    private var statusAutoRefreshSelectedProjectProvider: (@MainActor () -> Project?)?
+    private var statusAutoRefreshEnabledProvider: (@MainActor () -> Bool)?
+    private var repositoryWatcher: GitRepositoryWatcher?
+    private var watchedRepositoryProjectID: UUID?
+    private var watchedRepositoryPath: String?
+    private var pendingAutomaticRefreshTask: Task<Void, Never>?
+    private var isAutomaticRefreshInFlight = false
 
     private func beginPanelOperation(allowsPreservingVisibleState: Bool = true) {
         if allowsPreservingVisibleState, panelState.gitState != nil {
@@ -32,7 +139,11 @@ final class GitStore {
         }
     }
 
-    func refresh(project: Project?, presentation: RefreshPresentation = .fullScreen) {
+    func refresh(
+        project: Project?,
+        presentation: RefreshPresentation = .fullScreen,
+        includesRemoteSync: Bool = true
+    ) {
         guard let project else {
             panelState = .empty
             panelState.gitDiffText = String(localized: "git.empty.select_project", defaultValue: "Add or select a project to view Git status.", bundle: .module)
@@ -59,6 +170,7 @@ final class GitStore {
                     self.panelState.isGitLoading = false
                     self.panelState.refreshState = .idle
                     if state == nil {
+                        self.panelState.selectedGitEntry = nil
                         self.panelState.gitDiffText = String(localized: "git.repository.not_repository", bundle: .module)
                         self.panelState.selectedGitEntryIDs.removeAll()
                         self.panelState.gitHistory = []
@@ -68,12 +180,23 @@ final class GitStore {
                         self.panelState.gitRemotes = []
                         self.panelState.gitRemoteSyncState = .empty
                     } else {
-                        self.panelState.gitDiffText = self.panelState.selectedGitEntry == nil ? String(localized: "git.diff.select_file", bundle: .module) : self.panelState.gitDiffText
-                        let validIDs = Set((state?.staged ?? []).map(\.id) + (state?.changes ?? []).map(\.id) + (state?.untracked ?? []).map(\.id))
+                        let allEntries = (state?.staged ?? []) + (state?.changes ?? []) + (state?.untracked ?? [])
+                        let validIDs = Set(allEntries.map(\.id))
+                        if let selectedEntryPath = self.panelState.selectedGitEntry?.path,
+                           let updatedSelectedEntry = allEntries.first(where: { $0.path == selectedEntryPath }) {
+                            self.panelState.selectedGitEntry = updatedSelectedEntry
+                            self.loadDiff(for: updatedSelectedEntry, project: project)
+                        } else {
+                            self.panelState.selectedGitEntry = nil
+                            self.panelState.isGitDiffLoading = false
+                            self.panelState.gitDiffText = String(localized: "git.diff.select_file", bundle: .module)
+                        }
                         self.panelState.selectedGitEntryIDs = selectedIDsSnapshot.intersection(validIDs)
                         self.refreshHistory(projectPath: path, projectID: projectID)
                         self.refreshBranches(projectPath: path, projectID: projectID)
-                        self.refreshRemoteSyncState(projectPath: path, projectID: projectID)
+                        if includesRemoteSync {
+                            self.refreshRemoteSyncState(projectPath: path, projectID: projectID)
+                        }
                     }
                     self.cacheState(for: projectID)
                 }
@@ -302,6 +425,89 @@ final class GitStore {
     func stopRemoteSyncPolling() {
         remoteSyncTimer?.invalidate()
         remoteSyncTimer = nil
+    }
+
+    func startStatusAutoRefresh(selectedProject: @escaping @MainActor () -> Project?, isEnabled: @escaping @MainActor () -> Bool) {
+        statusAutoRefreshSelectedProjectProvider = selectedProject
+        statusAutoRefreshEnabledProvider = isEnabled
+        updateStatusAutoRefreshWatcher()
+    }
+
+    func stopStatusAutoRefresh() {
+        pendingAutomaticRefreshTask?.cancel()
+        pendingAutomaticRefreshTask = nil
+        repositoryWatcher?.invalidate()
+        repositoryWatcher = nil
+        watchedRepositoryProjectID = nil
+        watchedRepositoryPath = nil
+        isAutomaticRefreshInFlight = false
+    }
+
+    private func updateStatusAutoRefreshWatcher() {
+        guard let selectedProjectProvider = statusAutoRefreshSelectedProjectProvider,
+              let enabledProvider = statusAutoRefreshEnabledProvider else {
+            stopStatusAutoRefresh()
+            return
+        }
+        guard enabledProvider(), let project = selectedProjectProvider() else {
+            stopStatusAutoRefresh()
+            return
+        }
+
+        let normalizedPath = URL(fileURLWithPath: project.path).standardizedFileURL.path
+        guard watchedRepositoryProjectID != project.id
+                || watchedRepositoryPath != normalizedPath
+                || repositoryWatcher == nil else {
+            return
+        }
+
+        repositoryWatcher?.invalidate()
+        repositoryWatcher = GitRepositoryWatcher(repositoryPath: normalizedPath) { [weak self] _ in
+            self?.scheduleAutomaticRefresh()
+        }
+        watchedRepositoryProjectID = project.id
+        watchedRepositoryPath = normalizedPath
+    }
+
+    private func scheduleAutomaticRefresh() {
+        guard let selectedProjectProvider = statusAutoRefreshSelectedProjectProvider,
+              let enabledProvider = statusAutoRefreshEnabledProvider else {
+            return
+        }
+
+        pendingAutomaticRefreshTask?.cancel()
+        pendingAutomaticRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(280))
+            guard let self else {
+                return
+            }
+            self.pendingAutomaticRefreshTask = nil
+
+            guard enabledProvider(),
+                  let project = selectedProjectProvider() else {
+                return
+            }
+
+            self.refreshFromAutomaticSource(project: project)
+        }
+    }
+
+    private func refreshFromAutomaticSource(project: Project) {
+        guard panelState.activeGitRemoteOperation == nil,
+              isAutomaticRefreshInFlight == false else {
+            return
+        }
+
+        isAutomaticRefreshInFlight = true
+        refresh(
+            project: project,
+            presentation: .preserveVisibleState,
+            includesRemoteSync: false
+        )
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            self?.isAutomaticRefreshInFlight = false
+        }
     }
 
     private func cacheState(for projectID: UUID) {

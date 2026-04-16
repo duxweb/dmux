@@ -119,6 +119,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: NSWindow.didResizeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidDeminiaturize(_:)),
+            name: NSWindow.didDeminiaturizeNotification,
+            object: nil
+        )
 
         for window in NSApp.windows {
             configure(window)
@@ -310,6 +322,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         repositionTrafficLights(in: window)
     }
 
+    @objc
+    @MainActor
+    private func windowDidBecomeKey(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else {
+            return
+        }
+        restoreTerminalFocusIfNeeded(for: window)
+    }
+
+    @objc
+    @MainActor
+    private func windowDidDeminiaturize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else {
+            return
+        }
+        restoreTerminalFocusIfNeeded(for: window)
+    }
+
     @MainActor
     private func configure(_ window: NSWindow) {
         guard !(window is NSPanel) else {
@@ -357,6 +387,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             frame.origin.y = baseY - downwardOffset
             button.setFrameOrigin(frame.origin)
         }
+    }
+
+    @MainActor
+    private func restoreTerminalFocusIfNeeded(for window: NSWindow) {
+        guard !(window is NSPanel),
+              !isStandardChromeWindow(window) else {
+            return
+        }
+        model?.restoreSelectedTerminalFocusIfNeeded()
     }
 
     deinit {
