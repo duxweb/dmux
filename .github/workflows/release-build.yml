@@ -114,7 +114,6 @@ jobs:
         with:
           name: codux-${{ steps.meta.outputs.version }}-macos-universal
           path: |
-            dist/*.app
             dist/*.dmg
             dist/*.zip
             dist/SHA256SUMS.txt

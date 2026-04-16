@@ -82,7 +82,6 @@ jobs:
         with:
           name: codux-${{ steps.meta.outputs.package_version }}-${{ steps.meta.outputs.configuration }}-manual
           path: |
-            dist/*.app
             dist/*.dmg
             dist/*.zip
             dist/SHA256SUMS.txt
