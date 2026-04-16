@@ -179,6 +179,17 @@ private struct TitlebarPerformanceMonitorView: View {
                 Text(model.performanceMonitor.formattedMemory)
             }
             .foregroundStyle(AppTheme.textSecondary)
+
+            Rectangle()
+                .fill(AppTheme.titlebarControlBorder)
+                .frame(width: 0.5, height: 12)
+
+            HStack(spacing: 4) {
+                Image(systemName: "display")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(model.performanceMonitor.formattedGraphics)
+            }
+            .foregroundStyle(AppTheme.textSecondary)
         }
         .font(.system(size: 11.5, weight: .medium, design: .monospaced))
         .environment(\.symbolVariants, .none)

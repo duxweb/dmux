@@ -7,6 +7,7 @@ struct AppSettings: Codable, Equatable {
     var themeMode: AppThemeMode = .system
     var terminalBackgroundPreset: AppTerminalBackgroundPreset = .obsidian
     var terminalGPUAccelerationEnabled = true
+    var terminalGPUMode: AppTerminalGPUMode = .balanced
     var iconStyle: AppIconStyle = .default
     var defaultTerminal: AppTerminalProfile = .zsh
     var showsDockBadge = true
@@ -23,6 +24,7 @@ struct AppSettings: Codable, Equatable {
         case themeMode
         case terminalBackgroundPreset
         case terminalGPUAccelerationEnabled
+        case terminalGPUMode
         case iconStyle
         case defaultTerminal
         case showsDockBadge
@@ -39,6 +41,7 @@ struct AppSettings: Codable, Equatable {
         themeMode = try container.decodeIfPresent(AppThemeMode.self, forKey: .themeMode) ?? .system
         terminalBackgroundPreset = try container.decodeIfPresent(AppTerminalBackgroundPreset.self, forKey: .terminalBackgroundPreset) ?? .obsidian
         terminalGPUAccelerationEnabled = try container.decodeIfPresent(Bool.self, forKey: .terminalGPUAccelerationEnabled) ?? true
+        terminalGPUMode = try container.decodeIfPresent(AppTerminalGPUMode.self, forKey: .terminalGPUMode) ?? .balanced
         iconStyle = try container.decodeIfPresent(AppIconStyle.self, forKey: .iconStyle) ?? .default
         defaultTerminal = try container.decodeIfPresent(AppTerminalProfile.self, forKey: .defaultTerminal) ?? .zsh
         showsDockBadge = try container.decodeIfPresent(Bool.self, forKey: .showsDockBadge) ?? true
@@ -48,6 +51,36 @@ struct AppSettings: Codable, Equatable {
         developer = try container.decodeIfPresent(AppDeveloperSettings.self, forKey: .developer) ?? .init()
         shortcuts = (try container.decodeIfPresent(AppShortcutConfiguration.self, forKey: .shortcuts) ?? .defaults)
             .migratedFromLegacyDefaultsIfNeeded()
+    }
+}
+
+enum AppTerminalGPUMode: String, Codable, CaseIterable, Identifiable {
+    case highPerformance
+    case balanced
+    case memorySaver
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .highPerformance:
+            return String(localized: "settings.terminal_gpu_mode.high_performance", defaultValue: "High Performance", bundle: .module)
+        case .balanced:
+            return String(localized: "settings.terminal_gpu_mode.balanced", defaultValue: "Balanced", bundle: .module)
+        case .memorySaver:
+            return String(localized: "settings.terminal_gpu_mode.memory_saver", defaultValue: "Memory Saver", bundle: .module)
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .highPerformance:
+            return String(localized: "settings.terminal_gpu_mode.high_performance.summary", defaultValue: "Keeps the most aggressive GPU row cache for the smoothest redraws, with higher memory usage.", bundle: .module)
+        case .balanced:
+            return String(localized: "settings.terminal_gpu_mode.balanced.summary", defaultValue: "Uses the lighter GPU buffering mode even for a single terminal to reduce memory while keeping smooth everyday rendering.", bundle: .module)
+        case .memorySaver:
+            return String(localized: "settings.terminal_gpu_mode.memory_saver.summary", defaultValue: "Uses the lighter GPU buffer and disables Metal on background panes when possible for the lowest memory footprint.", bundle: .module)
+        }
     }
 }
 

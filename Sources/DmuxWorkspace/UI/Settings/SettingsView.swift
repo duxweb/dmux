@@ -21,7 +21,7 @@ private enum SettingsSectionTab: String, CaseIterable, Identifiable {
     var preferredContentHeight: CGFloat {
         switch self {
         case .general:
-            return 360
+            return 430
         case .appearance:
             return 430
         case .shortcuts:
@@ -102,6 +102,22 @@ private struct GeneralSettingsPane: View {
                 get: { model.appSettings.terminalGPUAccelerationEnabled },
                 set: { model.updateTerminalGPUAccelerationEnabled($0) }
             ))
+
+            if model.appSettings.terminalGPUAccelerationEnabled {
+                Picker(String(localized: "settings.terminal_gpu_mode", defaultValue: "Terminal GPU Mode", bundle: .module), selection: Binding(
+                    get: { model.appSettings.terminalGPUMode },
+                    set: { model.updateTerminalGPUMode($0) }
+                )) {
+                    ForEach(AppTerminalGPUMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+
+                Text(model.appSettings.terminalGPUMode.summary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Toggle(String(localized: "settings.dock_badge", defaultValue: "Dock Badge", bundle: .module), isOn: Binding(
                 get: { model.appSettings.showsDockBadge },

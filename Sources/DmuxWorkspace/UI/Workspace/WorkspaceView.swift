@@ -231,7 +231,9 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
                         session: session,
                         terminalBackgroundPreset: model.terminalBackgroundPreset,
                         isFocused: sessionID == activeTerminalSessionID,
+                        isVisible: true,
                         showsInactiveOverlay: showsInactiveOverlay,
+                        prefersReducedMemoryMode: showsInactiveOverlay,
                         onSelect: { self.model.selectSession(sessionID) },
                         onClose: { self.model.closeSession(sessionID) },
                         showsCloseButton: true
@@ -268,7 +270,9 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
                 session: session,
                 terminalBackgroundPreset: model.terminalBackgroundPreset,
                 isFocused: sessionID == activeTerminalSessionID,
+                isVisible: true,
                 showsInactiveOverlay: showsInactiveOverlay,
+                prefersReducedMemoryMode: showsInactiveOverlay,
                 onSelect: { self.model.selectSession(sessionID) },
                 onClose: { self.model.closeSession(sessionID) },
                 showsCloseButton: true
@@ -382,7 +386,9 @@ private struct BottomTabbedPaneView: View {
                             session: session,
                             terminalBackgroundPreset: model.terminalBackgroundPreset,
                             isFocused: sessionID == activeTerminalSessionID,
+                            isVisible: sessionID == selectedBottomSessionID,
                             showsInactiveOverlay: showsInactiveOverlay,
+                            prefersReducedMemoryMode: showsInactiveOverlay || sessionID != selectedBottomSessionID,
                             onSelect: { model.selectBottomTabSession(sessionID) },
                             onClose: {},
                             showsCloseButton: false
@@ -628,7 +634,9 @@ private struct TerminalPaneView: View {
     let session: TerminalSession
     let terminalBackgroundPreset: AppTerminalBackgroundPreset
     let isFocused: Bool
+    let isVisible: Bool
     let showsInactiveOverlay: Bool
+    let prefersReducedMemoryMode: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let showsCloseButton: Bool
@@ -723,6 +731,10 @@ private struct TerminalPaneView: View {
             environment: terminalEnvironment(),
             terminalBackgroundPreset: terminalBackgroundPreset,
             useMetalRendering: model.appSettings.terminalGPUAccelerationEnabled,
+            gpuMode: model.appSettings.terminalGPUMode,
+            isFocused: isFocused,
+            isVisible: isVisible,
+            prefersReducedMemoryMode: prefersReducedMemoryMode,
             shouldFocus: model.terminalFocusRequestID == session.id,
             onInteraction: onSelect,
             onFocusConsumed: { model.consumeTerminalFocusRequest(session.id) },

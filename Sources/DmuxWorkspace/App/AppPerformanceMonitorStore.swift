@@ -23,6 +23,7 @@ final class AppPerformanceMonitorStore {
         var timestamp: TimeInterval
         var cpuPercent: Double
         var memoryBytes: UInt64
+        var graphicsBytes: UInt64
     }
 
     struct EventSummary: Codable {
@@ -33,6 +34,8 @@ final class AppPerformanceMonitorStore {
         var cpuDisplay: String?
         var memoryBytes: UInt64?
         var memoryDisplay: String?
+        var graphicsBytes: UInt64?
+        var graphicsDisplay: String?
         var detail: String
         var project: String?
         var panel: String
@@ -56,11 +59,13 @@ final class AppPerformanceMonitorStore {
         var timestamp: TimeInterval
         var totalCPUTime: TimeInterval
         var memoryBytes: UInt64
+        var graphicsBytes: UInt64
     }
 
     var isEnabled = false
     var cpuPercent: Double = 0
     var memoryBytes: UInt64 = 0
+    var graphicsBytes: UInt64 = 0
     var renderVersion: UInt64 = 0
 
     private let logger = AppDebugLog.shared
@@ -145,9 +150,10 @@ final class AppPerformanceMonitorStore {
             return
         }
 
-        if cpuPercent != 0 || memoryBytes != 0 {
+        if cpuPercent != 0 || memoryBytes != 0 || graphicsBytes != 0 {
             cpuPercent = 0
             memoryBytes = 0
+            graphicsBytes = 0
             renderVersion &+= 1
         }
     }
@@ -195,9 +201,12 @@ final class AppPerformanceMonitorStore {
         previousRawSample = rawSample
 
         let roundedCPU = (nextCPUPercent * 10).rounded() / 10
-        let didChange = abs(cpuPercent - roundedCPU) >= 0.1 || memoryBytes != rawSample.memoryBytes
+        let didChange = abs(cpuPercent - roundedCPU) >= 0.1
+            || memoryBytes != rawSample.memoryBytes
+            || graphicsBytes != rawSample.graphicsBytes
         cpuPercent = roundedCPU
         memoryBytes = rawSample.memoryBytes
+        graphicsBytes = rawSample.graphicsBytes
         if didChange {
             renderVersion &+= 1
         }
@@ -205,7 +214,8 @@ final class AppPerformanceMonitorStore {
         maybeLogSpike(snapshot: Snapshot(
             timestamp: rawSample.timestamp,
             cpuPercent: roundedCPU,
-            memoryBytes: rawSample.memoryBytes
+            memoryBytes: rawSample.memoryBytes,
+            graphicsBytes: rawSample.graphicsBytes
         ))
     }
 
@@ -237,6 +247,8 @@ final class AppPerformanceMonitorStore {
                 cpuDisplay: formattedCPU,
                 memoryBytes: memoryBytes,
                 memoryDisplay: formattedMemory,
+                graphicsBytes: graphicsBytes,
+                graphicsDisplay: formattedGraphics,
                 detail: detail,
                 project: context.projectName,
                 panel: context.panelName,
@@ -258,12 +270,15 @@ final class AppPerformanceMonitorStore {
         let cpuDelta = snapshot.cpuPercent - previous.cpuPercent
         let memoryDelta = Int64(snapshot.memoryBytes) - Int64(previous.memoryBytes)
         let memoryDeltaMB = Double(memoryDelta) / 1_048_576
+        let graphicsDelta = Int64(snapshot.graphicsBytes) - Int64(previous.graphicsBytes)
+        let graphicsDeltaMB = Double(graphicsDelta) / 1_048_576
         let now = snapshot.timestamp
 
         let isSpike =
             snapshot.cpuPercent >= 80
             || abs(cpuDelta) >= 25
             || abs(memoryDeltaMB) >= 256
+            || abs(graphicsDeltaMB) >= 128
 
         guard isSpike, now - lastSpikeLogAt >= 15 else {
             return
@@ -272,7 +287,7 @@ final class AppPerformanceMonitorStore {
         lastSpikeLogAt = now
         let context = contextProvider()
         let detail =
-            "spike cpu=\(String(format: "%.1f", snapshot.cpuPercent))% mem=\(Self.shortMemoryString(bytes: snapshot.memoryBytes)) delta_cpu=\(String(format: "%+.1f", cpuDelta)) delta_mem=\(String(format: "%+.0fMB", memoryDeltaMB))"
+            "spike cpu=\(String(format: "%.1f", snapshot.cpuPercent))% mem=\(Self.shortMemoryString(bytes: snapshot.memoryBytes)) gfx=\(Self.shortMemoryString(bytes: snapshot.graphicsBytes)) delta_cpu=\(String(format: "%+.1f", cpuDelta)) delta_mem=\(String(format: "%+.0fMB", memoryDeltaMB)) delta_gfx=\(String(format: "%+.0fMB", graphicsDeltaMB))"
         logger.log(
             "performance-monitor",
             "\(detail) panel=\(context.panelName) project=\(context.projectName ?? "nil") session=\(context.selectedSessionID ?? "nil") activity=\(context.activity)"
@@ -286,6 +301,8 @@ final class AppPerformanceMonitorStore {
                 cpuDisplay: Self.cpuDisplay(snapshot.cpuPercent),
                 memoryBytes: snapshot.memoryBytes,
                 memoryDisplay: Self.memoryDisplay(snapshot.memoryBytes),
+                graphicsBytes: snapshot.graphicsBytes,
+                graphicsDisplay: Self.graphicsDisplay(snapshot.graphicsBytes),
                 detail: detail,
                 project: context.projectName,
                 panel: context.panelName,
@@ -304,6 +321,10 @@ final class AppPerformanceMonitorStore {
         Self.memoryDisplay(memoryBytes)
     }
 
+    var formattedGraphics: String {
+        Self.graphicsDisplay(graphicsBytes)
+    }
+
     private static func cpuDisplay(_ percent: Double) -> String {
         String(
             localized: "performance.monitor.cpu_format",
@@ -316,6 +337,14 @@ final class AppPerformanceMonitorStore {
         String(
             localized: "performance.monitor.memory_format",
             defaultValue: "MEM %@",
+            bundle: .module
+        ).replacingOccurrences(of: "%@", with: Self.shortMemoryString(bytes: bytes))
+    }
+
+    private static func graphicsDisplay(_ bytes: UInt64) -> String {
+        String(
+            localized: "performance.monitor.graphics_format",
+            defaultValue: "GFX %@",
             bundle: .module
         ).replacingOccurrences(of: "%@", with: Self.shortMemoryString(bytes: bytes))
     }
@@ -372,12 +401,16 @@ final class AppPerformanceMonitorStore {
         let userTime = TimeInterval(threadInfo.user_time.seconds) + TimeInterval(threadInfo.user_time.microseconds) / 1_000_000
         let systemTime = TimeInterval(threadInfo.system_time.seconds) + TimeInterval(threadInfo.system_time.microseconds) / 1_000_000
         let totalCPUTime = userTime + systemTime
-        let memoryBytes = vmInfo.phys_footprint > 0 ? vmInfo.phys_footprint : vmInfo.resident_size
+        let totalMemoryBytes = vmInfo.phys_footprint > 0 ? vmInfo.phys_footprint : vmInfo.resident_size
+        let graphicsFootprint = max(0, vmInfo.ledger_tag_graphics_footprint)
+        let graphicsBytes = UInt64(graphicsFootprint)
+        let memoryBytes = totalMemoryBytes > graphicsBytes ? totalMemoryBytes - graphicsBytes : totalMemoryBytes
 
         return RawSample(
             timestamp: now,
             totalCPUTime: totalCPUTime,
-            memoryBytes: memoryBytes
+            memoryBytes: memoryBytes,
+            graphicsBytes: graphicsBytes
         )
     }
 

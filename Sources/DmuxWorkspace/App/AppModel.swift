@@ -2654,6 +2654,13 @@ final class AppModel {
         persist()
     }
 
+    func updateTerminalGPUMode(_ mode: AppTerminalGPUMode) {
+        var settings = appSettings
+        settings.terminalGPUMode = mode
+        appSettings = settings
+        persist()
+    }
+
     func updateDefaultTerminal(_ terminal: AppTerminalProfile) {
         let previousShell = appSettings.defaultTerminal.shellPath
         var settings = appSettings
