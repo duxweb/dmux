@@ -20,7 +20,9 @@ func applyStandardWindowChrome(_ window: NSWindow, title: String? = nil, toolbar
     window.titlebarAppearsTransparent = false
     window.isMovableByWindowBackground = false
     window.backgroundColor = NSColor.windowBackgroundColor
-    window.toolbar = nil
+    if toolbarStyle != .preference {
+        window.toolbar = nil
+    }
     if #available(macOS 13.0, *) {
         window.toolbarStyle = toolbarStyle
     }

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.7] - 2026-04-16
+
+### Changed
+
+- Local packaging now always produces a verbose debug build by default, while the GitHub release workflow calls the release packager directly for formal release artifacts.
+- Defaulted the manual test-build workflow and helper script to Debug so ad hoc verification runs keep the richer diagnostics profile unless explicitly overridden.
+
+### Fixed
+
+- Restored the macOS Settings toolbar tabs after the standard window chrome pass so the preferences header no longer disappears.
+- Let the Settings window height follow the selected section instead of staying stuck at a single fixed height.
+
 ## [0.1.6] - 2026-04-16
 
 ### Added

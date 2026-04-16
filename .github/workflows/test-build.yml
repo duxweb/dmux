@@ -15,11 +15,11 @@ on:
       configuration:
         description: "Xcode build configuration"
         required: false
-        default: Release
+        default: Debug
         type: choice
         options:
-          - Release
           - Debug
+          - Release
 
 jobs:
   build:
@@ -66,7 +66,7 @@ jobs:
           fi
 
           if [[ -z "${configuration}" ]]; then
-            configuration="Release"
+            configuration="Debug"
           fi
 
           echo "version=${version}" >> "$GITHUB_OUTPUT"
@@ -85,7 +85,7 @@ jobs:
           DMUX_APP_DISPLAY_NAME: ${{ steps.meta.outputs.configuration == 'Debug' && 'Codux-debug' || 'Codux' }}
           DMUX_APP_BUNDLE_NAME: ${{ steps.meta.outputs.configuration == 'Debug' && 'Codux-debug' || 'Codux' }}
           DMUX_BUNDLE_IDENTIFIER_SUFFIX: ${{ steps.meta.outputs.configuration == 'Debug' && '.debug' || '' }}
-        run: ./build.sh
+        run: scripts/release/package-local-dmg.sh
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

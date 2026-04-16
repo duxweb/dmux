@@ -120,7 +120,7 @@ jobs:
           rm -rf "$release_assets_dir"
           mkdir -p "$release_assets_dir"
 
-          ./build.sh
+          scripts/release/package-local-dmg.sh
           cp dist/*.dmg "$release_assets_dir/"
           cp dist/*.zip "$release_assets_dir/"
 
@@ -131,7 +131,7 @@ jobs:
           DMUX_APP_DISPLAY_NAME="Codux-debug" \
           DMUX_APP_BUNDLE_NAME="Codux-debug" \
           DMUX_BUNDLE_IDENTIFIER_SUFFIX=".debug" \
-          ./build.sh
+          scripts/release/package-local-dmg.sh
 
           cp dist/*-debug-macos-universal.dmg "$release_assets_dir/"
 

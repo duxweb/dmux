@@ -17,6 +17,19 @@ private enum SettingsSectionTab: String, CaseIterable, Identifiable {
         case .developer: return "wrench.and.screwdriver"
         }
     }
+
+    var preferredContentHeight: CGFloat {
+        switch self {
+        case .general:
+            return 360
+        case .appearance:
+            return 430
+        case .shortcuts:
+            return 320
+        case .developer:
+            return 280
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -50,7 +63,7 @@ struct SettingsView: View {
                 .tag(SettingsSectionTab.developer)
         }
         .id(model.appSettings.themeMode)
-        .frame(width: 640, height: 460)
+        .frame(width: 640, height: selectedTab.preferredContentHeight)
         .background(Color(nsColor: .windowBackgroundColor))
         .background(
             SettingsWindowConfigurator(

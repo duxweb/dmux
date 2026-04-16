@@ -16,7 +16,7 @@ require_command gh
 require_command git
 
 ref="main"
-configuration="Release"
+configuration="Debug"
 build_number=""
 watch_run=0
 version=""
@@ -31,14 +31,14 @@ Options:
   -v, --version <version>        App version. Default: latest tag version
   -p, --package-version <label>  Artifact label. Default: <version>-test-<date>
   -r, --ref <branch>             Git ref to run on. Default: main
-  -c, --configuration <config>   Release or Debug. Default: Release
+  -c, --configuration <config>   Release or Debug. Default: Debug
   -b, --build-number <number>    Optional build number override
   -w, --watch                    Watch the workflow after triggering
   -h, --help                     Show this help
 
 Examples:
   bash scripts/release/run-test-build.sh
-  bash scripts/release/run-test-build.sh -v 0.1.6 -p 0.1.6-test-20260416 -r main -c Release
+  bash scripts/release/run-test-build.sh -v 0.1.7 -p 0.1.7-debug-20260416 -r main -c Debug
   bash scripts/release/run-test-build.sh -w
 EOF
 }
