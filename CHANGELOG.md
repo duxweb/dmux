@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4] - 2026-04-16
+
+### Added
+
+- Added in-app diagnostics export so users can collect logs and troubleshooting data from the Help menu more easily.
+- Added a dedicated `test-build.sh` entrypoint and manual GitHub Actions test-build workflow for non-release verification builds.
+
+### Changed
+
+- Improved the README and Chinese README with clearer diagnostics and issue-reporting guidance.
+- Updated the release/test packaging flow so test artifact labels are separated from the app's internal version number.
+
+### Fixed
+
+- Hardened project/settings persistence recovery so invalid saved data is less likely to block launch or project creation.
+- Restored AI runtime hook setup more safely, including rebuilding user hook configuration when needed without clobbering unrelated content.
+- Stopped workflow artifacts from distributing raw `.app` bundles, reducing broken-download cases caused by damaged app bundles after artifact transfer.
+
 ## [0.1.3] - 2026-04-16
 
 ### Changed
