@@ -30,6 +30,7 @@ final class AppModel {
     struct RealtimeCompletionState {
         var tool: String
         var finishedAt: Date
+        var wasInterrupted: Bool
     }
 
     struct TerminalRecoveryIssue: Equatable {
@@ -1081,6 +1082,29 @@ final class AppModel {
             )
         }
 
+        return true
+    }
+
+    @discardableResult
+    func markSelectedSessionInterruptedIfResponding() -> Bool {
+        guard let sessionID = selectedSessionID,
+              runtimeStore.responseState(for: sessionID) == .responding else {
+            return false
+        }
+
+        guard runtimeStore.markInterrupted(sessionID: sessionID) else {
+            return false
+        }
+
+        NotificationCenter.default.post(
+            name: .dmuxAIRuntimeActivityPulse,
+            object: nil
+        )
+        NotificationCenter.default.post(
+            name: .dmuxAIRuntimeBridgeDidChange,
+            object: nil,
+            userInfo: ["kind": "escape-interrupt"]
+        )
         return true
     }
 
@@ -2580,10 +2604,17 @@ final class AppModel {
             let currentState = snapshot.responseState
 
             if previousState == .responding, currentState == .idle, snapshot.status == "running" {
-                realtimeCompletionByProjectID[project.id] = RealtimeCompletionState(
-                    tool: tool,
-                    finishedAt: snapshot.updatedAt
-                )
+                if snapshot.wasInterrupted || snapshot.hasCompletedTurn == false {
+                    realtimeCompletionByProjectID[project.id] = nil
+                } else {
+                    realtimeCompletionByProjectID[project.id] = RealtimeCompletionState(
+                        tool: tool,
+                        finishedAt: snapshot.updatedAt,
+                        wasInterrupted: false
+                    )
+                }
+            } else if currentState == .responding {
+                realtimeCompletionByProjectID[project.id] = nil
             }
 
             lastRealtimeResponseBySessionID[snapshot.sessionID] = currentState
@@ -2606,6 +2637,10 @@ final class AppModel {
 
     private func recentRealtimeCompletion(for projectID: UUID) -> RealtimeCompletionState? {
         guard let completion = realtimeCompletionByProjectID[projectID] else {
+            return nil
+        }
+        guard completion.wasInterrupted == false else {
+            realtimeCompletionByProjectID[projectID] = nil
             return nil
         }
         guard Date().timeIntervalSince(completion.finishedAt) <= 6 else {

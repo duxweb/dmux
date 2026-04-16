@@ -78,7 +78,7 @@ final class AIRuntimeIngressService {
 
         let liveSessionIDs = Set(liveEnvelopes.compactMap { UUID(uuidString: $0.sessionId) })
         for payload in responseStates
-        where canonicalToolName(payload.tool) != "codex"
+        where toolDriverFactory.appliesGenericResponsePayloads(for: payload.tool)
             && UUID(uuidString: payload.sessionId).map(liveSessionIDs.contains) == true {
             runtimeStore.applyResponsePayload(payload)
         }
@@ -485,7 +485,8 @@ final class AIRuntimeIngressService {
             }
             persistManagedRealtimeResponse(payload)
             responsePayloadsBySessionID[sessionID] = payload
-            if liveEnvelopesBySessionID[sessionID] != nil, canonicalToolName(payload.tool) != "codex" {
+            if liveEnvelopesBySessionID[sessionID] != nil,
+               toolDriverFactory.appliesGenericResponsePayloads(for: payload.tool) {
                 runtimeStore.applyResponsePayload(payload)
             }
             logger.log(
@@ -498,16 +499,14 @@ final class AIRuntimeIngressService {
                 userInfo: ["kind": "runtime-socket"]
             )
 
-        case "codex-hook":
-            guard let envelope = try? JSONDecoder().decode(CodexHookRuntimeEnvelope.self, from: payloadData) else {
-                return
-            }
+        default:
             let liveEnvelopes = liveEnvelopesBySessionID.values.sorted { $0.updatedAt > $1.updatedAt }
             let existingRuntime = currentRuntimeSnapshotsBySessionID()
             Task { [weak self] in
                 guard let self,
-                      let update = await CodexHookRuntimeService.shared.handleIPCEnvelope(
-                        envelope,
+                      let update = await self.toolDriverFactory.handleRuntimeSocketEvent(
+                        kind: kind,
+                        payloadData: payloadData,
                         projects: self.latestProjects,
                         liveEnvelopes: liveEnvelopes,
                         existingRuntime: existingRuntime
@@ -531,9 +530,6 @@ final class AIRuntimeIngressService {
                     )
                 }
             }
-
-        default:
-            return
         }
     }
 

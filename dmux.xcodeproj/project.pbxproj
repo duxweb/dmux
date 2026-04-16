@@ -39,6 +39,9 @@
 		71BFF4A14483F673CAE0510F /* GitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF246B9127D41605A990516 /* GitService.swift */; };
 		72E1A73CB8485C9CA45589B7 /* WorkspaceEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6917745C50EBB08B715DD786 /* WorkspaceEmptyStateView.swift */; };
 		737BDB33B1AF1B1290ECE0D8 /* AIResponseRuntimeSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18BE732FBCB2928BA4A287EA /* AIResponseRuntimeSyncService.swift */; };
+		7A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */; };
+		7B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */; };
+		7C2D3E4F5061728394A5B6C7 /* OpenCodeRuntimeProbeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C2D3E4F5061728394A5B6C7 /* OpenCodeRuntimeProbeService.swift */; };
 		79E977E589A5DD4D64B73355 /* ConfirmDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E8CC72376D1D564729685D5 /* ConfirmDialog.swift */; };
 		7CC77BFB4230078241327312 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E4DFD3851711A42A405F5E7D /* Carbon.framework */; };
 		7CCD1507CB75EB49877C6C30 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B57CE529E3ABCD870DDA44AA /* AppModel.swift */; };
@@ -110,6 +113,9 @@
 		8AF9CB866BDB2AF3ECA35178 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Package.swift; sourceTree = "<group>"; };
 		8F6676C32385770B36A6B87D /* AIRuntimeBridgeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRuntimeBridgeService.swift; sourceTree = "<group>"; };
 		9077C938FB91120FAA30DF9C /* SwiftTermBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermBridge.swift; sourceTree = "<group>"; };
+		8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiRuntimeProbeService.swift; sourceTree = "<group>"; };
+		8C2D3E4F5061728394A5B6C7 /* OpenCodeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeRuntimeProbeService.swift; sourceTree = "<group>"; };
+		9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeProbeService.swift; sourceTree = "<group>"; };
 		A2EEF0E8297855B7EA05302D /* GitStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStore.swift; sourceTree = "<group>"; };
 		A6BB59CA2E305DD7DBA2C167 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		AA206539AB817E9585D21649 /* DockBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockBadgeView.swift; sourceTree = "<group>"; };
@@ -328,10 +334,13 @@
 				88EA7F3568E80A7CE3A272F8 /* AppDebugLog.swift */,
 				2A3B4C5D6E7F8091A2B3C4D5 /* AppDiagnosticsExportService.swift */,
 				DA6E2D396499849AD4FC84FC /* AppReleaseService.swift */,
+				9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */,
 				3CAAE910372ED268D7D027AC /* CodexBarRuntimeTransport.swift */,
 				ED37E17B7F68D17CEE7E83E4 /* CodexHookRuntimeService.swift */,
+				8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */,
 				377788C9C2C0ECF640DBAA6D /* GitCredentialStore.swift */,
 				4BF246B9127D41605A990516 /* GitService.swift */,
+				8C2D3E4F5061728394A5B6C7 /* OpenCodeRuntimeProbeService.swift */,
 				D04D38E3662D2E19AA2BFF38 /* OpenCodeGlobalEventService.swift */,
 				812A0EDEE4527FA414569297 /* PersistenceService.swift */,
 				4202849CEE1FF3E6646D87DD /* ProjectActivityService.swift */,
@@ -442,6 +451,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				737BDB33B1AF1B1290ECE0D8 /* AIResponseRuntimeSyncService.swift in Sources */,
+				7A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift in Sources */,
+				7B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift in Sources */,
 				3FFACAC9B71F2D2D84378A53 /* AIRuntimeBridgeService.swift in Sources */,
 				D71B7C36CF6CD2AEF49FE619 /* AIRuntimeIngressService.swift in Sources */,
 				338C4F1133E7AB28944F5733 /* AIRuntimeProbeService.swift in Sources */,
@@ -475,6 +486,7 @@
 				27017F50D1E8D2D2E53E4CA1 /* GitPanelView.swift in Sources */,
 				71BFF4A14483F673CAE0510F /* GitService.swift in Sources */,
 				C9C006044B9B560E30181FAB /* GitStore.swift in Sources */,
+				7C2D3E4F5061728394A5B6C7 /* OpenCodeRuntimeProbeService.swift in Sources */,
 				F41BF6DDECD27C6EFA4829D8 /* OpenCodeGlobalEventService.swift in Sources */,
 				BCB26675EA2CC890F29674A0 /* PersistenceService.swift in Sources */,
 				151B69EF643EA9CF5E6975C2 /* ProjectActivityService.swift in Sources */,

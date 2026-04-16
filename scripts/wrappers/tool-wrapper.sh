@@ -208,13 +208,17 @@ if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
     helper_script_json="$(json_escape "${helper_script}")"
     session_start_command="\\\"${helper_script_json}\\\" session-start claude"
     stop_command="\\\"${helper_script_json}\\\" stop claude"
+    stop_failure_command="\\\"${helper_script_json}\\\" stop-failure claude"
     session_end_command="\\\"${helper_script_json}\\\" session-end claude"
     prompt_submit_command="\\\"${helper_script_json}\\\" prompt-submit claude"
     pre_tool_use_command="\\\"${helper_script_json}\\\" pre-tool-use claude"
-    hooks_json='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_start_command}"'","timeout":5}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_command}"'","timeout":5}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_end_command}"'","timeout":5}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"'"${prompt_submit_command}"'","timeout":5}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'"${pre_tool_use_command}"'","timeout":5,"async":true}]}]}}'
+    hooks_json='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_start_command}"'","timeout":5}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_command}"'","timeout":5}]}],"StopFailure":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_failure_command}"'","timeout":5}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_end_command}"'","timeout":5}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"'"${prompt_submit_command}"'","timeout":5}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'"${pre_tool_use_command}"'","timeout":5,"async":true}]}]}}'
 
     if [[ "$skip_session_id" == true ]]; then
       resume_target="$(extract_resume_target "$@" || true)"
+      if [[ -n "${resume_target}" ]]; then
+        send_usage_runtime_event running "${resume_target}"
+      fi
       run_wrapped_command "${resume_target}" "" env PATH="$search_path" "$real_bin" --settings "$hooks_json" "$@"
       exit $?
     else

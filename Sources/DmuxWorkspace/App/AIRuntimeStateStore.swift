@@ -28,6 +28,7 @@ final class AIRuntimeStateStore {
         var contextUsedTokens: Int?
         var contextUsagePercent: Double?
         var interruptedAt: Double?
+        var hasCompletedTurn: Bool
     }
 
     var renderVersion: UInt64 = 0
@@ -93,7 +94,8 @@ final class AIRuntimeStateStore {
             contextWindow: isNewInstance ? envelope.contextWindow : (envelope.contextWindow ?? existing?.contextWindow),
             contextUsedTokens: isNewInstance ? envelope.contextUsedTokens : (envelope.contextUsedTokens ?? existing?.contextUsedTokens),
             contextUsagePercent: isNewInstance ? envelope.contextUsagePercent : (envelope.contextUsagePercent ?? existing?.contextUsagePercent),
-            interruptedAt: nextInterruptedAt
+            interruptedAt: nextInterruptedAt,
+            hasCompletedTurn: envelope.responseState == .responding ? false : (isNewInstance ? false : (existing?.hasCompletedTurn ?? false))
         )
         let didChange = sessionsByID[sessionID] != next
         apply(next, for: sessionID)
@@ -110,6 +112,25 @@ final class AIRuntimeStateStore {
             return
         }
         guard var existing = sessionsByID[sessionID] else {
+            return
+        }
+        if shouldIgnoreIncomingTool(existing: existing, incomingTool: payload.tool) {
+            logger.log(
+                "runtime-store",
+                "ignore response session=\(sessionID.uuidString) existingTool=\(existing.tool) incomingTool=\(payload.tool) state=\(payload.responseState.rawValue)"
+            )
+            return
+        }
+        let nextTool = resolvedTool(currentTool: existing.tool, incomingTool: payload.tool)
+        let isStaleResponseTransition =
+            payload.updatedAt < existing.updatedAt
+            && existing.responseState != nil
+            && existing.responseState != payload.responseState
+        if isStaleResponseTransition {
+            logger.log(
+                "runtime-store",
+                "ignore stale response session=\(sessionID.uuidString) tool=\(nextTool) state=\(payload.responseState.rawValue) payloadAt=\(payload.updatedAt) existingAt=\(existing.updatedAt) existingState=\(existing.responseState?.rawValue ?? "nil")"
+            )
             return
         }
         let nextResponseState: AIResponseState? = {
@@ -130,16 +151,19 @@ final class AIRuntimeStateStore {
             }
             return interruptedAt
         }()
-        let didChange = existing.tool != payload.tool
+        let didChange = existing.tool != nextTool
             || existing.responseState != nextResponseState
             || existing.interruptedAt != nextInterruptedAt
         guard didChange else {
             return
         }
-        existing.tool = payload.tool
+        existing.tool = nextTool
         existing.responseState = nextResponseState
         existing.updatedAt = max(existing.updatedAt, payload.updatedAt)
         existing.interruptedAt = nextInterruptedAt
+        if payload.responseState == .responding {
+            existing.hasCompletedTurn = false
+        }
         apply(existing, for: sessionID)
         logger.log(
             "runtime-store",
@@ -151,16 +175,39 @@ final class AIRuntimeStateStore {
         guard var existing = sessionsByID[sessionID] else {
             return
         }
+        if shouldIgnoreIncomingTool(existing: existing, incomingTool: snapshot.tool) {
+            logger.log(
+                "runtime-store",
+                "ignore snapshot session=\(sessionID.uuidString) existingTool=\(existing.tool) incomingTool=\(snapshot.tool) response=\(snapshot.responseState?.rawValue ?? "nil") total=\(snapshot.totalTokens)"
+            )
+            return
+        }
         let prefersHookDrivenResponseState = toolDriverFactory.prefersHookDrivenResponseState(for: snapshot.tool)
-        existing.tool = snapshot.tool
+        let shouldPreserveHookRespondingState = prefersHookDrivenResponseState
+            && existing.responseState == .responding
+            && snapshot.responseState == .idle
+            && snapshot.wasInterrupted == false
+            && snapshot.hasCompletedTurn == false
+        existing.tool = resolvedTool(currentTool: existing.tool, incomingTool: snapshot.tool)
         existing.externalSessionID = snapshot.externalSessionID ?? existing.externalSessionID
         existing.model = snapshot.model ?? existing.model
         existing.inputTokens = snapshot.inputTokens
         existing.outputTokens = snapshot.outputTokens
         existing.totalTokens = snapshot.totalTokens
         existing.updatedAt = max(existing.updatedAt, snapshot.updatedAt)
-        if prefersHookDrivenResponseState == false || existing.responseState == nil {
-            if let interruptedAt = existing.interruptedAt,
+        if snapshot.wasInterrupted {
+            existing.interruptedAt = max(existing.interruptedAt ?? 0, snapshot.updatedAt)
+        }
+        if snapshot.hasCompletedTurn {
+            existing.hasCompletedTurn = true
+        }
+        let canApplySnapshotResponseState = prefersHookDrivenResponseState == false
+            || existing.responseState == nil
+            || snapshot.responseState == .idle
+        if canApplySnapshotResponseState {
+            if shouldPreserveHookRespondingState {
+                existing.responseState = .responding
+            } else if let interruptedAt = existing.interruptedAt,
                snapshot.responseState == .responding,
                snapshot.updatedAt <= interruptedAt {
                 existing.responseState = existing.responseState ?? .idle
@@ -172,6 +219,9 @@ final class AIRuntimeStateStore {
                     existing.interruptedAt = nil
                 }
             }
+        }
+        if snapshot.responseState == .responding || snapshot.wasInterrupted {
+            existing.hasCompletedTurn = false
         }
         let didChange = sessionsByID[sessionID] != existing
         apply(existing, for: sessionID)
@@ -193,6 +243,7 @@ final class AIRuntimeStateStore {
         existing.responseState = .idle
         existing.updatedAt = max(existing.updatedAt, updatedAt)
         existing.interruptedAt = max(existing.interruptedAt ?? 0, updatedAt)
+        existing.hasCompletedTurn = false
         apply(existing, for: sessionID)
         logger.log(
             "runtime-store",
@@ -262,6 +313,14 @@ final class AIRuntimeStateStore {
         sessionsByID[sessionID]?.sessionTitle
     }
 
+    func responseState(for sessionID: UUID) -> AIResponseState? {
+        sessionsByID[sessionID]?.responseState
+    }
+
+    func tool(for sessionID: UUID) -> String? {
+        sessionsByID[sessionID]?.tool
+    }
+
     func debugSummary(projectID: UUID) -> String {
         let sessions = sessionsByID.values
             .filter { $0.projectID == projectID }
@@ -303,7 +362,37 @@ final class AIRuntimeStateStore {
             currentTotalTokens: state.totalTokens,
             currentContextWindow: state.contextWindow,
             currentContextUsedTokens: state.contextUsedTokens,
-            currentContextUsagePercent: state.contextUsagePercent
+            currentContextUsagePercent: state.contextUsagePercent,
+            wasInterrupted: state.interruptedAt != nil && state.responseState != .responding,
+            hasCompletedTurn: state.hasCompletedTurn && state.responseState != .responding
         )
+    }
+
+    private func shouldIgnoreIncomingTool(existing: SessionState, incomingTool: String) -> Bool {
+        guard existing.status == "running" else {
+            return false
+        }
+        let currentTool = canonicalToolName(existing.tool)
+        let nextTool = canonicalToolName(incomingTool)
+        guard !currentTool.isEmpty, !nextTool.isEmpty else {
+            return false
+        }
+        return currentTool != nextTool
+    }
+
+    private func resolvedTool(currentTool: String, incomingTool: String) -> String {
+        guard !incomingTool.isEmpty else {
+            return currentTool
+        }
+        let currentCanonical = canonicalToolName(currentTool)
+        let incomingCanonical = canonicalToolName(incomingTool)
+        if currentCanonical.isEmpty || incomingCanonical.isEmpty || currentCanonical == incomingCanonical {
+            return incomingTool
+        }
+        return currentTool
+    }
+
+    private func canonicalToolName(_ tool: String) -> String {
+        toolDriverFactory.canonicalToolName(tool)
     }
 }

@@ -362,7 +362,9 @@ struct AIUsageService: Sendable {
             currentTotalTokens: envelope.totalTokens ?? 0,
             currentContextWindow: envelope.contextWindow,
             currentContextUsedTokens: envelope.contextUsedTokens,
-            currentContextUsagePercent: envelope.contextUsagePercent
+            currentContextUsagePercent: envelope.contextUsagePercent,
+            wasInterrupted: false,
+            hasCompletedTurn: false
         )
     }
 
@@ -440,7 +442,9 @@ struct AIUsageService: Sendable {
                 currentTotalTokens: $0.totalTokens,
                 currentContextWindow: nil,
                 currentContextUsedTokens: nil,
-                currentContextUsagePercent: $0.maxContextUsagePercent
+                currentContextUsagePercent: $0.maxContextUsagePercent,
+                wasInterrupted: false,
+                hasCompletedTurn: false
             )
         }
 

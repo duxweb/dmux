@@ -82,22 +82,23 @@ struct AppDiagnosticsExportService {
         let logsDirectoryURL = rootURL.appendingPathComponent("logs", isDirectory: true)
         let stateDirectoryURL = rootURL.appendingPathComponent("state", isDirectory: true)
         let externalConfigDirectoryURL = rootURL.appendingPathComponent("external-config", isDirectory: true)
+        let debugLog = AppDebugLog.shared
 
         try fileManager.createDirectory(at: logsDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: stateDirectoryURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: externalConfigDirectoryURL, withIntermediateDirectories: true)
 
         copyIfExists(
-            from: appSupportRootURL.appendingPathComponent("logs/dmux-debug.log", isDirectory: false),
-            to: logsDirectoryURL.appendingPathComponent("dmux-debug.log", isDirectory: false)
+            from: debugLog.logFileURL(),
+            to: logsDirectoryURL.appendingPathComponent(debugLog.logFileURL().lastPathComponent, isDirectory: false)
         )
         copyIfExists(
-            from: appSupportRootURL.appendingPathComponent("logs/dmux-debug.previous.log", isDirectory: false),
-            to: logsDirectoryURL.appendingPathComponent("dmux-debug.previous.log", isDirectory: false)
+            from: debugLog.previousLogFileURL(),
+            to: logsDirectoryURL.appendingPathComponent(debugLog.previousLogFileURL().lastPathComponent, isDirectory: false)
         )
         copyIfExists(
-            from: appSupportRootURL.appendingPathComponent("logs/performance-summary.json", isDirectory: false),
-            to: logsDirectoryURL.appendingPathComponent("performance-summary.json", isDirectory: false)
+            from: debugLog.performanceSummaryFileURL(),
+            to: logsDirectoryURL.appendingPathComponent(debugLog.performanceSummaryFileURL().lastPathComponent, isDirectory: false)
         )
         copyIfExists(
             from: appSupportRootURL.appendingPathComponent("state.json", isDirectory: false),

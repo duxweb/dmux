@@ -1,7 +1,4 @@
 import Foundation
-import SQLite3
-
-private let SQLITE_TRANSIENT_RUNTIME = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 struct AIRuntimeSourceLocator {
     static func claudeProjectLogURLs() -> [URL] {
@@ -100,21 +97,11 @@ struct AIRuntimeContextSnapshot {
     var totalTokens: Int
     var updatedAt: Double
     var responseState: AIResponseState?
+    var wasInterrupted: Bool = false
+    var hasCompletedTurn: Bool = false
 }
 
-struct GeminiParsedRuntimeState {
-    var externalSessionID: String
-    var title: String?
-    var model: String?
-    var inputTokens: Int
-    var outputTokens: Int
-    var totalTokens: Int
-    var startedAt: Double
-    var updatedAt: Double
-    var responseState: AIResponseState?
-}
-
-private func parseCodexISO8601Date(_ value: String) -> Date? {
+func parseCodexISO8601Date(_ value: String) -> Date? {
     let formatterWithFractional = ISO8601DateFormatter()
     formatterWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     if let date = formatterWithFractional.date(from: value) {
@@ -126,434 +113,35 @@ private func parseCodexISO8601Date(_ value: String) -> Date? {
     return formatter.date(from: value)
 }
 
-func parseGeminiSessionRuntimeState(
-    projectPath: String,
-    startedAt: Double?,
-    preferredSessionID: String?
-) -> GeminiParsedRuntimeState? {
-    let fileURLs = AIRuntimeSourceLocator.geminiSessionFileURLs(projectPath: projectPath)
-    guard !fileURLs.isEmpty else {
-        return nil
-    }
-
-    var preferredMatch: GeminiParsedRuntimeState?
-    var candidateMatch: GeminiParsedRuntimeState?
-
-    for fileURL in fileURLs.prefix(16) {
-        guard let state = parseGeminiSessionRuntimeState(fileURL: fileURL) else {
-            continue
-        }
-
-        if let preferredSessionID,
-           state.externalSessionID == preferredSessionID {
-            preferredMatch = state
-            break
-        }
-
-        if let startedAt {
-            if state.updatedAt >= startedAt - 5 {
-                if candidateMatch == nil || state.updatedAt > (candidateMatch?.updatedAt ?? 0) {
-                    candidateMatch = state
-                }
-            }
-        } else if candidateMatch == nil {
-            candidateMatch = state
-        }
-    }
-
-    return preferredMatch ?? candidateMatch
-}
-
-func parseGeminiSessionRuntimeState(fileURL: URL) -> GeminiParsedRuntimeState? {
-    guard let data = try? Data(contentsOf: fileURL),
-          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let externalSessionID = object["sessionId"] as? String,
-          !externalSessionID.isEmpty else {
-        return nil
-    }
-
-    let messages = object["messages"] as? [[String: Any]] ?? []
-    let startedAtDate = (object["startTime"] as? String).flatMap(parseCodexISO8601Date)
-        ?? messages.compactMap { ($0["timestamp"] as? String).flatMap(parseCodexISO8601Date) }.min()
-        ?? .distantPast
-    let updatedAtDate = (object["lastUpdated"] as? String).flatMap(parseCodexISO8601Date)
-        ?? messages.compactMap { ($0["timestamp"] as? String).flatMap(parseCodexISO8601Date) }.max()
-        ?? .distantPast
-
-    var model: String?
-    var totalTokens = 0
-    var outputTokens = 0
-    var title: String?
-
-    for message in messages {
-        let type = message["type"] as? String
-        if title == nil, type == "user" {
-            title = parseGeminiTitle(from: message["content"])
-        }
-
-        guard type == "gemini" else {
-            continue
-        }
-
-        if let candidateModel = message["model"] as? String, !candidateModel.isEmpty {
-            model = candidateModel
-        }
-
-        let tokens = message["tokens"] as? [String: Any] ?? [:]
-        let totalValue = (tokens["total"] as? NSNumber)?.intValue
-        let inputValue = (tokens["input"] as? NSNumber)?.intValue ?? 0
-        let outputValue = (tokens["output"] as? NSNumber)?.intValue ?? 0
-        let cachedValue = (tokens["cached"] as? NSNumber)?.intValue ?? 0
-        let thoughtsValue = (tokens["thoughts"] as? NSNumber)?.intValue ?? 0
-        let toolValue = (tokens["tool"] as? NSNumber)?.intValue ?? 0
-        let messageTotal = totalValue ?? (inputValue + outputValue + cachedValue + thoughtsValue + toolValue)
-        totalTokens += max(0, messageTotal)
-        outputTokens += max(0, outputValue)
-    }
-
-    let inputTokens = max(0, totalTokens - outputTokens)
-    let responseState: AIResponseState? = {
-        let lastRelevantType = messages
-            .reversed()
-            .compactMap { $0["type"] as? String }
-            .first { type in
-                switch type {
-                case "warning":
-                    return false
-                default:
-                    return true
-                }
-            }
-
-        switch lastRelevantType {
-        case "user":
-            return .responding
-        case "gemini", "error", "info":
-            return .idle
-        default:
-            if totalTokens > 0 || model != nil {
-                return .idle
-            }
-            return nil
-        }
-    }()
-
-    return GeminiParsedRuntimeState(
-        externalSessionID: externalSessionID,
-        title: title,
-        model: model,
-        inputTokens: inputTokens,
-        outputTokens: outputTokens,
-        totalTokens: totalTokens,
-        startedAt: startedAtDate.timeIntervalSince1970,
-        updatedAt: updatedAtDate.timeIntervalSince1970,
-        responseState: responseState
-    )
-}
-
-func parseGeminiTitle(from content: Any?) -> String? {
-    if let text = content as? String {
-        return normalizeGeminiTitle(text)
-    }
-    if let items = content as? [[String: Any]] {
-        for item in items {
-            if let text = item["text"] as? String,
-               let normalized = normalizeGeminiTitle(text) {
-                return normalized
-            }
-        }
-    }
-    return nil
-}
-
-func normalizeGeminiTitle(_ value: String?) -> String? {
-    guard let value else {
-        return nil
-    }
-    let trimmed = value.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else {
-        return nil
-    }
-    return String(trimmed.prefix(80))
-}
-
-private actor ClaudeRuntimeLogCache {
-    struct SessionAggregate {
-        var model: String?
-        var inputTokens: Int
-        var outputTokens: Int
-        var totalTokens: Int
-        var updatedAt: Double
-        var lastUserAt: Double
-        var lastCompletionAt: Double
-    }
-
-    struct FileState {
-        var offset: UInt64
-        var sessions: [String: SessionAggregate]
-    }
-
-    static let shared = ClaudeRuntimeLogCache()
-
-    private var fileStatesByProjectPath: [String: [String: FileState]] = [:]
-
-    func snapshot(projectPath: String, externalSessionID: String) -> AIRuntimeContextSnapshot? {
-        let sessions = updateAndMergeSessions(projectPath: projectPath)
-        guard let session = sessions[externalSessionID] else {
-            return nil
-        }
-
-        return AIRuntimeContextSnapshot(
-            tool: "claude",
-            externalSessionID: externalSessionID,
-            model: session.model,
-            inputTokens: session.inputTokens,
-            outputTokens: session.outputTokens,
-            totalTokens: session.totalTokens,
-            updatedAt: session.updatedAt,
-            responseState: responseState(for: session)
-        )
-    }
-
-    private func updateAndMergeSessions(projectPath: String) -> [String: SessionAggregate] {
-        let fileURLs = AIRuntimeSourceLocator.claudeProjectLogURLs()
-        guard !fileURLs.isEmpty else {
-            fileStatesByProjectPath[projectPath] = [:]
-            return [:]
-        }
-
-        var fileStates = fileStatesByProjectPath[projectPath] ?? [:]
-        let visiblePaths = Set(fileURLs.map(\.path))
-        fileStates = fileStates.filter { visiblePaths.contains($0.key) }
-
-        for fileURL in fileURLs {
-            let path = fileURL.path
-            let fileSize = currentFileSize(for: fileURL)
-            let existing = fileStates[path]
-
-            if existing == nil || fileSize < (existing?.offset ?? 0) {
-                let sessions = parseSessions(in: fileURL, projectPath: projectPath, startingAt: 0)
-                fileStates[path] = FileState(offset: fileSize, sessions: sessions)
-                continue
-            }
-
-            guard let existing else {
-                continue
-            }
-
-            if fileSize == existing.offset {
-                continue
-            }
-
-            let deltaSessions = parseSessions(in: fileURL, projectPath: projectPath, startingAt: existing.offset)
-            var mergedSessions = existing.sessions
-            for (sessionID, delta) in deltaSessions {
-                let aggregate = mergeSessionAggregate(
-                    mergedSessions[sessionID],
-                    with: delta
-                )
-                mergedSessions[sessionID] = aggregate
-            }
-            fileStates[path] = FileState(offset: fileSize, sessions: mergedSessions)
-        }
-
-        fileStatesByProjectPath[projectPath] = fileStates
-        return mergedSessions(from: fileStates)
-    }
-
-    private func mergedSessions(from fileStates: [String: FileState]) -> [String: SessionAggregate] {
-        var sessions: [String: SessionAggregate] = [:]
-        for fileState in fileStates.values {
-            for (sessionID, contribution) in fileState.sessions {
-                let aggregate = mergeSessionAggregate(
-                    sessions[sessionID],
-                    with: contribution
-                )
-                sessions[sessionID] = aggregate
-            }
-        }
-        return sessions
-    }
-
-    private func responseState(for aggregate: SessionAggregate) -> AIResponseState? {
-        guard aggregate.lastUserAt > 0 else {
-            return nil
-        }
-        return aggregate.lastUserAt > aggregate.lastCompletionAt ? .responding : .idle
-    }
-
-    private func currentFileSize(for fileURL: URL) -> UInt64 {
-        let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        return UInt64(max(0, size))
-    }
-
-    private func parseSessions(in fileURL: URL, projectPath: String, startingAt offset: UInt64) -> [String: SessionAggregate] {
-        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
-            return [:]
-        }
-        defer {
-            try? handle.close()
-        }
-
-        do {
-            try handle.seek(toOffset: offset)
-        } catch {
-            return [:]
-        }
-
-        let data = handle.readDataToEndOfFile()
-        guard !data.isEmpty,
-              let text = String(data: data, encoding: .utf8) else {
-            return [:]
-        }
-
-        var sessions: [String: SessionAggregate] = [:]
-        for line in text.split(separator: "\n") {
-            guard let lineData = line.data(using: .utf8),
-                  let row = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  let cwd = row["cwd"] as? String,
-                  let sessionID = row["sessionId"] as? String,
-                  cwd == projectPath else {
-                continue
-            }
-
-            let timestamp = (row["timestamp"] as? String).flatMap(parseISO8601Date)?.timeIntervalSince1970 ?? 0
-            let message = row["message"] as? [String: Any] ?? [:]
-            let usage = message["usage"] as? [String: Any] ?? [:]
-            let input = (usage["input_tokens"] as? NSNumber)?.intValue ?? 0
-            let output = (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
-            let cacheCreation = (usage["cache_creation_input_tokens"] as? NSNumber)?.intValue ?? 0
-            let cacheRead = (usage["cache_read_input_tokens"] as? NSNumber)?.intValue ?? 0
-            let effectiveInput = input + cacheCreation + cacheRead
-            let total = effectiveInput + output
-
-            var aggregate = sessions[sessionID] ?? SessionAggregate(
-                model: nil,
-                inputTokens: 0,
-                outputTokens: 0,
-                totalTokens: 0,
-                updatedAt: timestamp,
-                lastUserAt: 0,
-                lastCompletionAt: 0
-            )
-            let rowType = row["type"] as? String
-            if rowType == "user" {
-                if isClaudeInterruptedRow(row) {
-                    aggregate.lastCompletionAt = max(aggregate.lastCompletionAt, timestamp)
-                } else {
-                    aggregate.lastUserAt = max(aggregate.lastUserAt, timestamp)
-                }
-            } else if rowType == "assistant" {
-                let stopReason = message["stop_reason"] as? String
-                if stopReason == "end_turn" {
-                    aggregate.lastCompletionAt = max(aggregate.lastCompletionAt, timestamp)
-                }
-            } else if rowType == "system" {
-                let subtype = row["subtype"] as? String
-                if subtype == "turn_duration" || subtype == "stop_hook_summary" {
-                    aggregate.lastCompletionAt = max(aggregate.lastCompletionAt, timestamp)
-                }
-            }
-            if let model = message["model"] as? String, !model.isEmpty {
-                aggregate.model = model
-            }
-            aggregate.inputTokens += effectiveInput
-            aggregate.outputTokens += output
-            aggregate.totalTokens += total
-            aggregate.updatedAt = max(aggregate.updatedAt, timestamp)
-            sessions[sessionID] = aggregate
-        }
-        return sessions
-    }
-
-    private func mergeSessionAggregate(
-        _ existing: SessionAggregate?,
-        with contribution: SessionAggregate
-    ) -> SessionAggregate {
-        var aggregate = existing ?? SessionAggregate(
-            model: nil,
-            inputTokens: 0,
-            outputTokens: 0,
-            totalTokens: 0,
-            updatedAt: contribution.updatedAt,
-            lastUserAt: contribution.lastUserAt,
-            lastCompletionAt: contribution.lastCompletionAt
-        )
-        let previousUpdatedAt = aggregate.updatedAt
-        if let model = contribution.model,
-           !model.isEmpty,
-           aggregate.model == nil || contribution.updatedAt >= previousUpdatedAt {
-            aggregate.model = model
-        }
-        aggregate.inputTokens += contribution.inputTokens
-        aggregate.outputTokens += contribution.outputTokens
-        aggregate.totalTokens += contribution.totalTokens
-        aggregate.updatedAt = max(previousUpdatedAt, contribution.updatedAt)
-        aggregate.lastUserAt = max(aggregate.lastUserAt, contribution.lastUserAt)
-        aggregate.lastCompletionAt = max(aggregate.lastCompletionAt, contribution.lastCompletionAt)
-        return aggregate
-    }
-
-    private func isClaudeInterruptedRow(_ row: [String: Any]) -> Bool {
-        if let toolUseResult = row["toolUseResult"] as? [String: Any],
-           let interrupted = toolUseResult["interrupted"] as? Bool,
-           interrupted {
-            return true
-        }
-
-        let message = row["message"] as? [String: Any] ?? [:]
-        if let content = message["content"] as? String {
-            return content.contains("[Request interrupted by user]")
-        }
-        if let items = message["content"] as? [[String: Any]] {
-            for item in items {
-                if let text = item["text"] as? String,
-                   text.contains("[Request interrupted by user]") {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    private func parseISO8601Date(_ value: String) -> Date? {
-        let formatterWithFractional = ISO8601DateFormatter()
-        formatterWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatterWithFractional.date(from: value) {
-            return date
-        }
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
-    }
-}
-
 actor AIRuntimeContextProbe {
-    private var codexThreadIDByRuntimeSessionID: [String: String] = [:]
-    private var claudeSessionIDByRuntimeSessionID: [String: String] = [:]
-    private var lastClaudeLogMessageByRuntimeSessionID: [String: String] = [:]
-    private var lastClaudeLogAtByDedupeKey: [String: Double] = [:]
-    private var opencodeSessionIDByRuntimeSessionID: [String: String] = [:]
-    private var geminiSessionIDByRuntimeSessionID: [String: String] = [:]
-    private let fileManager = FileManager.default
-    private let logger = AppDebugLog.shared
+    private let codexRuntimeProbe = CodexRuntimeProbeService()
+    private let claudeRuntimeProbe = ClaudeRuntimeProbeService()
+    private let geminiRuntimeProbe = GeminiRuntimeProbeService()
+    private let opencodeRuntimeProbe = OpenCodeRuntimeProbeService()
 
     func snapshot(for tool: String, runtimeSessionID: String, projectPath: String, startedAt: Double) async -> AIRuntimeContextSnapshot? {
         switch normalize(tool: tool) {
         case "codex":
-            return codexSnapshot(runtimeSessionID: runtimeSessionID, projectPath: projectPath, startedAt: startedAt)
-        case "claude":
-            return await claudeSnapshot(
+            return await codexRuntimeProbe.snapshot(
                 runtimeSessionID: runtimeSessionID,
                 projectPath: projectPath,
                 startedAt: startedAt,
                 knownExternalSessionID: nil
             )
+        case "claude":
+            return await claudeRuntimeProbe.snapshot(
+                runtimeSessionID: runtimeSessionID,
+                projectPath: projectPath,
+                knownExternalSessionID: nil
+            )
         case "opencode":
-            return opencodeSnapshot(runtimeSessionID: runtimeSessionID, projectPath: projectPath, startedAt: startedAt)
+            return await opencodeRuntimeProbe.snapshot(
+                runtimeSessionID: runtimeSessionID,
+                projectPath: projectPath,
+                startedAt: startedAt
+            )
         case "gemini":
-            return geminiSnapshot(
+            return await geminiRuntimeProbe.snapshot(
                 runtimeSessionID: runtimeSessionID,
                 projectPath: projectPath,
                 startedAt: startedAt,
@@ -582,95 +170,6 @@ actor AIRuntimeContextProbe {
         }
     }
 
-    private func codexSnapshot(runtimeSessionID: String, projectPath: String, startedAt: Double) -> AIRuntimeContextSnapshot? {
-        let dbPath = NSHomeDirectory() + "/.codex/state_5.sqlite"
-        guard FileManager.default.fileExists(atPath: dbPath) else {
-            return nil
-        }
-
-        var db: OpaquePointer?
-        guard sqlite3_open(dbPath, &db) == SQLITE_OK, let db else {
-            return nil
-        }
-        defer { sqlite3_close(db) }
-
-        if let threadID = codexThreadIDByRuntimeSessionID[runtimeSessionID] {
-            let sql = """
-            SELECT model, tokens_used, updated_at
-            FROM threads
-            WHERE id = ?
-            LIMIT 1;
-            """
-
-            var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-                return nil
-            }
-            defer { sqlite3_finalize(statement) }
-            sqlite3_bind_text(statement, 1, threadID, -1, SQLITE_TRANSIENT_RUNTIME)
-
-            guard sqlite3_step(statement) == SQLITE_ROW else {
-                codexThreadIDByRuntimeSessionID[runtimeSessionID] = nil
-                return nil
-            }
-
-            let model = sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 0))
-            let totalTokens = Int(sqlite3_column_int64(statement, 1))
-            let updatedAt = sqlite3_column_double(statement, 2)
-            return AIRuntimeContextSnapshot(
-                tool: "codex",
-                externalSessionID: threadID,
-                model: model,
-                inputTokens: totalTokens,
-                outputTokens: 0,
-                totalTokens: totalTokens,
-                updatedAt: updatedAt,
-                responseState: nil
-            )
-        }
-
-        let sql = """
-        SELECT id, model, tokens_used, updated_at
-        FROM threads
-        WHERE cwd = ?
-          AND updated_at >= ?
-        ORDER BY updated_at DESC
-        LIMIT 1;
-        """
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, projectPath, -1, SQLITE_TRANSIENT_RUNTIME)
-        sqlite3_bind_double(statement, 2, startedAt - 2)
-
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            return nil
-        }
-
-        guard let threadID = sqlite3_column_text(statement, 0).map({ String(cString: $0) }) else {
-            return nil
-        }
-
-        codexThreadIDByRuntimeSessionID[runtimeSessionID] = threadID
-
-        let model = sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 1))
-        let totalTokens = Int(sqlite3_column_int64(statement, 2))
-        let updatedAt = sqlite3_column_double(statement, 3)
-        return AIRuntimeContextSnapshot(
-            tool: "codex",
-            externalSessionID: threadID,
-            model: model,
-            inputTokens: totalTokens,
-            outputTokens: 0,
-            totalTokens: totalTokens,
-            updatedAt: updatedAt,
-            responseState: nil
-        )
-    }
-
     func snapshot(
         for tool: String,
         runtimeSessionID: String,
@@ -680,18 +179,26 @@ actor AIRuntimeContextProbe {
     ) async -> AIRuntimeContextSnapshot? {
         switch normalize(tool: tool) {
         case "codex":
-            return codexSnapshot(runtimeSessionID: runtimeSessionID, projectPath: projectPath, startedAt: startedAt)
-        case "claude":
-            return await claudeSnapshot(
+            return await codexRuntimeProbe.snapshot(
                 runtimeSessionID: runtimeSessionID,
                 projectPath: projectPath,
                 startedAt: startedAt,
                 knownExternalSessionID: knownExternalSessionID
             )
+        case "claude":
+            return await claudeRuntimeProbe.snapshot(
+                runtimeSessionID: runtimeSessionID,
+                projectPath: projectPath,
+                knownExternalSessionID: knownExternalSessionID
+            )
         case "opencode":
-            return opencodeSnapshot(runtimeSessionID: runtimeSessionID, projectPath: projectPath, startedAt: startedAt)
+            return await opencodeRuntimeProbe.snapshot(
+                runtimeSessionID: runtimeSessionID,
+                projectPath: projectPath,
+                startedAt: startedAt
+            )
         case "gemini":
-            return geminiSnapshot(
+            return await geminiRuntimeProbe.snapshot(
                 runtimeSessionID: runtimeSessionID,
                 projectPath: projectPath,
                 startedAt: startedAt,
@@ -706,288 +213,10 @@ actor AIRuntimeContextProbe {
                 outputTokens: 0,
                 totalTokens: 0,
                 updatedAt: Date().timeIntervalSince1970,
-                responseState: nil
+                responseState: nil,
+                hasCompletedTurn: false
             )
         }
-    }
-
-    private func geminiSnapshot(
-        runtimeSessionID: String,
-        projectPath: String,
-        startedAt: Double,
-        knownExternalSessionID: String?
-    ) -> AIRuntimeContextSnapshot? {
-        let preferredSessionID = knownExternalSessionID
-            ?? geminiSessionIDByRuntimeSessionID[runtimeSessionID]
-        guard let parsedState = parseGeminiSessionRuntimeState(
-            projectPath: projectPath,
-            startedAt: startedAt,
-            preferredSessionID: preferredSessionID
-        ) else {
-            return nil
-        }
-
-        geminiSessionIDByRuntimeSessionID[runtimeSessionID] = parsedState.externalSessionID
-        logger.log(
-            "gemini-runtime",
-            "hit runtimeSession=\(runtimeSessionID) externalSession=\(parsedState.externalSessionID) model=\(parsedState.model ?? "nil") total=\(parsedState.totalTokens) response=\(parsedState.responseState?.rawValue ?? "nil")"
-        )
-        return AIRuntimeContextSnapshot(
-            tool: "gemini",
-            externalSessionID: parsedState.externalSessionID,
-            model: parsedState.model,
-            inputTokens: parsedState.inputTokens,
-            outputTokens: parsedState.outputTokens,
-            totalTokens: parsedState.totalTokens,
-            updatedAt: parsedState.updatedAt,
-            responseState: parsedState.responseState
-        )
-    }
-
-    private func claudeSnapshot(
-        runtimeSessionID: String,
-        projectPath: String,
-        startedAt: Double,
-        knownExternalSessionID: String?
-    ) async -> AIRuntimeContextSnapshot? {
-        if let knownExternalSessionID, !knownExternalSessionID.isEmpty {
-            if let snapshot = await ClaudeRuntimeLogCache.shared.snapshot(
-                projectPath: projectPath,
-                externalSessionID: knownExternalSessionID
-            ) {
-                logClaudeRuntime(
-                    runtimeSessionID: runtimeSessionID,
-                    message: "hit source=live runtimeSession=\(runtimeSessionID) externalSession=\(knownExternalSessionID) model=\(snapshot.model ?? "nil") total=\(snapshot.totalTokens) response=\(snapshot.responseState?.rawValue ?? "nil")"
-                )
-                return normalizedClaudeSnapshot(
-                    runtimeSessionID: runtimeSessionID,
-                    externalSessionID: knownExternalSessionID,
-                    snapshot: snapshot
-                )
-            }
-            logClaudeRuntime(
-                runtimeSessionID: runtimeSessionID,
-                message: "miss source=live runtimeSession=\(runtimeSessionID) externalSession=\(knownExternalSessionID)",
-                dedupeKey: "\(runtimeSessionID):miss:live",
-                minimumInterval: 15
-            )
-        }
-
-        if let mappedExternalSessionID = claudeMappedExternalSessionID(for: runtimeSessionID) {
-            guard let snapshot = await ClaudeRuntimeLogCache.shared.snapshot(
-                projectPath: projectPath,
-                externalSessionID: mappedExternalSessionID
-            ) else {
-                logClaudeRuntime(
-                    runtimeSessionID: runtimeSessionID,
-                    message: "miss source=mapped runtimeSession=\(runtimeSessionID) externalSession=\(mappedExternalSessionID)",
-                    dedupeKey: "\(runtimeSessionID):miss:mapped",
-                    minimumInterval: 15
-                )
-                return nil
-            }
-            logClaudeRuntime(
-                runtimeSessionID: runtimeSessionID,
-                message: "hit source=mapped runtimeSession=\(runtimeSessionID) externalSession=\(mappedExternalSessionID) model=\(snapshot.model ?? "nil") total=\(snapshot.totalTokens) response=\(snapshot.responseState?.rawValue ?? "nil")"
-            )
-            return normalizedClaudeSnapshot(
-                runtimeSessionID: runtimeSessionID,
-                externalSessionID: mappedExternalSessionID,
-                snapshot: snapshot
-            )
-        }
-
-        if let externalSessionID = claudeSessionIDByRuntimeSessionID[runtimeSessionID] {
-            guard let snapshot = await ClaudeRuntimeLogCache.shared.snapshot(
-                projectPath: projectPath,
-                externalSessionID: externalSessionID
-            ) else {
-                logClaudeRuntime(
-                    runtimeSessionID: runtimeSessionID,
-                    message: "miss source=cached runtimeSession=\(runtimeSessionID) externalSession=\(externalSessionID)",
-                    dedupeKey: "\(runtimeSessionID):miss:cached",
-                    minimumInterval: 15
-                )
-                return nil
-            }
-            logClaudeRuntime(
-                runtimeSessionID: runtimeSessionID,
-                message: "hit source=cached runtimeSession=\(runtimeSessionID) externalSession=\(externalSessionID) model=\(snapshot.model ?? "nil") total=\(snapshot.totalTokens) response=\(snapshot.responseState?.rawValue ?? "nil")"
-            )
-            return normalizedClaudeSnapshot(
-                runtimeSessionID: runtimeSessionID,
-                externalSessionID: externalSessionID,
-                snapshot: snapshot
-            )
-        }
-        logClaudeRuntime(
-            runtimeSessionID: runtimeSessionID,
-            message: "miss source=none runtimeSession=\(runtimeSessionID) projectPath=\(projectPath)",
-            dedupeKey: "\(runtimeSessionID):miss:none",
-            minimumInterval: 15
-        )
-        return nil
-    }
-
-    private func logClaudeRuntime(
-        runtimeSessionID: String,
-        message: String,
-        dedupeKey: String? = nil,
-        minimumInterval: TimeInterval = 0
-    ) {
-        if let dedupeKey, minimumInterval > 0 {
-            let now = Date().timeIntervalSince1970
-            if let lastLoggedAt = lastClaudeLogAtByDedupeKey[dedupeKey],
-               now - lastLoggedAt < minimumInterval {
-                return
-            }
-            lastClaudeLogAtByDedupeKey[dedupeKey] = now
-        }
-        guard lastClaudeLogMessageByRuntimeSessionID[runtimeSessionID] != message else {
-            return
-        }
-        lastClaudeLogMessageByRuntimeSessionID[runtimeSessionID] = message
-        logger.log("claude-runtime", message)
-    }
-
-    private func claudeMappedExternalSessionID(for runtimeSessionID: String) -> String? {
-        let fileURL = AIRuntimeBridgeService()
-            .claudeSessionMapDirectoryURL()
-            .appendingPathComponent("\(runtimeSessionID).json", isDirectory: false)
-        guard let data = try? Data(contentsOf: fileURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let externalSessionID = object["externalSessionID"] as? String,
-              !externalSessionID.isEmpty else {
-            return nil
-        }
-        return externalSessionID
-    }
-
-    private func normalizedClaudeSnapshot(
-        runtimeSessionID: String,
-        externalSessionID: String,
-        snapshot: AIRuntimeContextSnapshot
-    ) -> AIRuntimeContextSnapshot {
-        if claudeSessionIDByRuntimeSessionID[runtimeSessionID] != externalSessionID {
-            claudeSessionIDByRuntimeSessionID[runtimeSessionID] = externalSessionID
-        }
-
-        return AIRuntimeContextSnapshot(
-            tool: snapshot.tool,
-            externalSessionID: externalSessionID,
-            model: snapshot.model,
-            inputTokens: snapshot.inputTokens,
-            outputTokens: snapshot.outputTokens,
-            totalTokens: snapshot.totalTokens,
-            updatedAt: snapshot.updatedAt,
-            responseState: snapshot.responseState
-        )
-    }
-
-    private func opencodeSnapshot(runtimeSessionID: String, projectPath: String, startedAt: Double) -> AIRuntimeContextSnapshot? {
-        let dbPath = NSHomeDirectory() + "/.local/share/opencode/opencode.db"
-        guard FileManager.default.fileExists(atPath: dbPath) else {
-            return nil
-        }
-
-        var db: OpaquePointer?
-        guard sqlite3_open(dbPath, &db) == SQLITE_OK, let db else {
-            return nil
-        }
-        defer { sqlite3_close(db) }
-
-        let latestSessionID: String
-        if let existingSessionID = opencodeSessionIDByRuntimeSessionID[runtimeSessionID] {
-            latestSessionID = existingSessionID
-        } else {
-            let latestSessionSQL = """
-            SELECT s.id
-            FROM session s
-            JOIN message m ON m.session_id = s.id
-            WHERE s.directory = ?
-              AND m.time_created >= ?
-            ORDER BY m.time_created DESC
-            LIMIT 1;
-            """
-
-            var latestSessionStatement: OpaquePointer?
-            guard sqlite3_prepare_v2(db, latestSessionSQL, -1, &latestSessionStatement, nil) == SQLITE_OK,
-                  let latestSessionStatement else {
-                return nil
-            }
-            defer { sqlite3_finalize(latestSessionStatement) }
-            sqlite3_bind_text(latestSessionStatement, 1, projectPath, -1, SQLITE_TRANSIENT_RUNTIME)
-            sqlite3_bind_double(latestSessionStatement, 2, (startedAt - 2) * 1000)
-
-            guard sqlite3_step(latestSessionStatement) == SQLITE_ROW,
-                  let latestSessionIDPointer = sqlite3_column_text(latestSessionStatement, 0) else {
-                return nil
-            }
-            latestSessionID = String(cString: latestSessionIDPointer)
-            opencodeSessionIDByRuntimeSessionID[runtimeSessionID] = latestSessionID
-        }
-
-        let sql = """
-        SELECT json_extract(m.data, '$.modelID') AS model,
-               COALESCE(json_extract(m.data, '$.tokens.input'), 0) AS input_tokens,
-               COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS output_tokens,
-               COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0) AS cache_read_tokens,
-               COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0) AS cache_write_tokens,
-               COALESCE(json_extract(m.data, '$.tokens.total'), 0) AS total_tokens,
-               COALESCE(json_extract(m.data, '$.time.completed'), json_extract(m.data, '$.time.created'), 0) AS completed_at
-        FROM session s
-        JOIN message m ON m.session_id = s.id
-        WHERE s.directory = ?
-          AND s.id = ?
-        ORDER BY m.time_created DESC;
-        """
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, projectPath, -1, SQLITE_TRANSIENT_RUNTIME)
-        sqlite3_bind_text(statement, 2, latestSessionID, -1, SQLITE_TRANSIENT_RUNTIME)
-
-        var latestModel: String?
-        var inputTokens = 0
-        var outputTokens = 0
-        var totalTokens = 0
-        var updatedAt = 0.0
-
-        while sqlite3_step(statement) == SQLITE_ROW {
-            if latestModel == nil, let rawModel = sqlite3_column_text(statement, 0) {
-                let model = String(cString: rawModel)
-                if !model.isEmpty {
-                    latestModel = model
-                }
-            }
-            let input = Int(sqlite3_column_int64(statement, 1))
-            let output = Int(sqlite3_column_int64(statement, 2))
-            let cacheRead = Int(sqlite3_column_int64(statement, 3))
-            let cacheWrite = Int(sqlite3_column_int64(statement, 4))
-            let explicitTotal = Int(sqlite3_column_int64(statement, 5))
-            inputTokens += input + cacheRead + cacheWrite
-            outputTokens += output
-            totalTokens += max(explicitTotal, input + output + cacheRead + cacheWrite)
-            updatedAt = max(updatedAt, sqlite3_column_double(statement, 6) / 1000)
-        }
-
-        guard updatedAt > 0 else {
-            return nil
-        }
-
-        return AIRuntimeContextSnapshot(
-            tool: "opencode",
-            externalSessionID: latestSessionID,
-            model: latestModel,
-            inputTokens: inputTokens,
-            outputTokens: outputTokens,
-            totalTokens: totalTokens,
-            updatedAt: updatedAt,
-            responseState: nil
-        )
     }
 
 }

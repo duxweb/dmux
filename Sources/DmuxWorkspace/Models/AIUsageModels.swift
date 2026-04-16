@@ -60,6 +60,8 @@ struct AITerminalSessionSnapshot: Codable, Equatable, Identifiable, Sendable {
     var currentContextWindow: Int?
     var currentContextUsedTokens: Int?
     var currentContextUsagePercent: Double?
+    var wasInterrupted: Bool
+    var hasCompletedTurn: Bool
 }
 
 struct AISessionSummary: Codable, Equatable, Identifiable, Sendable {

@@ -5,6 +5,7 @@ zmodload zsh/datetime 2>/dev/null || true
 
 action="${1:-}"
 tool_name="${2:-${DMUX_ACTIVE_AI_TOOL:-}}"
+hook_payload="$(cat)"
 
 if [[ -z "${DMUX_SESSION_ID:-}" || -z "${DMUX_PROJECT_ID:-}" || -z "${tool_name:-}" ]]; then
   exit 0
@@ -17,7 +18,7 @@ case "${action}" in
   prompt-submit|pre-tool-use|before-agent)
     response_state="responding"
     ;;
-  stop|session-end|idle|after-agent)
+  stop|stop-failure|session-end|idle|after-agent)
     response_state="idle"
     ;;
   codex-prompt-submit|codex-stop)
@@ -54,20 +55,72 @@ log_line() {
   print -r -- "[$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')] [wrapper] $1" >> "${DMUX_LOG_FILE}"
 }
 
+extract_hook_session_id() {
+  [[ -n "${hook_payload}" ]] || return 0
+  HOOK_PAYLOAD="${hook_payload}" /usr/bin/python3 - <<'PY'
+import json
+import os
+import sys
+
+payload = os.environ.get("HOOK_PAYLOAD", "")
+if not payload:
+    raise SystemExit(0)
+
+try:
+    obj = json.loads(payload)
+except Exception:
+    raise SystemExit(0)
+
+stack = [obj]
+seen = set()
+while stack:
+    current = stack.pop()
+    ident = id(current)
+    if ident in seen:
+        continue
+    seen.add(ident)
+
+    if isinstance(current, dict):
+        for key in ("session_id", "sessionId"):
+            value = current.get(key)
+            if isinstance(value, str) and value:
+                print(value)
+                raise SystemExit(0)
+        stack.extend(current.values())
+    elif isinstance(current, list):
+        stack.extend(current)
+PY
+}
+
+resolved_claude_external_session_id() {
+  local parsed_session_id
+  parsed_session_id="$(extract_hook_session_id)"
+  if [[ -n "${parsed_session_id}" ]]; then
+    print -r -- "${parsed_session_id}"
+    return 0
+  fi
+
+  if [[ -n "${DMUX_EXTERNAL_SESSION_ID:-}" ]]; then
+    print -r -- "${DMUX_EXTERNAL_SESSION_ID}"
+  fi
+}
+
 write_claude_session_map() {
-  [[ -n "${DMUX_CLAUDE_SESSION_MAP_DIR:-}" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_EXTERNAL_SESSION_ID:-}" ]] || return 0
+  local external_session_id
+  external_session_id="$(resolved_claude_external_session_id)"
+  [[ -n "${DMUX_CLAUDE_SESSION_MAP_DIR:-}" && -n "${DMUX_SESSION_ID:-}" && -n "${external_session_id:-}" ]] || return 0
   local path="${DMUX_CLAUDE_SESSION_MAP_DIR}/${DMUX_SESSION_ID}.json"
   local tmp="${path}.tmp"
   /bin/mkdir -p -- "${DMUX_CLAUDE_SESSION_MAP_DIR}"
   {
     print -rn -- '{'
     print -rn -- "\"sessionId\":\"$(json_escape "${DMUX_SESSION_ID}")\","
-    print -rn -- "\"externalSessionID\":\"$(json_escape "${DMUX_EXTERNAL_SESSION_ID}")\","
+    print -rn -- "\"externalSessionID\":\"$(json_escape "${external_session_id}")\","
     print -rn -- "\"updatedAt\":$(now)"
     print -r -- '}'
   } >| "${tmp}"
   /bin/mv -f -- "${tmp}" "${path}"
-  log_line "claude map write session=${DMUX_SESSION_ID} externalSession=${DMUX_EXTERNAL_SESSION_ID}"
+  log_line "claude map write session=${DMUX_SESSION_ID} externalSession=${external_session_id}"
 }
 
 clear_response_file() {
@@ -98,8 +151,6 @@ clear_claude_session_map() {
 
 write_codex_hook_event() {
   local event_name="$1"
-  local payload
-  payload="$(cat)"
   local event_json
   event_json="$(
     {
@@ -110,7 +161,7 @@ write_codex_hook_event() {
       print -rn -- "\"dmuxProjectId\":\"$(json_escape "${DMUX_PROJECT_ID}")\","
       print -rn -- "\"dmuxProjectPath\":\"$(json_escape "${DMUX_PROJECT_PATH:-}")\","
       print -rn -- "\"receivedAt\":$(now),"
-      print -rn -- "\"payload\":\"$(json_escape "${payload}")\""
+      print -rn -- "\"payload\":\"$(json_escape "${hook_payload}")\""
       print -rn -- '}}'
     }
   )"
@@ -133,12 +184,14 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
   case "${action}" in
     session-start)
       write_claude_session_map
-      log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} externalSession=${DMUX_EXTERNAL_SESSION_ID:-nil}"
+      log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} externalSession=$(resolved_claude_external_session_id || print -r -- nil)"
       ;;
     prompt-submit|pre-tool-use)
+      write_claude_session_map
       log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
       ;;
-    stop|idle)
+    stop|stop-failure|idle)
+      write_claude_session_map
       log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
       ;;
     session-end)

@@ -432,6 +432,10 @@ final class AIStatsStore {
                 service.fastPanelState(project: project, liveSnapshots: liveSnapshots, currentSnapshot: currentSnapshot)
             }.value
             await MainActor.run {
+                self.logger.log(
+                    "ai-panel-bridge",
+                    "phase=quick project=\(project.id.uuidString) selected=\(selectedSessionID?.uuidString ?? "nil") live=\(liveSnapshots.count) snapshotSession=\(currentSnapshot?.sessionID.uuidString ?? "nil") snapshotTool=\(currentSnapshot?.tool ?? "nil") snapshotModel=\(currentSnapshot?.model ?? "nil") snapshotTotal=\(currentSnapshot?.currentTotalTokens ?? 0) summaryTool=\(quickState.projectSummary?.currentTool ?? "nil") summaryModel=\(quickState.projectSummary?.currentModel ?? "nil") summaryTotal=\(quickState.projectSummary?.currentSessionTokens ?? 0)"
+                )
                 self.indexingStatusByProjectID[project.id] = quickState.indexingStatus
                 self.panelStateByProjectID[project.id] = quickState
                 self.refreshStateByProjectID[project.id] = self.inFlightRefreshState(for: trigger, current: self.refreshStateByProjectID[project.id])
@@ -468,6 +472,10 @@ final class AIStatsStore {
                     nextRefreshState = .idle
                 }
                 let nextState = service.snapshotBackedPanelState(project: project, liveEnvelopes: liveEnvelopes, selectedSessionID: selectedSessionID, status: finalStatus)
+                self.logger.log(
+                    "ai-panel-bridge",
+                    "phase=indexed project=\(project.id.uuidString) selected=\(selectedSessionID?.uuidString ?? "nil") live=\(nextState.liveSnapshots.count) indexedSessions=\(nextState.sessions.count) summaryTool=\(nextState.projectSummary?.currentTool ?? "nil") summaryModel=\(nextState.projectSummary?.currentModel ?? "nil") summaryTotal=\(nextState.projectSummary?.currentSessionTokens ?? 0)"
+                )
                 self.storeState(nextState, refreshState: nextRefreshState, for: project.id, updateCurrent: self.currentProjectID == project.id)
                 let durationMS = Int(Date().timeIntervalSince(startedAt) * 1000)
                 self.logger.log(
@@ -830,8 +838,7 @@ final class AIStatsStore {
                     .liveSnapshots(projectID: project.id)
                     .first(where: { $0.sessionID == sessionID })
                 guard let tool = liveSnapshot?.tool ?? self.currentRuntimeTool(for: sessionID, projectID: project.id),
-                      self.toolDriverFactory.isRealtimeTool(tool),
-                      self.normalizedToolName(tool) != "codex" else {
+                      self.toolDriverFactory.isRealtimeTool(tool) else {
                     return
                 }
 
@@ -904,6 +911,10 @@ final class AIStatsStore {
             return
         }
 
+        logger.log(
+            "ai-panel-bridge",
+            "phase=live project=\(project.id.uuidString) selected=\(selectedSessionID?.uuidString ?? "nil") live=\(liveSnapshots.count) snapshotSession=\(currentSnapshot?.sessionID.uuidString ?? "nil") snapshotTool=\(currentSnapshot?.tool ?? "nil") snapshotModel=\(currentSnapshot?.model ?? "nil") snapshotTotal=\(currentSnapshot?.currentTotalTokens ?? 0) summaryTool=\(nextState.projectSummary?.currentTool ?? "nil") summaryModel=\(nextState.projectSummary?.currentModel ?? "nil") summaryTotal=\(nextState.projectSummary?.currentSessionTokens ?? 0)"
+        )
         storeState(nextState, refreshState: .idle, for: project.id, updateCurrent: true)
         syncCurrentAutomaticRefreshFlag()
     }
@@ -916,8 +927,7 @@ final class AIStatsStore {
         let liveSnapshots = runtimeStateStore.liveSnapshots(projectID: project.id)
         for snapshot in liveSnapshots {
             guard let tool = snapshot.tool ?? currentRuntimeTool(for: snapshot.sessionID, projectID: project.id),
-                  toolDriverFactory.isRealtimeTool(tool),
-                  normalizedToolName(tool) != "codex" else {
+                  toolDriverFactory.isRealtimeTool(tool) else {
                 continue
             }
             scheduleRuntimeRefresh(
@@ -938,8 +948,7 @@ final class AIStatsStore {
         let liveSnapshots = runtimeStateStore.liveSnapshots(projectID: project.id)
         for snapshot in liveSnapshots {
             guard let tool = snapshot.tool ?? currentRuntimeTool(for: snapshot.sessionID, projectID: project.id),
-                  toolDriverFactory.isRealtimeTool(tool),
-                  normalizedToolName(tool) != "codex" else {
+                  toolDriverFactory.isRealtimeTool(tool) else {
                 continue
             }
             scheduleRuntimeTailRefresh(
@@ -1065,7 +1074,13 @@ final class AIStatsStore {
                     mergedRuntime.inputTokens = max(existing.inputTokens, runtimeStateSnapshot.inputTokens)
                     mergedRuntime.outputTokens = max(existing.outputTokens, runtimeStateSnapshot.outputTokens)
                     mergedRuntime.totalTokens = max(existing.totalTokens, runtimeStateSnapshot.totalTokens)
-                    if prefersHookDrivenResponseState == false || mergedRuntime.responseState == nil {
+                    if prefersHookDrivenResponseState {
+                        if runtimeStateSnapshot.responseState == .responding {
+                            mergedRuntime.responseState = .responding
+                        } else if mergedRuntime.responseState == nil {
+                            mergedRuntime.responseState = runtimeStateSnapshot.responseState ?? mergedRuntime.responseState
+                        }
+                    } else {
                         mergedRuntime.responseState = runtimeStateSnapshot.responseState ?? mergedRuntime.responseState
                     }
                     mergedRuntime.updatedAt = max(existing.updatedAt, runtimeStateSnapshot.updatedAt)
@@ -1212,10 +1227,6 @@ final class AIStatsStore {
         projects: [Project],
         force: Bool
     ) {
-        guard normalizedToolName(tool) != "codex" else {
-            return
-        }
-
         sessionProjectIDBySessionID[sessionID] = project.id
         sessionToolBySessionID[sessionID] = tool
 
@@ -1293,10 +1304,43 @@ final class AIStatsStore {
                 }
 
                 let previousRuntime = self.activeRuntimeBySessionID[sessionID]
+                let liveStoreRuntime = self.runtimeStateStore
+                    .liveSnapshots(projectID: project.id)
+                    .first(where: { $0.sessionID == sessionID })
+                    .map { snapshot in
+                        AIRuntimeContextSnapshot(
+                            tool: snapshot.tool ?? tool,
+                            externalSessionID: snapshot.externalSessionID,
+                            model: snapshot.model,
+                            inputTokens: snapshot.currentInputTokens,
+                            outputTokens: snapshot.currentOutputTokens,
+                            totalTokens: snapshot.currentTotalTokens,
+                            updatedAt: snapshot.updatedAt.timeIntervalSince1970,
+                            responseState: snapshot.responseState,
+                            wasInterrupted: snapshot.wasInterrupted,
+                            hasCompletedTurn: snapshot.hasCompletedTurn
+                        )
+                    }
+                let effectivePreviousRuntime = liveStoreRuntime ?? previousRuntime
                 if var runtime = runtime {
                     if self.toolDriverFactory.prefersHookDrivenResponseState(for: tool),
-                       let existingResponseState = previousRuntime?.responseState {
-                        runtime.responseState = existingResponseState
+                       let existingResponseState = effectivePreviousRuntime?.responseState {
+                        if existingResponseState == .responding,
+                           runtime.responseState == .idle,
+                           runtime.wasInterrupted == false,
+                           runtime.hasCompletedTurn == false {
+                            runtime.responseState = .responding
+                        } else if runtime.responseState != .idle {
+                            runtime.responseState = existingResponseState
+                        }
+                    }
+                    if let effectivePreviousRuntime {
+                        runtime.externalSessionID = runtime.externalSessionID ?? effectivePreviousRuntime.externalSessionID
+                        runtime.model = runtime.model ?? effectivePreviousRuntime.model
+                        runtime.inputTokens = max(runtime.inputTokens, effectivePreviousRuntime.inputTokens)
+                        runtime.outputTokens = max(runtime.outputTokens, effectivePreviousRuntime.outputTokens)
+                        runtime.totalTokens = max(runtime.totalTokens, effectivePreviousRuntime.totalTokens)
+                        runtime.updatedAt = max(runtime.updatedAt, effectivePreviousRuntime.updatedAt)
                     }
                     let changed = self.runtimeDisplayDidChange(previous: previousRuntime, current: runtime)
                     self.activeRuntimeBySessionID[sessionID] = runtime
@@ -1394,7 +1438,6 @@ final class AIStatsStore {
 
     private func shouldContinueRuntimeRefresh(for sessionID: UUID, tool: String, projectID: UUID) -> Bool {
         guard toolDriverFactory.isRealtimeTool(tool),
-              normalizedToolName(tool) != "codex",
               sessionProjectIDBySessionID[sessionID] == projectID else {
             logger.log(
                 "runtime-refresh",

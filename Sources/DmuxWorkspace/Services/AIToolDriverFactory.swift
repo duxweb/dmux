@@ -34,6 +34,8 @@ protocol AIToolDriver: Sendable {
     var aliases: Set<String> { get }
     var runtimeRefreshInterval: TimeInterval { get }
     var isRealtimeTool: Bool { get }
+    var prefersHookDrivenResponseState: Bool { get }
+    var appliesGenericResponsePayloads: Bool { get }
 
     func matches(tool: String) -> Bool
     func runtimeSourceDescriptors(project: Project, envelope: AIToolUsageEnvelope?) -> [AIToolRuntimeSourceDescriptor]
@@ -42,6 +44,13 @@ protocol AIToolDriver: Sendable {
         projects: [Project],
         liveEnvelopes: [AIToolUsageEnvelope]
     ) async -> AIToolRuntimeIngressUpdate?
+    func handleRuntimeSocketEvent(
+        kind: String,
+        payloadData: Data,
+        projects: [Project],
+        liveEnvelopes: [AIToolUsageEnvelope],
+        existingRuntime: [UUID: AIRuntimeContextSnapshot]
+    ) async -> AIToolRuntimeIngressUpdate?
     func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities
     func resumeCommand(for session: AISessionSummary) -> String?
     func renameSession(_ session: AISessionSummary, to title: String) throws
@@ -49,6 +58,9 @@ protocol AIToolDriver: Sendable {
 }
 
 extension AIToolDriver {
+    var prefersHookDrivenResponseState: Bool { false }
+    var appliesGenericResponsePayloads: Bool { true }
+
     func handleRuntimeIngressEvent(
         descriptor: AIToolRuntimeSourceDescriptor,
         projects: [Project],
@@ -57,6 +69,21 @@ extension AIToolDriver {
         _ = descriptor
         _ = projects
         _ = liveEnvelopes
+        return nil
+    }
+
+    func handleRuntimeSocketEvent(
+        kind: String,
+        payloadData: Data,
+        projects: [Project],
+        liveEnvelopes: [AIToolUsageEnvelope],
+        existingRuntime: [UUID: AIRuntimeContextSnapshot]
+    ) async -> AIToolRuntimeIngressUpdate? {
+        _ = kind
+        _ = payloadData
+        _ = projects
+        _ = liveEnvelopes
+        _ = existingRuntime
         return nil
     }
 
@@ -112,12 +139,32 @@ struct AIToolDriverFactory: Sendable {
     }
 
     func prefersHookDrivenResponseState(for tool: String) -> Bool {
-        switch canonicalToolName(tool) {
-        case "claude", "codex":
-            return true
-        default:
-            return false
+        driver(for: tool)?.prefersHookDrivenResponseState ?? false
+    }
+
+    func appliesGenericResponsePayloads(for tool: String) -> Bool {
+        driver(for: tool)?.appliesGenericResponsePayloads ?? true
+    }
+
+    func handleRuntimeSocketEvent(
+        kind: String,
+        payloadData: Data,
+        projects: [Project],
+        liveEnvelopes: [AIToolUsageEnvelope],
+        existingRuntime: [UUID: AIRuntimeContextSnapshot]
+    ) async -> AIToolRuntimeIngressUpdate? {
+        for driver in drivers {
+            if let update = await driver.handleRuntimeSocketEvent(
+                kind: kind,
+                payloadData: payloadData,
+                projects: projects,
+                liveEnvelopes: liveEnvelopes,
+                existingRuntime: existingRuntime
+            ) {
+                return update
+            }
         }
+        return nil
     }
 
     func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities {
@@ -148,6 +195,7 @@ private struct ClaudeToolDriver: AIToolDriver {
     let aliases: Set<String> = ["claude", "claude-code"]
     let runtimeRefreshInterval: TimeInterval = 0.9
     let isRealtimeTool = true
+    let prefersHookDrivenResponseState = true
 
     func matches(tool: String) -> Bool {
         aliases.contains(tool)
@@ -198,6 +246,8 @@ private struct CodexToolDriver: AIToolDriver {
     let aliases: Set<String> = ["codex"]
     let runtimeRefreshInterval: TimeInterval = 0.55
     let isRealtimeTool = true
+    let prefersHookDrivenResponseState = true
+    let appliesGenericResponsePayloads = false
 
     func matches(tool: String) -> Bool {
         aliases.contains(tool)
@@ -205,6 +255,135 @@ private struct CodexToolDriver: AIToolDriver {
 
     func runtimeSourceDescriptors(project: Project, envelope: AIToolUsageEnvelope?) -> [AIToolRuntimeSourceDescriptor] {
         []
+    }
+
+    func handleRuntimeSocketEvent(
+        kind: String,
+        payloadData: Data,
+        projects: [Project],
+        liveEnvelopes: [AIToolUsageEnvelope],
+        existingRuntime: [UUID: AIRuntimeContextSnapshot]
+    ) async -> AIToolRuntimeIngressUpdate? {
+        _ = projects
+        guard kind == "codex-hook",
+              let envelope = try? JSONDecoder().decode(CodexHookRuntimeEnvelope.self, from: payloadData),
+              let sessionID = UUID(uuidString: envelope.dmuxSessionId),
+              let projectID = UUID(uuidString: envelope.dmuxProjectId),
+              let payloadText = envelope.payload.data(using: .utf8),
+              let payloadObject = try? JSONSerialization.jsonObject(with: payloadText) as? [String: Any] else {
+            return nil
+        }
+
+        let liveEnvelope = liveEnvelopes.first { UUID(uuidString: $0.sessionId) == sessionID }
+        let existingSnapshot = existingRuntime[sessionID]
+        if let liveEnvelope,
+           canonicalTool(liveEnvelope.tool) != id {
+            AppDebugLog.shared.log(
+                "codex-hook",
+                "ignore stale event=\(envelope.event) session=\(sessionID.uuidString) liveTool=\(liveEnvelope.tool)"
+            )
+            return nil
+        }
+        if liveEnvelope == nil,
+           let existingSnapshot,
+           canonicalTool(existingSnapshot.tool) != id {
+            AppDebugLog.shared.log(
+                "codex-hook",
+                "ignore stale event=\(envelope.event) session=\(sessionID.uuidString) runtimeTool=\(existingSnapshot.tool)"
+            )
+            return nil
+        }
+
+        let externalSessionID = stringValue(in: payloadObject, key: "session_id")
+            ?? existingSnapshot?.externalSessionID
+            ?? liveEnvelope?.externalSessionID
+        let model = stringValue(in: payloadObject, key: "model")
+            ?? existingSnapshot?.model
+            ?? liveEnvelope?.model
+        let canReuseExistingTotals = shouldReuseExistingTotals(
+            externalSessionID: externalSessionID,
+            liveEnvelope: liveEnvelope,
+            existingSnapshot: existingSnapshot
+        )
+        let inheritedInputTokens = canReuseExistingTotals
+            ? max(liveEnvelope?.inputTokens ?? 0, existingSnapshot?.inputTokens ?? 0)
+            : max(0, liveEnvelope?.inputTokens ?? 0)
+        let inheritedOutputTokens = canReuseExistingTotals
+            ? max(liveEnvelope?.outputTokens ?? 0, existingSnapshot?.outputTokens ?? 0)
+            : max(0, liveEnvelope?.outputTokens ?? 0)
+        let inheritedTotalTokens = canReuseExistingTotals
+            ? max(liveEnvelope?.totalTokens ?? 0, existingSnapshot?.totalTokens ?? 0)
+            : max(0, liveEnvelope?.totalTokens ?? 0)
+        let updatedAt = max(
+            envelope.receivedAt,
+            liveEnvelope?.updatedAt ?? 0,
+            existingSnapshot?.updatedAt ?? 0
+        )
+
+        let runtimeSnapshot: AIRuntimeContextSnapshot
+        let responsePayload: AIResponseStatePayload
+        switch envelope.event {
+        case "UserPromptSubmit":
+            runtimeSnapshot = AIRuntimeContextSnapshot(
+                tool: id,
+                externalSessionID: externalSessionID,
+                model: model,
+                inputTokens: inheritedInputTokens,
+                outputTokens: inheritedOutputTokens,
+                totalTokens: inheritedTotalTokens,
+                updatedAt: updatedAt,
+                responseState: .responding,
+                wasInterrupted: false,
+                hasCompletedTurn: false
+            )
+            responsePayload = AIResponseStatePayload(
+                sessionId: sessionID.uuidString,
+                sessionInstanceId: nil,
+                invocationId: nil,
+                projectId: projectID.uuidString,
+                projectPath: nil,
+                tool: id,
+                responseState: .responding,
+                updatedAt: updatedAt
+            )
+        case "Stop":
+            let transcriptPath = stringValue(in: payloadObject, key: "transcript_path")
+            let parsedState = await resolveCodexStopRuntimeState(transcriptPath: transcriptPath)
+            AppDebugLog.shared.log(
+                "codex-hook",
+                "stop session=\(sessionID.uuidString) external=\(externalSessionID ?? "nil") transcript=\(transcriptPath ?? "nil") parsedModel=\(parsedState?.model ?? model ?? "nil") parsedTokens=\(parsedState?.totalTokens.map(String.init) ?? "nil") interrupted=\(parsedState?.wasInterrupted == true) completed=\(parsedState?.hasCompletedTurn == true)"
+            )
+            runtimeSnapshot = AIRuntimeContextSnapshot(
+                tool: id,
+                externalSessionID: externalSessionID,
+                model: parsedState?.model ?? model,
+                inputTokens: parsedState?.totalTokens ?? max(liveEnvelope?.inputTokens ?? 0, existingSnapshot?.inputTokens ?? 0),
+                outputTokens: 0,
+                totalTokens: parsedState?.totalTokens ?? max(liveEnvelope?.totalTokens ?? 0, existingSnapshot?.totalTokens ?? 0),
+                updatedAt: max(updatedAt, parsedState?.updatedAt ?? 0),
+                responseState: .idle,
+                wasInterrupted: parsedState?.wasInterrupted ?? false,
+                hasCompletedTurn: parsedState?.hasCompletedTurn ?? false
+            )
+            responsePayload = AIResponseStatePayload(
+                sessionId: sessionID.uuidString,
+                sessionInstanceId: nil,
+                invocationId: nil,
+                projectId: projectID.uuidString,
+                projectPath: nil,
+                tool: id,
+                responseState: .idle,
+                updatedAt: runtimeSnapshot.updatedAt
+            )
+        default:
+            AppDebugLog.shared.log("codex-hook", "ignore event=\(envelope.event) session=\(sessionID.uuidString)")
+            return nil
+        }
+
+        return AIToolRuntimeIngressUpdate(
+            responsePayloads: [responsePayload],
+            runtimeSnapshotsBySessionID: [sessionID: runtimeSnapshot]
+        )
     }
 
     func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities {
@@ -255,6 +434,34 @@ private struct CodexToolDriver: AIToolDriver {
                 throw AIToolSessionControlError.sessionNotFound
             }
         }
+    }
+
+    private func canonicalTool(_ tool: String) -> String {
+        aliases.contains(tool) ? id : tool
+    }
+
+    private func stringValue(in object: [String: Any], key: String) -> String? {
+        guard let value = object[key] as? String, !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private func shouldReuseExistingTotals(
+        externalSessionID: String?,
+        liveEnvelope: AIToolUsageEnvelope?,
+        existingSnapshot: AIRuntimeContextSnapshot?
+    ) -> Bool {
+        guard let externalSessionID, !externalSessionID.isEmpty else {
+            return false
+        }
+        if liveEnvelope?.externalSessionID == externalSessionID {
+            return true
+        }
+        if existingSnapshot?.externalSessionID == externalSessionID {
+            return true
+        }
+        return false
     }
 }
 

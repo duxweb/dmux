@@ -63,16 +63,22 @@ final class AppDebugLog: @unchecked Sendable {
         return directoryURL
     }
 
+    private func logFileName(kind: String, ext: String) -> String {
+        let bundleName = Bundle.main.bundleURL.deletingPathExtension().lastPathComponent.lowercased()
+        let channel = bundleName.contains("dev") ? "dev" : "release"
+        return "dmux-\(kind).\(channel).\(ext)"
+    }
+
     func logFileURL() -> URL {
-        logsDirectoryURL().appendingPathComponent("dmux-debug.log", isDirectory: false)
+        logsDirectoryURL().appendingPathComponent(logFileName(kind: "debug", ext: "log"), isDirectory: false)
     }
 
     func previousLogFileURL() -> URL {
-        logsDirectoryURL().appendingPathComponent("dmux-debug.previous.log", isDirectory: false)
+        logsDirectoryURL().appendingPathComponent(logFileName(kind: "debug.previous", ext: "log"), isDirectory: false)
     }
 
     func performanceSummaryFileURL() -> URL {
-        logsDirectoryURL().appendingPathComponent("performance-summary.json", isDirectory: false)
+        logsDirectoryURL().appendingPathComponent(logFileName(kind: "performance-summary", ext: "json"), isDirectory: false)
     }
 
     func log(_ category: String, _ message: String) {
@@ -191,7 +197,9 @@ final class AppDebugLog: @unchecked Sendable {
             return
         }
 
-        let archivedURL = fileURL.deletingLastPathComponent().appendingPathComponent("dmux-debug.previous.log", isDirectory: false)
+        let fileName = fileURL.lastPathComponent
+        let archivedName = fileName.replacingOccurrences(of: ".log", with: ".previous.log")
+        let archivedURL = fileURL.deletingLastPathComponent().appendingPathComponent(archivedName, isDirectory: false)
         try? fileManager.removeItem(at: archivedURL)
         try? fileManager.moveItem(at: fileURL, to: archivedURL)
     }
