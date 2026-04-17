@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Make scripts executable
-        run: chmod +x dev.sh build.sh scripts/dev/restart-dev-gui.sh scripts/release/package-local-dmg.sh scripts/release/extract-release-notes.sh
+        run: chmod +x dev.sh build.sh scripts/dev/restart-dev-gui.sh scripts/release/package-local-dmg.sh scripts/release/extract-release-notes.sh scripts/release/render-homebrew-cask.sh
 
       - name: Configure signing and notarization
         env:
@@ -167,6 +167,39 @@ jobs:
             dist/Codux-${{ steps.meta.outputs.version }}-macos-universal.zip
             dist/Codux-debug-${{ steps.meta.outputs.version }}-debug-macos-universal.dmg
             dist/SHA256SUMS.txt
+
+      - name: Publish Homebrew tap
+        if: github.event_name == 'push' || github.event.inputs.publish_release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "[tap] HOMEBREW_TAP_TOKEN is not configured, skipping tap publish"
+            exit 0
+          fi
+
+          tap_dir="$RUNNER_TEMP/homebrew-tap"
+          rm -rf "$tap_dir"
+          gh repo clone duxweb/homebrew-tap "$tap_dir"
+
+          dmg_path="dist/Codux-${VERSION}-macos-universal.dmg"
+          sha256="$(shasum -a 256 "$dmg_path" | awk '{print $1}')"
+
+          bash scripts/release/render-homebrew-cask.sh "$VERSION" "$sha256" "$tap_dir/Casks/codux.rb"
+
+          cd "$tap_dir"
+          if git diff --quiet -- Casks/codux.rb; then
+            echo "[tap] cask already up to date"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/codux.rb
+          git commit -m "Update codux cask to v${VERSION}"
+          git push origin HEAD:main
 
       - name: Cleanup signing assets
         if: always()
