@@ -64,6 +64,21 @@ Crafted with attention to every pixel. Glass vibrancy backgrounds, smooth animat
 
 ## Getting Started
 
+### Install with Homebrew
+
+```bash
+brew install --cask duxweb/tap/codux
+```
+
+### Update with Homebrew
+
+```bash
+brew update
+brew upgrade --cask codux
+```
+
+### Install from Release
+
 1. Download the latest release from [GitHub Releases](https://github.com/duxweb/codux/releases) or [codux.dux.cn](https://codux.dux.cn)
 2. Drag Codux to your Applications folder
 3. Open Codux, click **New Project**, and pick a directory
