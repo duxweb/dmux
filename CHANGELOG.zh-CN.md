@@ -6,6 +6,20 @@
 
 ### Added
 
+- 暂无。
+
+### Changed
+
+- 暂无。
+
+### Fixed
+
+- 暂无。
+
+## [0.2.0] - 2026-04-17
+
+### Added
+
 - 新增基于 Sparkle + GitHub Releases 的应用内更新链路，包括启动后的后台检查、应用菜单中的检查更新入口、CI 生成签名 `appcast.xml`，以及配套的发布更新文档。
 - 新增 Homebrew tap 发布流程，打标签后的正式发布现在可以自动更新维护中的 cask。
 - 新增双语发布说明生成能力：当 `CHANGELOG.md` 和 `CHANGELOG.zh-CN.md` 都存在同版本条目时，GitHub Release 和 Sparkle 更新说明会自动合并中英文内容。

@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- None yet.
+
+### Changed
+
+- None yet.
+
+### Fixed
+
+- None yet.
+
+## [0.2.0] - 2026-04-17
+
+### Added
+
 - Added Sparkle-based in-app updates backed by GitHub Releases, including automatic background checks on launch, an app-menu update action, signed `appcast.xml` generation in CI, and bundled release-update documentation.
 - Added Homebrew tap publishing in the release workflow so tagged releases can update the maintained cask automatically.
 - Added bilingual release-notes generation for GitHub Releases and Sparkle appcasts by combining `CHANGELOG.md` and `CHANGELOG.zh-CN.md` when both version entries exist.
