@@ -193,6 +193,8 @@ final class SwiftTermTerminalContainerView: NSView {
     private var startupWatchdogWorkItem: DispatchWorkItem?
     private var hasReportedStartupFailure = false
     private var acceleratedRenderingUnavailable = false
+    private var temporarilyPrefersCoreGraphicsDuringStructuralResize = false
+    private var structuralResizeRestoreWorkItem: DispatchWorkItem?
     private var interactionEventMonitors: [Any] = []
     private let logger = AppDebugLog.shared
     private let debugAIFocus = ProcessInfo.processInfo.environment["DMUX_DEBUG_AI_FOCUS"] == "1"
@@ -298,10 +300,22 @@ final class SwiftTermTerminalContainerView: NSView {
         scheduleProcessStartIfPossible(reason: "update-new-session")
     }
 
-    func prepareForHostReuse() {
-        if superview != nil {
-            removeFromSuperviewWithoutNeedingDisplay()
+    func beginStructuralResizeTransition(duration: TimeInterval = 0.22) {
+        structuralResizeRestoreWorkItem?.cancel()
+
+        temporarilyPrefersCoreGraphicsDuringStructuralResize = true
+        configureAcceleratedRenderingIfPossible()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.structuralResizeRestoreWorkItem = nil
+            self.temporarilyPrefersCoreGraphicsDuringStructuralResize = false
+            self.configureAcceleratedRenderingIfPossible()
         }
+        structuralResizeRestoreWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: workItem)
     }
 
     func focusTerminal() {
@@ -377,6 +391,7 @@ final class SwiftTermTerminalContainerView: NSView {
 
     private func setup() {
         wantsLayer = true
+        layerContentsRedrawPolicy = .duringViewResize
         applyTheme(.obsidian)
         logger.log(
             "startup-ui",
@@ -384,6 +399,7 @@ final class SwiftTermTerminalContainerView: NSView {
         )
 
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+        terminalView.layerContentsRedrawPolicy = .duringViewResize
         terminalView.processDelegate = processDelegateProxy
         terminalView.caretColor = .systemGray
         terminalView.terminal.setCursorStyle(.blinkBar)
@@ -586,6 +602,8 @@ final class SwiftTermTerminalContainerView: NSView {
 
         let shouldUseMetal: Bool
         if preferredMetalRenderingEnabled == false {
+            shouldUseMetal = false
+        } else if temporarilyPrefersCoreGraphicsDuringStructuralResize {
             shouldUseMetal = false
         } else {
             switch gpuMode {
@@ -976,7 +994,6 @@ final class SwiftTermTerminalRegistry {
             if debugAIFocus {
                 print("[TerminalRegistry] reuse sessionID=\(session.id.uuidString) shellPID=\(existing.terminalShellPID.map(String.init) ?? "nil")")
             }
-            existing.prepareForHostReuse()
             existing.updateSession(
                 session,
                 environment: environment,
@@ -1031,6 +1048,12 @@ final class SwiftTermTerminalRegistry {
         if explicitFocusedSessionID == sessionID {
             explicitFocusedSessionID = nil
             NotificationCenter.default.post(name: .dmuxTerminalFocusDidChange, object: sessionID)
+        }
+    }
+
+    func beginStructuralResizeTransition(for sessionIDs: [UUID]) {
+        for sessionID in sessionIDs {
+            containers[sessionID]?.beginStructuralResizeTransition()
         }
     }
 

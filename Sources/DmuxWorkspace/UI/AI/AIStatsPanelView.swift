@@ -208,7 +208,7 @@ private struct AIStatsLiveSessionsCard: View {
 
             if snapshots.isEmpty {
                 Text(String(localized: "ai.live_sessions.empty", defaultValue: "There are no active AI sessions right now", bundle: .module))
-                    .font(.system(size: 12))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .center)
             } else {
@@ -293,6 +293,10 @@ private struct AIRecentDaysHeatmapGrid: View {
 
     var body: some View {
         let maxTokens = max(days.map(\.totalTokens).max() ?? 0, 1)
+        let sortedNonZeroTokens = days
+            .map(\.totalTokens)
+            .filter { $0 > 0 }
+            .sorted()
 
         VStack(alignment: .leading, spacing: 4) {
             GeometryReader { proxy in
@@ -301,21 +305,21 @@ private struct AIRecentDaysHeatmapGrid: View {
                 let visibleColumnCount = max(2, Int(floor((proxy.size.width + spacing) / (baseCellSize + spacing))))
                 let cellSize = max(8, min(10, floor((proxy.size.width - spacing * CGFloat(max(visibleColumnCount - 1, 0))) / CGFloat(visibleColumnCount))))
                 let displayedColumns = gridColumns(columnCount: visibleColumnCount)
+                let gridWidth = CGFloat(displayedColumns.count) * cellSize + CGFloat(max(displayedColumns.count - 1, 0)) * spacing
+                let gridHeight = 7 * cellSize + 6 * spacing
 
-                HStack(alignment: .top, spacing: spacing) {
-                    ForEach(Array(displayedColumns.enumerated()), id: \.offset) { _, column in
-                        VStack(spacing: spacing) {
-                            ForEach(Array(column.enumerated()), id: \.offset) { _, item in
-                                GeometryReader { _ in
+                ZStack(alignment: .topLeading) {
+                    HStack(alignment: .top, spacing: spacing) {
+                        ForEach(Array(displayedColumns.enumerated()), id: \.offset) { _, column in
+                            VStack(spacing: spacing) {
+                                ForEach(Array(column.enumerated()), id: \.offset) { _, item in
                                     ZStack {
                                         if item == nil {
                                             RoundedRectangle(cornerRadius: 3, style: .continuous)
                                                 .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.32))
-                                                .drawingGroup()
                                         } else {
                                             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                                .fill(fillColor(for: item, maxTokens: maxTokens))
-                                                .drawingGroup()
+                                                .fill(fillColor(for: item, maxTokens: maxTokens, sortedNonZeroTokens: sortedNonZeroTokens))
                                         }
 
                                         if item != nil, hoveredDay?.id == item?.id {
@@ -323,23 +327,41 @@ private struct AIRecentDaysHeatmapGrid: View {
                                                 .strokeBorder(Color(nsColor: .selectedContentBackgroundColor), lineWidth: 1)
                                         }
                                     }
-                                        .contentShape(Rectangle())
-                                        .onContinuousHover(coordinateSpace: .named("heatmap-card")) { phase in
-                                            switch phase {
-                                            case let .active(location):
-                                                hoveredDay = item
-                                                hoveredAnchor = location
-                                            case .ended:
-                                                if hoveredDay?.id == item?.id {
-                                                    hoveredDay = nil
-                                                }
-                                            }
-                                        }
+                                    .frame(width: cellSize, height: cellSize)
                                 }
-                                .frame(width: cellSize, height: cellSize)
                             }
                         }
                     }
+                    .frame(width: gridWidth, height: gridHeight, alignment: .topLeading)
+
+                        AIHoverTrackingOverlay(
+                            onMove: { localLocation in
+                                let nextHoveredDay = hoveredItem(
+                                    at: localLocation,
+                                    columns: displayedColumns,
+                                    cellSize: cellSize,
+                                    spacing: spacing,
+                                    gridWidth: gridWidth,
+                                    gridHeight: gridHeight
+                                )
+                                if hoveredDay?.id != nextHoveredDay?.id {
+                                    hoveredDay = nextHoveredDay
+                                    if let nextHoveredDay,
+                                       let localAnchor = anchorForItem(
+                                           nextHoveredDay,
+                                           columns: displayedColumns,
+                                           cellSize: cellSize,
+                                           spacing: spacing
+                                       ) {
+                                        hoveredAnchor = localAnchor
+                                    }
+                                }
+                            },
+                            onExit: {
+                                hoveredDay = nil
+                            }
+                        )
+                            .frame(width: gridWidth, height: gridHeight)
                 }
             }
             .frame(height: 7 * 10 + 6 * 3)
@@ -359,21 +381,87 @@ private struct AIRecentDaysHeatmapGrid: View {
         }
     }
 
-    private func fillColor(for item: AIHeatmapDay?, maxTokens: Int) -> Color {
+    private func fillColor(for item: AIHeatmapDay?, maxTokens: Int, sortedNonZeroTokens: [Int]) -> Color {
         guard let item else { return .clear }
-        let ratio = Double(item.totalTokens) / Double(maxTokens)
-        switch ratio {
-        case 0..<0.03:
+        let normalized = percentileRatio(value: item.totalTokens, maxValue: maxTokens, sortedNonZeroTokens: sortedNonZeroTokens)
+        switch normalized {
+        case 0..<0.10:
+            return AppTheme.focus.opacity(0.14)
+        case 0.10..<0.20:
             return AppTheme.focus.opacity(0.22)
-        case 0.03..<0.10:
+        case 0.20..<0.32:
+            return AppTheme.focus.opacity(0.30)
+        case 0.32..<0.44:
             return AppTheme.focus.opacity(0.40)
-        case 0.10..<0.28:
-            return AppTheme.focus.opacity(0.60)
-        case 0.28..<0.58:
-            return AppTheme.focus.opacity(0.80)
+        case 0.44..<0.56:
+            return AppTheme.focus.opacity(0.52)
+        case 0.56..<0.68:
+            return AppTheme.focus.opacity(0.64)
+        case 0.68..<0.80:
+            return AppTheme.focus.opacity(0.76)
+        case 0.80..<0.92:
+            return AppTheme.focus.opacity(0.88)
         default:
             return AppTheme.focus.opacity(1.0)
         }
+    }
+
+    private func percentileRatio(value: Int, maxValue: Int, sortedNonZeroTokens: [Int]) -> Double {
+        guard value > 0, maxValue > 0, !sortedNonZeroTokens.isEmpty else {
+            return 0
+        }
+        guard sortedNonZeroTokens.count > 1 else {
+            return 1
+        }
+        let upperBound = sortedNonZeroTokens.firstIndex(where: { $0 > value }) ?? sortedNonZeroTokens.count
+        let clampedRank = max(0, upperBound - 1)
+        return Double(clampedRank) / Double(sortedNonZeroTokens.count - 1)
+    }
+
+    private func hoveredItem(
+        at location: CGPoint,
+        columns: [[AIHeatmapDay?]],
+        cellSize: CGFloat,
+        spacing: CGFloat,
+        gridWidth: CGFloat,
+        gridHeight: CGFloat
+    ) -> AIHeatmapDay? {
+        guard location.x >= 0, location.y >= 0, location.x <= gridWidth, location.y <= gridHeight else {
+            return nil
+        }
+
+        let step = cellSize + spacing
+        let columnIndex = Int(location.x / step)
+        let rowIndex = Int(location.y / step)
+        let columnRemainder = location.x.truncatingRemainder(dividingBy: step)
+        let rowRemainder = location.y.truncatingRemainder(dividingBy: step)
+
+        guard columnRemainder <= cellSize, rowRemainder <= cellSize else {
+            return nil
+        }
+        guard columns.indices.contains(columnIndex), columns[columnIndex].indices.contains(rowIndex) else {
+            return nil
+        }
+
+        return columns[columnIndex][rowIndex]
+    }
+
+    private func anchorForItem(
+        _ item: AIHeatmapDay,
+        columns: [[AIHeatmapDay?]],
+        cellSize: CGFloat,
+        spacing: CGFloat
+    ) -> CGPoint? {
+        for (columnIndex, column) in columns.enumerated() {
+            for (rowIndex, candidate) in column.enumerated() where candidate?.id == item.id {
+                let step = cellSize + spacing
+                return CGPoint(
+                    x: CGFloat(columnIndex) * step + cellSize / 2,
+                    y: CGFloat(rowIndex) * step + cellSize / 2
+                )
+            }
+        }
+        return nil
     }
 }
 
@@ -396,31 +484,19 @@ private struct AIStatsTodayUsageBarChart: View {
                 let spacing: CGFloat = 2
                 let barCount = max(buckets.count, 1)
                 let barWidth = max(3, floor((proxy.size.width - spacing * CGFloat(max(barCount - 1, 0))) / CGFloat(barCount)))
+                let chartHeight: CGFloat = 78
+                let chartWidth = CGFloat(barCount) * barWidth + CGFloat(max(barCount - 1, 0)) * spacing
 
                 VStack(alignment: .leading, spacing: 6) {
                     ZStack(alignment: .bottomLeading) {
                         HStack(alignment: .bottom, spacing: spacing) {
                             ForEach(Array(buckets.enumerated()), id: \.offset) { _, bucket in
-                                GeometryReader { _ in
-                                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                        .fill(hoveredBucket?.id == bucket.id ? AppTheme.focus : AppTheme.focus.opacity(0.7))
-                                        .frame(width: barWidth, height: max(6, CGFloat(bucket.totalTokens) / CGFloat(maxTokens) * 72))
-                                        .contentShape(Rectangle())
-                                        .onContinuousHover(coordinateSpace: .named("today-bar-card")) { phase in
-                                            switch phase {
-                                            case let .active(location):
-                                                hoveredBucket = bucket
-                                                hoveredBucketAnchor = location
-                                            case .ended:
-                                                if hoveredBucket?.id == bucket.id {
-                                                    hoveredBucket = nil
-                                                }
-                                            }
-                                        }
-                                }
-                                .frame(width: barWidth, height: max(6, CGFloat(bucket.totalTokens) / CGFloat(maxTokens) * 72))
+                                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                    .fill(hoveredBucket?.id == bucket.id ? AppTheme.focus : AppTheme.focus.opacity(0.7))
+                                    .frame(width: barWidth, height: max(6, CGFloat(bucket.totalTokens) / CGFloat(maxTokens) * 72))
                             }
                         }
+                        .frame(width: chartWidth, height: chartHeight, alignment: .bottomLeading)
 
                         HStack(spacing: spacing) {
                             ForEach(Array(buckets.enumerated()), id: \.offset) { index, _ in
@@ -430,7 +506,35 @@ private struct AIStatsTodayUsageBarChart: View {
                                     .frame(width: barWidth)
                             }
                         }
+                        .frame(width: chartWidth, height: chartHeight, alignment: .bottomLeading)
                         .allowsHitTesting(false)
+
+                        AIHoverTrackingOverlay(
+                            onMove: { localLocation in
+                                let nextHoveredIndex = hoveredBucketIndexAt(
+                                    location: localLocation,
+                                    barWidth: barWidth,
+                                    spacing: spacing,
+                                    chartWidth: chartWidth,
+                                    chartHeight: chartHeight
+                                )
+                                let nextHoveredBucket = nextHoveredIndex.flatMap { buckets.indices.contains($0) ? buckets[$0] : nil }
+                                if hoveredBucket?.id != nextHoveredBucket?.id {
+                                    hoveredBucket = nextHoveredBucket
+                                    if let nextHoveredIndex {
+                                        let step = barWidth + spacing
+                                        hoveredBucketAnchor = CGPoint(
+                                            x: CGFloat(nextHoveredIndex) * step + barWidth / 2,
+                                            y: chartHeight / 2
+                                        )
+                                    }
+                                }
+                            },
+                            onExit: {
+                                hoveredBucket = nil
+                            }
+                        )
+                            .frame(width: chartWidth, height: chartHeight)
                     }
 
                     HStack(spacing: 0) {
@@ -492,9 +596,85 @@ private struct AIStatsTodayUsageBarChart: View {
     private func gridLineColor(for index: Int) -> Color {
         index % 12 == 0 ? Color(nsColor: .separatorColor).opacity(0.5) : Color.clear
     }
+
+    private func hoveredBucketIndexAt(
+        location: CGPoint,
+        barWidth: CGFloat,
+        spacing: CGFloat,
+        chartWidth: CGFloat,
+        chartHeight: CGFloat
+    ) -> Int? {
+        guard location.x >= 0, location.y >= 0, location.x <= chartWidth, location.y <= chartHeight else {
+            return nil
+        }
+
+        let step = barWidth + spacing
+        let index = Int(location.x / step)
+        let remainder = location.x.truncatingRemainder(dividingBy: step)
+
+        guard remainder <= barWidth, buckets.indices.contains(index) else {
+            return nil
+        }
+
+        return index
+    }
 }
 
 // MARK: - Tooltip
+
+private struct AIHoverTrackingOverlay: NSViewRepresentable {
+    final class HoverView: NSView {
+        var onMove: ((CGPoint) -> Void)?
+        var onExit: (() -> Void)?
+        private var currentTrackingArea: NSTrackingArea?
+
+        override var isFlipped: Bool {
+            true
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let currentTrackingArea {
+                removeTrackingArea(currentTrackingArea)
+            }
+            let nextTrackingArea = NSTrackingArea(
+                rect: .zero,
+                options: [.activeInKeyWindow, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(nextTrackingArea)
+            currentTrackingArea = nextTrackingArea
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            mouseMoved(with: event)
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            onMove?(convert(event.locationInWindow, from: nil))
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            onExit?()
+        }
+    }
+
+    let onMove: (CGPoint) -> Void
+    let onExit: () -> Void
+
+    func makeNSView(context: Context) -> HoverView {
+        let view = HoverView(frame: .zero)
+        view.onMove = onMove
+        view.onExit = onExit
+        return view
+    }
+
+    func updateNSView(_ nsView: HoverView, context: Context) {
+        nsView.onMove = onMove
+        nsView.onExit = onExit
+    }
+}
 
 private struct AIChartTooltip: View {
     let title: String
@@ -707,16 +887,8 @@ private struct AIStatsSessionsCard: View {
                             }
                         }
                         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .overlay {
-                            AIStatsSessionClickRegion(
-                                onSingleClick: {
-                                    selectedSessionID = session.sessionID
-                                },
-                                onDoubleClick: {
-                                    selectedSessionID = session.sessionID
-                                    model.openAISession(session)
-                                }
-                            )
+                        .onTapGesture {
+                            selectedSessionID = session.sessionID
                         }
                         .contextMenu {
                             Button(String(localized: "ai.session.open.title", defaultValue: "Open Session", bundle: .module)) {
@@ -764,54 +936,6 @@ private struct AIStatsSessionsCard: View {
         formatter.unitsStyle = .short
         formatter.locale = locale(for: model.displayLanguage)
         return formatter.localizedString(for: date, relativeTo: Date())
-    }
-}
-
-// MARK: - Session Click Handler
-
-@MainActor
-private struct AIStatsSessionClickRegion: NSViewRepresentable {
-    let onSingleClick: () -> Void
-    let onDoubleClick: () -> Void
-
-    func makeNSView(context: Context) -> AIStatsSessionClickView {
-        let view = AIStatsSessionClickView()
-        view.onSingleClick = onSingleClick
-        view.onDoubleClick = onDoubleClick
-        return view
-    }
-
-    func updateNSView(_ nsView: AIStatsSessionClickView, context: Context) {
-        nsView.onSingleClick = onSingleClick
-        nsView.onDoubleClick = onDoubleClick
-    }
-}
-
-@MainActor
-private final class AIStatsSessionClickView: NSView {
-    var onSingleClick: (() -> Void)?
-    var onDoubleClick: (() -> Void)?
-
-    override var isOpaque: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let event = NSApp.currentEvent else {
-            return nil
-        }
-        switch event.type {
-        case .leftMouseDown, .leftMouseUp:
-            return self
-        default:
-            return nil
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        if event.clickCount >= 2 {
-            onDoubleClick?()
-        } else {
-            onSingleClick?()
-        }
     }
 }
 

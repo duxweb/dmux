@@ -195,11 +195,17 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
     }
 
     func update(workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
+        let sessionIDsChanged = workspace.topSessionIDs != currentWorkspace.topSessionIDs
+        let previousSessionIDs = currentWorkspace.topSessionIDs
         currentWorkspace = workspace
         self.activeTerminalSessionID = activeTerminalSessionID
         self.showsInactiveOverlay = showsInactiveOverlay
         self.dividerColor = dividerColor
         paneSplitView.customDividerColor = dividerColor
+        if sessionIDsChanged {
+            let survivingSessionIDs = workspace.topSessionIDs.filter { previousSessionIDs.contains($0) }
+            SwiftTermTerminalRegistry.shared.beginStructuralResizeTransition(for: survivingSessionIDs)
+        }
         rebuildPanes(for: workspace)
         updatePaneViews(for: workspace)
         applyRatiosIfNeeded()
