@@ -6,15 +6,20 @@
 
 ### Added
 
-- 暂无。
+- 新增基于 Sparkle + GitHub Releases 的应用内更新链路，包括启动后的后台检查、应用菜单中的检查更新入口、CI 生成签名 `appcast.xml`，以及配套的发布更新文档。
+- 新增 Homebrew tap 发布流程，打标签后的正式发布现在可以自动更新维护中的 cask。
+- 新增双语发布说明生成能力：当 `CHANGELOG.md` 和 `CHANGELOG.zh-CN.md` 都存在同版本条目时，GitHub Release 和 Sparkle 更新说明会自动合并中英文内容。
 
 ### Changed
 
-- 暂无。
+- 调整 AI 运行时会话跟踪结构，围绕工具会话状态、终端与会话关联以及实时用量汇总进行了收口，让 Codex、Claude、Gemini 和 OpenCode 在重开、恢复和多终端场景下更稳定地重建实时状态。
+- 调整终端分屏渲染与 AI 统计侧栏交互行为，降低布局抖动，改进 hover 处理，并让高频更新下的面板交互更平滑。
+- 补充发布更新流程、Homebrew 安装方式以及 changelog 维护规范文档，后续开发中的变更统一先记录到 `Unreleased`。
 
 ### Fixed
 
-- 暂无。
+- 修复更新打包链路，正式版构建现在会注入 Sparkle 公钥、产出签名后的 `appcast.xml`，并可在更新弹窗内直接展示嵌入的发布说明。
+- 修复发布说明生成流程，当中文 changelog 缺失对应版本条目时会自动回退为仅英文说明，不再阻塞发布。
 
 ## [0.1.11] - 2026-04-17
 

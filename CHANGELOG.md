@@ -6,15 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- None yet.
+- Added Sparkle-based in-app updates backed by GitHub Releases, including automatic background checks on launch, an app-menu update action, signed `appcast.xml` generation in CI, and bundled release-update documentation.
+- Added Homebrew tap publishing in the release workflow so tagged releases can update the maintained cask automatically.
+- Added bilingual release-notes generation for GitHub Releases and Sparkle appcasts by combining `CHANGELOG.md` and `CHANGELOG.zh-CN.md` when both version entries exist.
 
 ### Changed
 
-- None yet.
+- Refined AI runtime session tracking around tool session state, terminal-to-session association, and live usage aggregation so Codex, Claude, Gemini, and OpenCode can rebuild live state more consistently across reopen, resume, and multi-terminal paths.
+- Refined terminal split rendering and AI stats panel interaction behavior to reduce layout instability, improve hover handling, and keep panel interactions smoother under frequent updates.
+- Documented the release/update flow, Homebrew install path, and changelog maintenance process so ongoing development notes stay under `Unreleased` until a version is cut.
 
 ### Fixed
 
-- None yet.
+- Fixed updater packaging so release builds embed the Sparkle public key, ship a signed `appcast.xml`, and can surface embedded release notes directly inside the update dialog.
+- Fixed release-note publishing so the generated notes can fall back to English when a matching Chinese changelog entry is missing instead of blocking the release flow.
 
 ## [0.1.11] - 2026-04-17
 
