@@ -975,6 +975,10 @@ private struct AIStatsIndexingBar: View {
         isRunning && !isAutomaticRefreshInProgress
     }
 
+    private var shouldShowRefreshAction: Bool {
+        !isRunning
+    }
+
     private var statusText: String {
         if isAutomaticRefreshInProgress {
             switch status {
@@ -1062,13 +1066,15 @@ private struct AIStatsIndexingBar: View {
 
             Spacer()
 
-            actionButton(
-                action: .refresh,
-                title: canRetry ? String(localized: "common.retry", defaultValue: "Retry", bundle: .module) : String(localized: "common.refresh", defaultValue: "Refresh", bundle: .module),
-                help: canRetry ? String(localized: "ai.action.reload_current_project", defaultValue: "Reload AI stats for the current project.", bundle: .module) : String(localized: "ai.action.refresh_current_project", defaultValue: "Refresh AI stats for the current project.", bundle: .module),
-                systemImage: "arrow.clockwise",
-                buttonAction: onRefresh
-            )
+            if shouldShowRefreshAction {
+                actionButton(
+                    action: .refresh,
+                    title: canRetry ? String(localized: "common.retry", defaultValue: "Retry", bundle: .module) : String(localized: "common.refresh", defaultValue: "Refresh", bundle: .module),
+                    help: canRetry ? String(localized: "ai.action.reload_current_project", defaultValue: "Reload AI stats for the current project.", bundle: .module) : String(localized: "ai.action.refresh_current_project", defaultValue: "Refresh AI stats for the current project.", bundle: .module),
+                    systemImage: "arrow.clockwise",
+                    buttonAction: onRefresh
+                )
+            }
 
             if isManualRunning {
                 actionButton(

@@ -212,6 +212,12 @@ When a runtime bug is reported:
 - If a tool restores the wrong token total, fix its external session resolution or probe logic.
 - If a tool changes sessions in-process, its own event chain must communicate that clearly. Do not force shared layers to guess.
 
+## Delivery guardrails
+
+- After each finished bug fix or feature change, update `CHANGELOG.md` and `CHANGELOG.zh-CN.md` under `## [Unreleased]` if the behavior changed in a user-visible way.
+- After each finished bug fix or feature change, create a dedicated commit for that change instead of batching multiple unrelated edits together later.
+- Treat changelog updates and commit boundaries as part of the implementation, not optional cleanup work.
+
 ## Log-first workflow
 
 Always inspect the log chain in this order:

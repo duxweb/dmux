@@ -47,6 +47,13 @@ These files may change only for genuinely shared bugs or contract changes that a
 - If `codex` and `claude` are correct but `opencode` is wrong, fix `opencode`.
 - If a tool has an official hook, plugin, or runtime status source, use that source instead of guessing from UI behavior.
 
+## Commit discipline
+
+- Every completed bug fix or feature change must update `CHANGELOG.md` and `CHANGELOG.zh-CN.md` under `## [Unreleased]` when user-facing behavior changed.
+- Every completed bug fix or feature change must be committed immediately after verification. Do not batch unrelated fixes into one later commit.
+- Keep commits scoped to the finished change only. Do not mix runtime fixes, release workflow changes, and unrelated UI work in the same commit unless they are the same user-facing task.
+- If a task is still half-done or unverified, do not write a misleading changelog entry and do not make a "final" cleanup commit yet.
+
 ## Debug workflow
 
 1. Check wrapper/plugin logs first.
