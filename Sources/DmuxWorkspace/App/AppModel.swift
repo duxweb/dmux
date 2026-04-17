@@ -62,6 +62,7 @@ final class AppModel {
     private let gitCredentialStore = GitCredentialStore()
     private let activityService = ProjectActivityService()
     private let diagnosticsExportService = AppDiagnosticsExportService()
+    private let toolPermissionSettingsService = AIToolPermissionSettingsService()
     private let appUpdaterService = AppUpdaterService(isEnabled: AppUpdaterService.isSupportedConfiguration)
     private let runtimeBridgeService = AIRuntimeBridgeService()
     private let runtimeIngressService = AIRuntimeIngressService.shared
@@ -144,6 +145,7 @@ final class AppModel {
             isEnabled: appSettings.developer.showsPerformanceMonitor,
             sampleInterval: appSettings.developer.performanceMonitorSamplingInterval
         )
+        toolPermissionSettingsService.sync(appSettings.toolPermissions)
 
         pendingStartupRecoveryDialog = startupRecoveryDialog(for: startupIssues)
         if pendingStartupRecoveryDialog != nil {
@@ -2836,6 +2838,13 @@ final class AppModel {
         persist()
     }
 
+    func updateTerminalFontSize(_ size: Int) {
+        var settings = appSettings
+        settings.terminalFontSize = max(10, min(28, size))
+        appSettings = settings
+        persist()
+    }
+
     func updateTerminalGPUAccelerationEnabled(_ enabled: Bool) {
         var settings = appSettings
         settings.terminalGPUAccelerationEnabled = enabled
@@ -2864,6 +2873,23 @@ final class AppModel {
                 workspaces[workspaceIndex].sessions[sessionIndex].shell = nextShell
             }
         }
+        persist()
+    }
+
+    func updateToolPermissionMode(_ mode: AppAIToolPermissionMode, for tool: AppSupportedAITool) {
+        var settings = appSettings
+        switch tool {
+        case .codex:
+            settings.toolPermissions.codex = mode
+        case .claudeCode:
+            settings.toolPermissions.claudeCode = mode
+        case .gemini:
+            settings.toolPermissions.gemini = mode
+        case .opencode:
+            settings.toolPermissions.opencode = mode
+        }
+        appSettings = settings
+        toolPermissionSettingsService.sync(settings.toolPermissions)
         persist()
     }
 

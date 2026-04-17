@@ -41,14 +41,24 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .windowArrangement) {}
 
         CommandGroup(replacing: .appInfo) {
-            Button(String(format: String(localized: "menu.app.about_format", defaultValue: "About %@", bundle: .module), model.appDisplayName)) {
+            Button {
                 AboutWindowPresenter.show(model: model)
+            } label: {
+                Label(
+                    String(format: String(localized: "menu.app.about_format", defaultValue: "About %@", bundle: .module), model.appDisplayName),
+                    systemImage: "info.circle"
+                )
             }
 
-            Divider()
-
-            Button(model.isCheckingForUpdates ? String(localized: "about.checking_updates", defaultValue: "Checking...", bundle: .module) : String(localized: "about.updates", defaultValue: "Updates", bundle: .module)) {
+            Button {
                 model.checkForUpdates()
+            } label: {
+                Label(
+                    model.isCheckingForUpdates
+                        ? String(localized: "about.checking_updates", defaultValue: "Checking...", bundle: .module)
+                        : String(localized: "about.updates", defaultValue: "Updates", bundle: .module),
+                    systemImage: model.isCheckingForUpdates ? "arrow.triangle.2.circlepath" : "arrow.down.circle"
+                )
             }
             .disabled(model.isCheckingForUpdates)
         }

@@ -757,6 +757,7 @@ private struct TerminalPaneView: View {
             session: session,
             environment: terminalEnvironment(),
             terminalBackgroundPreset: terminalBackgroundPreset,
+            terminalFontSize: model.appSettings.terminalFontSize,
             useMetalRendering: model.appSettings.terminalGPUAccelerationEnabled,
             gpuMode: model.appSettings.terminalGPUMode,
             isFocused: isFocused,

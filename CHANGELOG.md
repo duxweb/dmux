@@ -6,11 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- None yet.
+- Added terminal font-size controls in Settings > Appearance so terminal text size can be adjusted with direct numeric input.
+- Added a dedicated Tools settings tab for configuring default permission mode for Codex, Claude Code, Gemini, and OpenCode launches inside Codux terminals.
 
 ### Changed
 
 - Refined the AI stats status bar so the refresh action is hidden while a stats refresh is actively running, keeping the update state focused on progress and stop controls.
+- Updated the app menu's About and Updates actions to use icons and appear as one grouped app-info section.
 
 ### Fixed
 

@@ -89,6 +89,7 @@ struct SwiftTermTerminalHostView: NSViewRepresentable {
     let session: TerminalSession
     let environment: [(String, String)]
     let terminalBackgroundPreset: AppTerminalBackgroundPreset
+    let terminalFontSize: Int
     let useMetalRendering: Bool
     let gpuMode: AppTerminalGPUMode
     let isFocused: Bool
@@ -113,6 +114,7 @@ struct SwiftTermTerminalHostView: NSViewRepresentable {
             for: session,
             environment: environment,
             terminalBackgroundPreset: terminalBackgroundPreset,
+            terminalFontSize: terminalFontSize,
             useMetalRendering: useMetalRendering,
             gpuMode: gpuMode,
             isFocused: isFocused,
@@ -137,6 +139,7 @@ struct SwiftTermTerminalHostView: NSViewRepresentable {
             session,
             environment: environment,
             terminalBackgroundPreset: terminalBackgroundPreset,
+            terminalFontSize: terminalFontSize,
             useMetalRendering: useMetalRendering,
             gpuMode: gpuMode,
             isFocused: isFocused,
@@ -171,6 +174,7 @@ final class SwiftTermTerminalContainerView: NSView {
     private var configuredSession: TerminalSession
     private var configuredEnvironment: [(String, String)]
     private var terminalBackgroundPreset: AppTerminalBackgroundPreset
+    private var terminalFontSize: Int = 14
     private var preferredMetalRenderingEnabled = true
     private var gpuMode: AppTerminalGPUMode = .balanced
     private var isFocusedTerminal = false
@@ -203,6 +207,7 @@ final class SwiftTermTerminalContainerView: NSView {
     init(
         session: TerminalSession,
         environment: [(String, String)],
+        terminalFontSize: Int,
         onInteraction: (() -> Void)?,
         onStartupSucceeded: (() -> Void)?,
         onStartupFailure: ((String) -> Void)?
@@ -210,6 +215,7 @@ final class SwiftTermTerminalContainerView: NSView {
         self.configuredSession = session
         self.configuredEnvironment = environment
         self.terminalBackgroundPreset = .obsidian
+        self.terminalFontSize = terminalFontSize
         self.terminalView = DmuxLocalProcessTerminalView(frame: .zero)
         self.onInteraction = onInteraction
         self.onStartupSucceeded = onStartupSucceeded
@@ -230,6 +236,7 @@ final class SwiftTermTerminalContainerView: NSView {
         _ session: TerminalSession,
         environment: [(String, String)],
         terminalBackgroundPreset: AppTerminalBackgroundPreset,
+        terminalFontSize: Int,
         useMetalRendering: Bool,
         gpuMode: AppTerminalGPUMode,
         isFocused: Bool,
@@ -242,6 +249,10 @@ final class SwiftTermTerminalContainerView: NSView {
         configuredEnvironment = environment
         if self.terminalBackgroundPreset != terminalBackgroundPreset {
             applyTheme(terminalBackgroundPreset)
+        }
+        if self.terminalFontSize != terminalFontSize {
+            self.terminalFontSize = terminalFontSize
+            terminalView.font = .monospacedSystemFont(ofSize: CGFloat(terminalFontSize), weight: .regular)
         }
 
         let renderTuningChanged =
@@ -405,7 +416,7 @@ final class SwiftTermTerminalContainerView: NSView {
         terminalView.terminal.setCursorStyle(.blinkBar)
         terminalView.optionAsMetaKey = true
         terminalView.allowMouseReporting = false
-        terminalView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
+        terminalView.font = .monospacedSystemFont(ofSize: CGFloat(terminalFontSize), weight: .regular)
         terminalView.disableFullRedrawOnAnyChanges = true
         applyTerminalRenderTuning()
         terminalView.onFirstOutput = { [weak self] in
@@ -981,6 +992,7 @@ final class SwiftTermTerminalRegistry {
         for session: TerminalSession,
         environment: [(String, String)],
         terminalBackgroundPreset: AppTerminalBackgroundPreset,
+        terminalFontSize: Int,
         useMetalRendering: Bool,
         gpuMode: AppTerminalGPUMode,
         isFocused: Bool,
@@ -998,6 +1010,7 @@ final class SwiftTermTerminalRegistry {
                 session,
                 environment: environment,
                 terminalBackgroundPreset: terminalBackgroundPreset,
+                terminalFontSize: terminalFontSize,
                 useMetalRendering: useMetalRendering,
                 gpuMode: gpuMode,
                 isFocused: isFocused,
@@ -1013,6 +1026,7 @@ final class SwiftTermTerminalRegistry {
         let created = SwiftTermTerminalContainerView(
             session: session,
             environment: environment,
+            terminalFontSize: terminalFontSize,
             onInteraction: onInteraction,
             onStartupSucceeded: onStartupSucceeded,
             onStartupFailure: onStartupFailure
@@ -1021,6 +1035,7 @@ final class SwiftTermTerminalRegistry {
             session,
             environment: environment,
             terminalBackgroundPreset: terminalBackgroundPreset,
+            terminalFontSize: terminalFontSize,
             useMetalRendering: useMetalRendering,
             gpuMode: gpuMode,
             isFocused: isFocused,

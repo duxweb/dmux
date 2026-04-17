@@ -4,6 +4,7 @@ import SwiftUI
 private enum SettingsSectionTab: String, CaseIterable, Identifiable {
     case general
     case appearance
+    case tools
     case shortcuts
     case developer
 
@@ -13,6 +14,7 @@ private enum SettingsSectionTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .appearance: return "paintbrush"
+        case .tools: return "terminal"
         case .shortcuts: return "keyboard"
         case .developer: return "wrench.and.screwdriver"
         }
@@ -24,6 +26,8 @@ private enum SettingsSectionTab: String, CaseIterable, Identifiable {
             return 430
         case .appearance:
             return 430
+        case .tools:
+            return 360
         case .shortcuts:
             return 320
         case .developer:
@@ -49,6 +53,12 @@ struct SettingsView: View {
                     Label(String(localized: "settings.tab.appearance", defaultValue: "Appearance", bundle: .module), systemImage: SettingsSectionTab.appearance.symbol)
                 }
                 .tag(SettingsSectionTab.appearance)
+
+            ToolSettingsPane(model: model)
+                .tabItem {
+                    Label(String(localized: "settings.tab.tools", defaultValue: "Tools", bundle: .module), systemImage: SettingsSectionTab.tools.symbol)
+                }
+                .tag(SettingsSectionTab.tools)
 
             ShortcutSettingsPane(model: model)
                 .tabItem {
@@ -196,6 +206,33 @@ private struct AppearanceSettingsPane: View {
                 .padding(.vertical, 4)
             }
 
+            Section(String(localized: "settings.terminal_text", defaultValue: "Terminal Text", bundle: .module)) {
+                LabeledContent(String(localized: "settings.terminal_font_size", defaultValue: "Terminal Font Size", bundle: .module)) {
+                    HStack(spacing: 8) {
+                        TextField(
+                            String(localized: "settings.terminal_font_size", defaultValue: "Terminal Font Size", bundle: .module),
+                            value: Binding(
+                                get: { model.appSettings.terminalFontSize },
+                                set: { model.updateTerminalFontSize($0) }
+                            ),
+                            format: .number
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 58)
+
+                        Stepper(
+                            "",
+                            value: Binding(
+                                get: { model.appSettings.terminalFontSize },
+                                set: { model.updateTerminalFontSize($0) }
+                            ),
+                            in: 10...28
+                        )
+                        .labelsHidden()
+                    }
+                }
+            }
+
             Section(String(localized: "settings.app_icon", defaultValue: "App Icon", bundle: .module)) {
                 HStack(spacing: 16) {
                     ForEach(AppIconStyle.allCases) { style in
@@ -221,6 +258,49 @@ private struct AppearanceSettingsPane: View {
         case .system: return String(localized: "settings.theme.auto", defaultValue: "Auto", bundle: .module)
         case .light: return String(localized: "settings.theme.light", defaultValue: "Light", bundle: .module)
         case .dark: return String(localized: "settings.theme.dark", defaultValue: "Dark", bundle: .module)
+        }
+    }
+}
+
+private struct ToolSettingsPane: View {
+    let model: AppModel
+
+    var body: some View {
+        Form {
+            Section(String(localized: "settings.tools.description", defaultValue: "Configure default launch behavior for supported AI tools inside Codux terminals.", bundle: .module)) {
+                Text(String(localized: "settings.tools.hint", defaultValue: "These defaults apply the next time a supported AI tool is launched inside a Codux terminal. Explicit command-line flags still take priority.", bundle: .module))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+
+            Section(String(localized: "settings.tools.permissions", defaultValue: "Tool Permissions", bundle: .module)) {
+                permissionRow(tool: .codex)
+                permissionRow(tool: .claudeCode)
+                permissionRow(tool: .gemini)
+                permissionRow(tool: .opencode)
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private func permissionRow(tool: AppSupportedAITool) -> some View {
+        LabeledContent(tool.title) {
+            Picker(
+                tool.title,
+                selection: Binding(
+                    get: { tool.permissionMode(from: model.appSettings.toolPermissions) },
+                    set: { model.updateToolPermissionMode($0, for: tool) }
+                )
+            ) {
+                ForEach(AppAIToolPermissionMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 150)
         }
     }
 }

@@ -6,10 +6,12 @@ struct AppSettings: Codable, Equatable {
     var language: AppLanguage = .system
     var themeMode: AppThemeMode = .system
     var terminalBackgroundPreset: AppTerminalBackgroundPreset = .obsidian
+    var terminalFontSize = 14
     var terminalGPUAccelerationEnabled = true
     var terminalGPUMode: AppTerminalGPUMode = .balanced
     var iconStyle: AppIconStyle = .default
     var defaultTerminal: AppTerminalProfile = .zsh
+    var toolPermissions = AppAIToolPermissionSettings()
     var showsDockBadge = true
     var gitAutoRefreshInterval: TimeInterval = 60
     var aiAutoRefreshInterval: TimeInterval = 180
@@ -23,10 +25,12 @@ struct AppSettings: Codable, Equatable {
         case language
         case themeMode
         case terminalBackgroundPreset
+        case terminalFontSize
         case terminalGPUAccelerationEnabled
         case terminalGPUMode
         case iconStyle
         case defaultTerminal
+        case toolPermissions
         case showsDockBadge
         case gitAutoRefreshInterval
         case aiAutoRefreshInterval
@@ -40,10 +44,12 @@ struct AppSettings: Codable, Equatable {
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
         themeMode = try container.decodeIfPresent(AppThemeMode.self, forKey: .themeMode) ?? .system
         terminalBackgroundPreset = try container.decodeIfPresent(AppTerminalBackgroundPreset.self, forKey: .terminalBackgroundPreset) ?? .obsidian
+        terminalFontSize = max(10, min(28, try container.decodeIfPresent(Int.self, forKey: .terminalFontSize) ?? 14))
         terminalGPUAccelerationEnabled = try container.decodeIfPresent(Bool.self, forKey: .terminalGPUAccelerationEnabled) ?? true
         terminalGPUMode = try container.decodeIfPresent(AppTerminalGPUMode.self, forKey: .terminalGPUMode) ?? .balanced
         iconStyle = try container.decodeIfPresent(AppIconStyle.self, forKey: .iconStyle) ?? .default
         defaultTerminal = try container.decodeIfPresent(AppTerminalProfile.self, forKey: .defaultTerminal) ?? .zsh
+        toolPermissions = try container.decodeIfPresent(AppAIToolPermissionSettings.self, forKey: .toolPermissions) ?? .init()
         showsDockBadge = try container.decodeIfPresent(Bool.self, forKey: .showsDockBadge) ?? true
         gitAutoRefreshInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .gitAutoRefreshInterval) ?? 60
         aiAutoRefreshInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .aiAutoRefreshInterval) ?? 180
@@ -51,6 +57,77 @@ struct AppSettings: Codable, Equatable {
         developer = try container.decodeIfPresent(AppDeveloperSettings.self, forKey: .developer) ?? .init()
         shortcuts = (try container.decodeIfPresent(AppShortcutConfiguration.self, forKey: .shortcuts) ?? .defaults)
             .migratedFromLegacyDefaultsIfNeeded()
+    }
+}
+
+enum AppAIToolPermissionMode: String, Codable, CaseIterable, Identifiable {
+    case `default`
+    case fullAccess
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .default:
+            return String(localized: "settings.tools.permission.default", defaultValue: "Default", bundle: .module)
+        case .fullAccess:
+            return String(localized: "settings.tools.permission.full_access", defaultValue: "Full Access", bundle: .module)
+        }
+    }
+}
+
+struct AppAIToolPermissionSettings: Codable, Equatable {
+    var codex: AppAIToolPermissionMode = .default
+    var claudeCode: AppAIToolPermissionMode = .default
+    var gemini: AppAIToolPermissionMode = .default
+    var opencode: AppAIToolPermissionMode = .default
+}
+
+enum AppSupportedAITool: CaseIterable, Identifiable {
+    case codex
+    case claudeCode
+    case gemini
+    case opencode
+
+    var id: String { rawValue }
+
+    private var rawValue: String {
+        switch self {
+        case .codex:
+            return "codex"
+        case .claudeCode:
+            return "claudeCode"
+        case .gemini:
+            return "gemini"
+        case .opencode:
+            return "opencode"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .codex:
+            return "Codex"
+        case .claudeCode:
+            return "Claude Code"
+        case .gemini:
+            return "Gemini"
+        case .opencode:
+            return "OpenCode"
+        }
+    }
+
+    func permissionMode(from settings: AppAIToolPermissionSettings) -> AppAIToolPermissionMode {
+        switch self {
+        case .codex:
+            return settings.codex
+        case .claudeCode:
+            return settings.claudeCode
+        case .gemini:
+            return settings.gemini
+        case .opencode:
+            return settings.opencode
+        }
     }
 }
 
