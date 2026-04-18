@@ -310,6 +310,116 @@ final class RuntimeLifecycleScenarioTests: XCTestCase {
         XCTAssertEqual(displaySnapshot(projectID: projectID, sessionID: freshSessionID)?.currentTotalTokens, 15)
     }
 
+    func testProjectPhasePrefersConcurrentRespondingSession() throws {
+        let projectID = UUID()
+        let codexSessionID = UUID()
+        let claudeSessionID = UUID()
+
+        applyLiveIdle(
+            sessionID: codexSessionID,
+            projectID: projectID,
+            tool: "codex",
+            externalSessionID: "codex-concurrent",
+            updatedAt: 800,
+            totalTokens: 100
+        )
+        applyCompletedSnapshot(
+            sessionID: codexSessionID,
+            tool: "codex",
+            externalSessionID: "codex-concurrent",
+            updatedAt: 801,
+            totalTokens: 100
+        )
+
+        applyLiveResponding(
+            sessionID: claudeSessionID,
+            projectID: projectID,
+            tool: "claude",
+            externalSessionID: "claude-concurrent",
+            updatedAt: 900,
+            totalTokens: 10
+        )
+
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "claude"))
+
+        applyCompletedSnapshot(
+            sessionID: claudeSessionID,
+            tool: "claude",
+            externalSessionID: "claude-concurrent",
+            updatedAt: 901,
+            totalTokens: 20
+        )
+
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+    }
+
+    func testCurrentDisplaySnapshotRespectsSelectedSession() throws {
+        let projectID = UUID()
+        let olderSessionID = UUID()
+        let newerSessionID = UUID()
+
+        applyLiveResponding(
+            sessionID: olderSessionID,
+            projectID: projectID,
+            tool: "codex",
+            externalSessionID: "codex-selected",
+            updatedAt: 1000,
+            totalTokens: 10
+        )
+        applyLiveResponding(
+            sessionID: newerSessionID,
+            projectID: projectID,
+            tool: "claude",
+            externalSessionID: "claude-selected",
+            updatedAt: 1100,
+            totalTokens: 20
+        )
+
+        XCTAssertEqual(store.currentSnapshot(projectID: projectID, selectedSessionID: olderSessionID)?.sessionID, olderSessionID)
+        XCTAssertEqual(store.currentDisplaySnapshot(projectID: projectID, selectedSessionID: olderSessionID)?.sessionID, olderSessionID)
+        XCTAssertEqual(store.currentSnapshot(projectID: projectID, selectedSessionID: nil)?.sessionID, newerSessionID)
+    }
+
+    func testRestoredOpencodeRespondingDisplaysZeroUntilCompletedTurn() throws {
+        let sessionID = UUID()
+        let projectID = UUID()
+        let externalSessionID = "opencode-restored"
+
+        store.registerExpectedLogicalSession(
+            sessionID: sessionID,
+            tool: "opencode",
+            externalSessionID: externalSessionID,
+            indexedSummary: indexedSummary(
+                sessionID: sessionID,
+                projectID: projectID,
+                tool: "opencode",
+                externalSessionID: externalSessionID,
+                totalTokens: 1200
+            )
+        )
+
+        applyLiveResponding(
+            sessionID: sessionID,
+            projectID: projectID,
+            tool: "opencode",
+            externalSessionID: externalSessionID,
+            updatedAt: 1200,
+            totalTokens: 1200
+        )
+
+        XCTAssertEqual(displaySnapshot(projectID: projectID, sessionID: sessionID)?.currentTotalTokens, 0)
+
+        applyCompletedSnapshot(
+            sessionID: sessionID,
+            tool: "opencode",
+            externalSessionID: externalSessionID,
+            updatedAt: 1210,
+            totalTokens: 1250
+        )
+
+        XCTAssertEqual(displaySnapshot(projectID: projectID, sessionID: sessionID)?.currentTotalTokens, 50)
+    }
+
     private func applyLiveResponding(
         sessionID: UUID,
         projectID: UUID,
