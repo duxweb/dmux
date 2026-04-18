@@ -37,5 +37,10 @@ let package = Package(
                 .linkedLibrary("sqlite3"),
             ]
         ),
+        .testTarget(
+            name: "DmuxWorkspaceTests",
+            dependencies: ["DmuxWorkspace"],
+            path: "Tests/DmuxWorkspaceTests"
+        ),
     ]
 )
