@@ -27,6 +27,8 @@ WRAPPER_BIN = ROOT / "scripts" / "wrappers" / "bin"
 DEFAULT_MODELS = {
     "claude": "claude-haiku-4-5",
     "codex": "gpt-5.1-codex-mini",
+    "gemini": "gemini-2.5-flash",
+    "opencode": "minimax/minimax-m2.5-free",
 }
 
 DEFAULT_MODEL_CANDIDATES = {
@@ -35,6 +37,10 @@ DEFAULT_MODEL_CANDIDATES = {
         "gpt-5.2-codex",
         "gpt-5.4-mini",
         "gpt-5.4",
+    ],
+    "opencode": [
+        "minimax/minimax-m2.5-free",
+        "",
     ],
 }
 
@@ -52,14 +58,34 @@ def parse_jsonl(text: str) -> list[dict]:
     return items
 
 
+def parse_first_json_object(text: str) -> dict:
+    stripped = text.lstrip()
+    if not stripped.startswith("{"):
+        return {}
+    decoder = json.JSONDecoder()
+    try:
+        obj, _ = decoder.raw_decode(stripped)
+    except Exception:
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
 def summarize_events(items: list[dict]) -> list[dict]:
     summary: list[dict] = []
     for item in items:
-        row: dict = {"type": item.get("type")}
+        row_type = item.get("type")
+        if row_type is None:
+            if "response" in item and "session_id" in item:
+                row_type = "result"
+            else:
+                row_type = "object"
+        row: dict = {"type": row_type}
         if "thread_id" in item:
             row["thread_id"] = item.get("thread_id")
         if "session_id" in item:
             row["session_id"] = item.get("session_id")
+        if "response" in item:
+            row["response"] = item.get("response")
         if item.get("type") == "error":
             row["message"] = item.get("message")
         if item.get("type") == "result":
@@ -67,6 +93,8 @@ def summarize_events(items: list[dict]) -> list[dict]:
             row["is_error"] = item.get("is_error")
             row["result"] = item.get("result")
             row["stop_reason"] = item.get("stop_reason")
+        elif row_type == "result":
+            row["result"] = item.get("response")
         if item.get("type") == "turn.failed":
             error = item.get("error") or {}
             row["message"] = error.get("message")
@@ -124,8 +152,53 @@ def claude_run(model: str, prompt: str, resume_id: str | None = None) -> tuple[i
     return proc.returncode, events, session_id
 
 
+def gemini_run(model: str, prompt: str, resume_id: str | None = None) -> tuple[int, list[dict], str]:
+    cmd = ["gemini", "-p", prompt, "-m", model, "-o", "json"]
+    if resume_id:
+        cmd = ["gemini", "--resume", resume_id, "-p", prompt, "-m", model, "-o", "json"]
+    proc = subprocess.run(
+        cmd,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=os.environ.copy(),
+    )
+    events = parse_jsonl(proc.stdout)
+    payload = parse_first_json_object(proc.stdout)
+    session_id = resume_id or payload.get("session_id") or ""
+    if payload:
+        events.append(payload)
+    return proc.returncode, events, session_id
+
+
+def opencode_run(model: str, prompt: str, resume_id: str | None = None) -> tuple[int, list[dict], str]:
+    cmd = ["opencode", "run", "--format", "json"]
+    if model:
+        cmd.extend(["--model", model])
+    if resume_id:
+        cmd.extend(["--session", resume_id])
+    cmd.append(prompt)
+    proc = subprocess.run(
+        cmd,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=os.environ.copy(),
+    )
+    events = parse_jsonl(proc.stdout)
+    session_id = resume_id or next((item.get("sessionID") for item in events if item.get("sessionID")), None) or ""
+    return proc.returncode, events, session_id
+
+
 def run_flow(tool: str, model: str) -> int:
-    run = claude_run if tool == "claude" else codex_run
+    run = {
+        "claude": claude_run,
+        "codex": codex_run,
+        "gemini": gemini_run,
+        "opencode": opencode_run,
+    }[tool]
     prompts = [
         "Reply with exactly FIRST.",
         "Reply with exactly SECOND.",
@@ -174,19 +247,21 @@ def run_flow(tool: str, model: str) -> int:
 
 
 def run_flow_with_candidates(tool: str, explicit_model: str | None) -> int:
-    if tool != "codex":
+    if tool not in {"codex", "opencode"}:
         return run_flow(tool, explicit_model or DEFAULT_MODELS[tool])
 
-    candidates = [explicit_model] if explicit_model else DEFAULT_MODEL_CANDIDATES["codex"]
+    candidates = [explicit_model] if explicit_model else DEFAULT_MODEL_CANDIDATES[tool]
     attempts: list[dict] = []
     for model in candidates:
-        report: dict = {"tool": tool, "model": model, "steps": []}
+        selected_model = model or "(default)"
+        report: dict = {"tool": tool, "model": selected_model, "steps": []}
         prompts = [
             "Reply with exactly FIRST.",
             "Reply with exactly SECOND.",
         ]
 
-        code, events, session_id = codex_run(model, prompts[0], None)
+        run = codex_run if tool == "codex" else opencode_run
+        code, events, session_id = run(model, prompts[0], None)
         report["steps"].append({
             "name": "fresh_prompt_1",
             "exit_code": code,
@@ -197,7 +272,7 @@ def run_flow_with_candidates(tool: str, explicit_model: str | None) -> int:
             attempts.append(report)
             continue
 
-        code, events, _ = codex_run(model, prompts[1], session_id)
+        code, events, _ = run(model, prompts[1], session_id)
         report["steps"].append({
             "name": "resume_prompt_2",
             "exit_code": code,
@@ -206,7 +281,7 @@ def run_flow_with_candidates(tool: str, explicit_model: str | None) -> int:
         })
 
         fresh_prompt = "Reply with exactly FRESH."
-        code_fresh, fresh_events, fresh_session = codex_run(model, fresh_prompt, None)
+        code_fresh, fresh_events, fresh_session = run(model, fresh_prompt, None)
         report["steps"].append({
             "name": "fresh_after_resume",
             "exit_code": code_fresh,
@@ -214,7 +289,7 @@ def run_flow_with_candidates(tool: str, explicit_model: str | None) -> int:
             "events": summarize_events(fresh_events),
         })
 
-        code_hist, hist_events, _ = codex_run(model, "Reply with exactly HISTORY.", session_id)
+        code_hist, hist_events, _ = run(model, "Reply with exactly HISTORY.", session_id)
         report["steps"].append({
             "name": "resume_history_again",
             "exit_code": code_hist,
@@ -232,10 +307,10 @@ def run_flow_with_candidates(tool: str, explicit_model: str | None) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tool", choices=["claude", "codex"], required=True)
+    parser.add_argument("--tool", choices=["claude", "codex", "gemini", "opencode"], required=True)
     parser.add_argument("--model", default=None)
     args = parser.parse_args()
-    if args.tool == "codex":
+    if args.tool in {"codex", "opencode"}:
         return run_flow_with_candidates(args.tool, args.model)
     model = args.model or DEFAULT_MODELS[args.tool]
     return run_flow(args.tool, model)
