@@ -107,6 +107,7 @@ python3 scripts/dev/runtime-noninteractive-flow.py --tool claude
 python3 scripts/dev/runtime-noninteractive-flow.py --tool codex
 python3 scripts/dev/runtime-noninteractive-flow.py --tool gemini
 python3 scripts/dev/runtime-noninteractive-flow.py --tool opencode
+python3 scripts/dev/runtime-noninteractive-flow.py --tool codex --report-json /tmp/codex-noninteractive.json
 ```
 
 Current behavior:
@@ -162,11 +163,19 @@ The JSON report includes:
 
 ### Non-interactive runner
 
-Outputs structured JSON to stdout:
+Outputs structured JSON to stdout and can also write it to disk via `--report-json`:
 
 - per-step `exit_code`
 - session / thread id
 - condensed event list
+
+Example:
+
+```bash
+python3 scripts/dev/runtime-noninteractive-flow.py \
+  --tool codex \
+  --report-json /tmp/codex-noninteractive.json
+```
 
 This is the preferred path for codex resume/reopen regression checks.
 
@@ -177,6 +186,17 @@ This is the preferred path for codex resume/reopen regression checks.
 - `codex`, `claude`, and `gemini` non-interactive flows are currently the most stable end-to-end regression targets.
 - `opencode` non-interactive flow depends on whichever provider credentials are actually configured on the local machine.
 - These scripts are for developer regression work, not CI defaults.
+
+## Last Verified Locally
+
+The current local regression stack has already verified:
+
+- `claude` interactive flow: fresh / interrupt / resume / reopen / history reopen
+- `claude` non-interactive flow: fresh / resume / fresh-after-resume / resume-history
+- `codex` non-interactive flow: fresh / resume / fresh-after-resume / resume-history, currently succeeding with `gpt-5.4-mini`
+- `gemini` non-interactive flow: fresh / resume / fresh-after-resume / resume-history with `gemini-2.5-flash`
+
+`opencode` is wired into the runner, but its pass/fail still depends on which provider credentials are configured on the machine running the test.
 
 ## When To Use Which Tool
 
