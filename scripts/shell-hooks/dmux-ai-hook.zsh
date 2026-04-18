@@ -9,9 +9,11 @@ autoload -Uz add-zsh-hook
 typeset -g DMUX_ACTIVE_AI_TOOL=""
 typeset -g DMUX_ACTIVE_AI_STARTED_AT=""
 typeset -g DMUX_ACTIVE_AI_INVOCATION_ID=""
+typeset -g DMUX_ACTIVE_AI_RESOLVED_PATH=""
 export DMUX_ACTIVE_AI_TOOL
 export DMUX_ACTIVE_AI_STARTED_AT
 export DMUX_ACTIVE_AI_INVOCATION_ID
+export DMUX_ACTIVE_AI_RESOLVED_PATH
 
 _dmux_log_line() {
   [[ -n "${DMUX_LOG_FILE:-}" ]] || return 0
@@ -150,15 +152,17 @@ _dmux_resolve_tool_from_command() {
 _dmux_ai_preexec() {
   local tool
   tool="$(_dmux_resolve_tool_from_command "$1")" || return 0
-  _dmux_prepend_wrapper_bin
   DMUX_ACTIVE_AI_TOOL="${tool}"
   DMUX_ACTIVE_AI_STARTED_AT="$(_dmux_now)"
   DMUX_ACTIVE_AI_INVOCATION_ID="$(_dmux_new_invocation_id)"
+  local resolved_path=""
+  resolved_path="$(PATH="${DMUX_ORIGINAL_PATH:-$PATH}" whence -p "${tool}" 2>/dev/null || true)"
+  DMUX_ACTIVE_AI_RESOLVED_PATH="${resolved_path}"
   export DMUX_ACTIVE_AI_TOOL
   export DMUX_ACTIVE_AI_STARTED_AT
   export DMUX_ACTIVE_AI_INVOCATION_ID
-  local resolved_path=""
-  resolved_path="$(whence -p "${tool}" 2>/dev/null || true)"
+  export DMUX_ACTIVE_AI_RESOLVED_PATH
+  _dmux_prepend_wrapper_bin
   _dmux_log_line "preexec tool=${tool} resolved=${resolved_path:-nil} wrapper=${DMUX_WRAPPER_BIN:-nil} session=${DMUX_SESSION_ID:-nil} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil}"
   _dmux_clear_status
   _dmux_write_usage_event running
@@ -173,9 +177,11 @@ _dmux_ai_precmd() {
   DMUX_ACTIVE_AI_TOOL=""
   DMUX_ACTIVE_AI_STARTED_AT=""
   DMUX_ACTIVE_AI_INVOCATION_ID=""
+  DMUX_ACTIVE_AI_RESOLVED_PATH=""
   export DMUX_ACTIVE_AI_TOOL
   export DMUX_ACTIVE_AI_STARTED_AT
   export DMUX_ACTIVE_AI_INVOCATION_ID
+  export DMUX_ACTIVE_AI_RESOLVED_PATH
 }
 
 _dmux_ai_zshexit() {
@@ -187,9 +193,11 @@ _dmux_ai_zshexit() {
   DMUX_ACTIVE_AI_TOOL=""
   DMUX_ACTIVE_AI_STARTED_AT=""
   DMUX_ACTIVE_AI_INVOCATION_ID=""
+  DMUX_ACTIVE_AI_RESOLVED_PATH=""
   export DMUX_ACTIVE_AI_TOOL
   export DMUX_ACTIVE_AI_STARTED_AT
   export DMUX_ACTIVE_AI_INVOCATION_ID
+  export DMUX_ACTIVE_AI_RESOLVED_PATH
 }
 
 add-zsh-hook preexec _dmux_ai_preexec

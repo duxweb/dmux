@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process"
 
 const socketPath = process.env.DMUX_RUNTIME_SOCKET ?? ""
 const logFile = process.env.DMUX_LOG_FILE ?? ""
+const statusDir = process.env.DMUX_STATUS_DIR ?? ""
+const runtimeSessionID = process.env.DMUX_SESSION_ID ?? ""
 
 function log(message, extra) {
   if (!logFile) return
@@ -15,6 +17,46 @@ function log(message, extra) {
 
 function nowSeconds() {
   return Date.now() / 1000
+}
+
+function sessionMapPath() {
+  if (!statusDir || !runtimeSessionID) return null
+  return `${statusDir}/opencode-session-${runtimeSessionID}.json`
+}
+
+function writeSessionMap({ externalSessionID, model }) {
+  const path = sessionMapPath()
+  if (!path || !externalSessionID) return
+  try {
+    fs.mkdirSync(statusDir, { recursive: true })
+    fs.writeFileSync(
+      path,
+      JSON.stringify(
+        {
+          runtimeSessionID,
+          externalSessionID,
+          model: model ?? null,
+          updatedAt: nowSeconds(),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    )
+  } catch (error) {
+    log("session-map-write-error", { message: error instanceof Error ? error.message : String(error), path })
+  }
+}
+
+function clearSessionMap(sessionID) {
+  const path = sessionMapPath()
+  if (!path) return
+  if (sessionID && currentSessionID && sessionID !== currentSessionID) return
+  try {
+    fs.rmSync(path, { force: true })
+  } catch (error) {
+    log("session-map-clear-error", { message: error instanceof Error ? error.message : String(error), path })
+  }
 }
 
 function sendRuntimePayload(payload) {
@@ -126,6 +168,7 @@ function dispatchUpdate({ externalSessionID, responseState, model, reason }) {
   }
   currentSessionID = nextExternalSessionID
   currentModel = readString(model) ?? currentModel
+  writeSessionMap({ externalSessionID: currentSessionID, model: currentModel })
   const signature = `${nextExternalSessionID}|${responseState ?? "nil"}|${currentModel ?? "nil"}`
   if (signature == lastSignature) {
     return
@@ -159,6 +202,9 @@ export const DmuxRuntimePlugin = async ({ client }) => {
     sessionID: process.env.DMUX_SESSION_ID ?? null,
     externalSessionID: currentSessionID,
   })
+  if (currentSessionID) {
+    writeSessionMap({ externalSessionID: currentSessionID, model: currentModel })
+  }
 
   return {
     event: async ({ event }) => {
@@ -206,6 +252,10 @@ export const DmuxRuntimePlugin = async ({ client }) => {
             model: modelFrom(properties),
             reason: type,
           })
+          return
+        }
+        case "session.deleted": {
+          clearSessionMap(sessionIDFrom(properties))
           return
         }
         case "message.updated": {

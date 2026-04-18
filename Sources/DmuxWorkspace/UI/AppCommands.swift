@@ -68,6 +68,14 @@ struct AppCommands: Commands {
                 model.exportDiagnosticsArchive()
             }
 
+            Button(String(localized: "menu.help.open_runtime_log", defaultValue: "Open Runtime Log", bundle: .module)) {
+                model.openRuntimeLog()
+            }
+
+            Button(String(localized: "menu.help.open_live_log", defaultValue: "Open Live Log", bundle: .module)) {
+                model.openLiveLog()
+            }
+
             Divider()
 
             Button(String(localized: "menu.help.github", defaultValue: "GitHub", bundle: .module)) {

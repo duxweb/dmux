@@ -1,5 +1,15 @@
 import Foundation
 
+struct GeminiHookRuntimeEnvelope: Decodable, Sendable {
+    var event: String
+    var tool: String
+    var dmuxSessionId: String
+    var dmuxProjectId: String
+    var dmuxProjectPath: String?
+    var receivedAt: Double
+    var payload: String
+}
+
 struct GeminiParsedRuntimeState {
     var externalSessionID: String
     var title: String?

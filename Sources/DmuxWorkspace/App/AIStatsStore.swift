@@ -1388,7 +1388,7 @@ final class AIStatsStore {
                     if result.didChangeDisplay {
                         self.logger.log(
                             "runtime-refresh",
-                            "apply session=\(sessionID.uuidString) tool=\(self.normalizedToolName(tool)) model=\(result.currentContext.model ?? "nil") total=\(result.currentContext.totalTokens) response=\(result.currentContext.responseState?.rawValue ?? "nil")"
+                            "apply session=\(sessionID.uuidString) tool=\(self.normalizedToolName(tool)) model=\(result.currentContext.model ?? "nil") total=\(result.currentContext.totalTokens) response=\(result.currentContext.responseState?.rawValue ?? "nil") source=\(result.currentContext.source.rawValue)"
                         )
                     }
                     if result.didAdvance {

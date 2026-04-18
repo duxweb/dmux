@@ -5,6 +5,7 @@ actor OpenCodeRuntimeProbeService {
     private var sessionIDByRuntimeSessionID: [String: String] = [:]
     private var originByRuntimeSessionID: [String: AIRuntimeSessionOrigin] = [:]
     private let globalEventService = OpenCodeGlobalEventService.shared
+    private let logger = AppDebugLog.shared
 
     func reset(runtimeSessionID: String) {
         sessionIDByRuntimeSessionID[runtimeSessionID] = nil
@@ -132,12 +133,35 @@ actor OpenCodeRuntimeProbeService {
             return ResolvedSession(id: existing.id, updatedAt: existing.updatedAt, origin: origin)
         }
 
-        guard let fresh = latestLaunchSession(db: db, projectPath: projectPath, startedAt: startedAt) else {
+        if let mappedSessionID = mappedSessionID(runtimeSessionID: runtimeSessionID),
+           let mapped = sessionByID(db: db, projectPath: projectPath, sessionID: mappedSessionID) {
+            sessionIDByRuntimeSessionID[runtimeSessionID] = mapped.id
+            let origin = originByRuntimeSessionID[runtimeSessionID] ?? .unknown
+            logger.log(
+                "opencode-driver",
+                "map hit runtimeSession=\(runtimeSessionID) external=\(mapped.id) origin=\(origin.rawValue)"
+            )
+            return ResolvedSession(id: mapped.id, updatedAt: mapped.updatedAt, origin: origin)
+        }
+
+        logger.log(
+            "opencode-driver",
+            "miss runtimeSession=\(runtimeSessionID) projectPath=\(projectPath) reason=no-session-binding"
+        )
+        return nil
+    }
+
+    private func mappedSessionID(runtimeSessionID: String) -> String? {
+        let path = AIRuntimeBridgeService()
+            .statusDirectoryURL()
+            .appendingPathComponent("opencode-session-\(runtimeSessionID).json", isDirectory: false)
+        guard let data = try? Data(contentsOf: path),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let externalSessionID = object["externalSessionID"] as? String,
+              !externalSessionID.isEmpty else {
             return nil
         }
-        sessionIDByRuntimeSessionID[runtimeSessionID] = fresh.id
-        originByRuntimeSessionID[runtimeSessionID] = .fresh
-        return ResolvedSession(id: fresh.id, updatedAt: fresh.updatedAt, origin: .fresh)
+        return externalSessionID
     }
 
     private func sessionByID(
@@ -173,39 +197,6 @@ actor OpenCodeRuntimeProbeService {
         )
     }
 
-    private func latestLaunchSession(
-        db: OpaquePointer,
-        projectPath: String,
-        startedAt: Double
-    ) -> (id: String, updatedAt: Double)? {
-        let sql = """
-        SELECT id, time_updated
-        FROM session
-        WHERE directory = ?
-          AND time_archived IS NULL
-          AND time_created >= ?
-        ORDER BY time_created DESC, time_updated DESC
-        LIMIT 1;
-        """
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, projectPath, -1, SQLITE_TRANSIENT_OPENCODE_RUNTIME)
-        sqlite3_bind_double(statement, 2, max(0, startedAt - 2) * 1000)
-
-        guard sqlite3_step(statement) == SQLITE_ROW,
-              let rawID = sqlite3_column_text(statement, 0) else {
-            return nil
-        }
-        return (
-            id: String(cString: rawID),
-            updatedAt: sqlite3_column_double(statement, 1) / 1000
-        )
-    }
     private func normalizedSessionID(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {

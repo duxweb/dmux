@@ -86,6 +86,16 @@ struct AIRuntimeSourceLocator {
                 return lhs > rhs
             }
     }
+
+    static func claudeSessionLogURL(projectPath: String, externalSessionID: String) -> URL {
+        let directoryName = projectPath
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
+        return URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".claude/projects", isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent("\(externalSessionID).jsonl", isDirectory: false)
+    }
 }
 
 struct AIRuntimeContextSnapshot {
@@ -100,6 +110,7 @@ struct AIRuntimeContextSnapshot {
     var wasInterrupted: Bool = false
     var hasCompletedTurn: Bool = false
     var sessionOrigin: AIRuntimeSessionOrigin = .unknown
+    var source: AIRuntimeUpdateSource = .probe
 }
 
 enum AIRuntimeSessionOrigin: String {

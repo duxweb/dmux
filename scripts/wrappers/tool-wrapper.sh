@@ -25,24 +25,40 @@ if [[ -z "$search_path" ]]; then
 fi
 
 find_real_binary() {
+  if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
+    if [[ -n "${DMUX_ACTIVE_AI_RESOLVED_PATH:-}" \
+      && -x "${DMUX_ACTIVE_AI_RESOLVED_PATH}" \
+      && "${DMUX_ACTIVE_AI_RESOLVED_PATH}" != "$wrapper_dir/bin/$tool_name" ]]; then
+      print -r -- "${DMUX_ACTIVE_AI_RESOLVED_PATH}"
+      return 0
+    fi
+    return 1
+  fi
+
+  if [[ -n "${DMUX_ACTIVE_AI_RESOLVED_PATH:-}" \
+    && -x "${DMUX_ACTIVE_AI_RESOLVED_PATH}" \
+    && "${DMUX_ACTIVE_AI_RESOLVED_PATH}" != "$wrapper_dir/bin/$tool_name" ]]; then
+    print -r -- "${DMUX_ACTIVE_AI_RESOLVED_PATH}"
+    return 0
+  fi
+
   local search_parts
   search_parts=(${(s/:/)search_path})
   local -a candidate_names=("$tool_name")
+  local -a candidates=()
   for dir in "${search_parts[@]}"; do
     for binary_name in "${candidate_names[@]}"; do
       local candidate="$dir/$binary_name"
       if [[ -x "$candidate" && "$candidate" != "$wrapper_dir/bin/$tool_name" ]]; then
-        print -r -- "$candidate"
-        return 0
+        candidates+=("$candidate")
       fi
     done
   done
 
-  case "$tool_name" in
-    claude|claude-code)
-      [[ -x "/Applications/cmux.app/Contents/Resources/bin/claude" ]] && print -r -- "/Applications/cmux.app/Contents/Resources/bin/claude" && return 0
-      ;;
-  esac
+  if [[ ${#candidates[@]} -ge 1 ]]; then
+    print -r -- "${candidates[1]}"
+    return 0
+  fi
 
   return 1
 }
@@ -216,6 +232,46 @@ run_wrapped_command() {
 
   "$@"
   local exit_code=$?
+  if [[ "${tool_name}" == "opencode" && -z "${external_session_id}" && -n "${DMUX_STATUS_DIR:-}" && -n "${DMUX_SESSION_ID:-}" ]]; then
+    local opencode_state_path="${DMUX_STATUS_DIR}/opencode-session-${DMUX_SESSION_ID}.json"
+    if [[ -f "${opencode_state_path}" ]]; then
+      local resolved_state
+      resolved_state="$(
+        OPENCODE_STATE_PATH="${opencode_state_path}" /usr/bin/python3 - <<'PY'
+import json
+import os
+
+path = os.environ.get("OPENCODE_STATE_PATH", "")
+if not path:
+    raise SystemExit(0)
+
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+except Exception:
+    raise SystemExit(0)
+
+external = payload.get("externalSessionID")
+model = payload.get("model")
+if isinstance(external, str) and external:
+    print(external)
+if isinstance(model, str) and model:
+    print(model)
+PY
+)"
+      if [[ -n "${resolved_state}" ]]; then
+        local resolved_lines
+        resolved_lines=(${(f)resolved_state})
+        if [[ ${#resolved_lines[@]} -ge 1 ]]; then
+          external_session_id="${resolved_lines[1]}"
+        fi
+        if [[ ${#resolved_lines[@]} -ge 2 ]]; then
+          model="${resolved_lines[2]}"
+        fi
+      fi
+      rm -f -- "${opencode_state_path}"
+    fi
+  fi
   send_usage_runtime_event completed "${external_session_id}" "${model}"
   log_line "process exit tool=${DMUX_ACTIVE_AI_TOOL:-$tool_name} session=${DMUX_SESSION_ID:-nil} code=${exit_code} externalSession=${external_session_id:-nil}"
   return "${exit_code}"
@@ -298,7 +354,10 @@ if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
     session_end_command="\\\"${helper_script_json}\\\" session-end claude"
     prompt_submit_command="\\\"${helper_script_json}\\\" prompt-submit claude"
     pre_tool_use_command="\\\"${helper_script_json}\\\" pre-tool-use claude"
-    hooks_json='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_start_command}"'","timeout":5}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_command}"'","timeout":5}]}],"StopFailure":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_failure_command}"'","timeout":5}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_end_command}"'","timeout":5}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"'"${prompt_submit_command}"'","timeout":5}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'"${pre_tool_use_command}"'","timeout":5,"async":true}]}]}}'
+    post_tool_use_command="\\\"${helper_script_json}\\\" post-tool-use claude"
+    permission_request_command="\\\"${helper_script_json}\\\" permission-request claude"
+    notification_command="\\\"${helper_script_json}\\\" notification claude"
+    hooks_json='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_start_command}"'","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_command}"'","timeout":10}]}],"StopFailure":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_failure_command}"'","timeout":10}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_end_command}"'","timeout":1}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"'"${prompt_submit_command}"'","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'"${pre_tool_use_command}"'","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'"${post_tool_use_command}"'","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"'"${permission_request_command}"'","timeout":5,"async":true}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"'"${notification_command}"'","timeout":10}]}]}}'
 
     if [[ "$skip_session_id" == true ]]; then
       resume_target="$(extract_resume_target "${launch_args[@]}" || true)"

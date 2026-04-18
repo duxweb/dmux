@@ -5,6 +5,14 @@ enum AIResponseState: String, Codable, Equatable, Sendable {
     case responding
 }
 
+enum AIRuntimeUpdateSource: String, Codable, Equatable, Sendable {
+    case socket
+    case hook
+    case probe
+    case watcher
+    case globalStream = "global-stream"
+}
+
 struct AIStatsPanelState: Equatable {
     var projectSummary: AIProjectUsageSummary?
     var currentSnapshot: AITerminalSessionSnapshot?
@@ -169,6 +177,7 @@ struct AIToolUsageEnvelope: Codable, Sendable {
     var contextWindow: Int?
     var contextUsedTokens: Int?
     var contextUsagePercent: Double?
+    var source: AIRuntimeUpdateSource? = nil
 }
 
 struct AIResponseStatePayload: Codable, Equatable, Sendable {
@@ -180,6 +189,7 @@ struct AIResponseStatePayload: Codable, Equatable, Sendable {
     var tool: String
     var responseState: AIResponseState
     var updatedAt: Double
+    var source: AIRuntimeUpdateSource? = nil
 }
 
 struct AIManagedRealtimeSessionRecord: Codable, Equatable, Sendable {

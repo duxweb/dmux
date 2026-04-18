@@ -4182,6 +4182,36 @@
         }
       }
     },
+    "app.live_log.opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Opened live log." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已打开监听日志。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已開啟監聽日誌。" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Live-Protokoll geoffnet." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Registro en vivo abierto." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Journal live ouvert." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブログを開きました。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "라이브 로그를 열었습니다." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Log ao vivo aberto." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Открыт live-журнал." } }
+      }
+    },
+    "app.runtime_log.opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Opened runtime log." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已打开运行日志。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已開啟執行日誌。" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Laufzeitprotokoll geoffnet." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Registro de ejecucion abierto." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Journal d'execution ouvert." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行ログを開きました。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "런타임 로그를 열었습니다." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Log de execucao aberto." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Открыт журнал выполнения." } }
+      }
+    },
     "app.window.main_missing": {
       "extractionState": "manual",
       "localizations": {
@@ -18339,6 +18369,36 @@
             "value": "导出诊断包…"
           }
         }
+      }
+    },
+    "menu.help.open_live_log": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Live Log" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开监听日志" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "打開監聽日誌" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Live-Protokoll offnen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Abrir registro en vivo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvrir le journal live" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブログを開く" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "라이브 로그 열기" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Abrir log ao vivo" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Открыть live-журнал" } }
+      }
+    },
+    "menu.help.open_runtime_log": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Runtime Log" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开运行日志" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "打開運行日誌" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Laufzeitprotokoll offnen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Abrir registro de ejecucion" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvrir le journal d'execution" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行ログを開く" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "런타임 로그 열기" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Abrir log de execucao" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Открыть журнал выполнения" } }
       }
     },
     "menu.help.github": {

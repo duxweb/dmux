@@ -1,6 +1,128 @@
 import Foundation
 
+actor ClaudeRuntimeInterruptWatchCache {
+    struct FileState {
+        var offset: UInt64
+        var lastInterruptAtBySessionID: [String: Double]
+    }
+
+    struct InterruptEvent {
+        var externalSessionID: String
+        var updatedAt: Double
+    }
+
+    static let shared = ClaudeRuntimeInterruptWatchCache()
+
+    private var fileStatesByPath: [String: FileState] = [:]
+
+    func prime(fileURL: URL, externalSessionID: String?) {
+        let path = fileURL.path
+        let fileSize = currentFileSize(for: fileURL)
+        var state = fileStatesByPath[path] ?? FileState(offset: 0, lastInterruptAtBySessionID: [:])
+        state.offset = fileSize
+        _ = externalSessionID
+        fileStatesByPath[path] = state
+    }
+
+    func process(fileURL: URL, projectPath: String?) -> [InterruptEvent] {
+        let path = fileURL.path
+        let fileSize = currentFileSize(for: fileURL)
+        guard fileSize > 0 else {
+            fileStatesByPath[path] = FileState(offset: 0, lastInterruptAtBySessionID: [:])
+            return []
+        }
+
+        guard let existing = fileStatesByPath[path] else {
+            fileStatesByPath[path] = FileState(offset: fileSize, lastInterruptAtBySessionID: [:])
+            return []
+        }
+
+        if fileSize < existing.offset {
+            fileStatesByPath[path] = FileState(offset: fileSize, lastInterruptAtBySessionID: existing.lastInterruptAtBySessionID)
+            return []
+        }
+        if fileSize == existing.offset {
+            return []
+        }
+
+        let deltaEvents = parseInterruptEvents(
+            in: fileURL,
+            projectPath: projectPath,
+            startingAt: existing.offset,
+            lastInterruptAtBySessionID: existing.lastInterruptAtBySessionID
+        )
+        var nextState = existing
+        nextState.offset = fileSize
+        for event in deltaEvents {
+            nextState.lastInterruptAtBySessionID[event.externalSessionID] = event.updatedAt
+        }
+        fileStatesByPath[path] = nextState
+        return deltaEvents
+    }
+
+    private func currentFileSize(for fileURL: URL) -> UInt64 {
+        let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        return UInt64(max(0, size))
+    }
+
+    private func parseInterruptEvents(
+        in fileURL: URL,
+        projectPath: String?,
+        startingAt offset: UInt64,
+        lastInterruptAtBySessionID: [String: Double]
+    ) -> [InterruptEvent] {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
+            return []
+        }
+        defer {
+            try? handle.close()
+        }
+
+        do {
+            try handle.seek(toOffset: offset)
+        } catch {
+            return []
+        }
+
+        let data = handle.readDataToEndOfFile()
+        guard !data.isEmpty,
+              let text = String(data: data, encoding: .utf8) else {
+            return []
+        }
+
+        var events: [InterruptEvent] = []
+        for line in text.split(separator: "\n") {
+            guard let lineData = line.data(using: .utf8),
+                  let row = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let cwd = row["cwd"] as? String,
+                  projectPath == nil || cwd == projectPath,
+                  let sessionID = row["sessionId"] as? String,
+                  isClaudeInterruptedRow(row) else {
+                continue
+            }
+
+            let timestamp = (row["timestamp"] as? String).flatMap(parseClaudeISO8601Date)?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
+            if let lastInterruptAt = lastInterruptAtBySessionID[sessionID],
+               timestamp <= lastInterruptAt {
+                continue
+            }
+            events.append(
+                InterruptEvent(
+                    externalSessionID: sessionID,
+                    updatedAt: timestamp
+                )
+            )
+        }
+        return events
+    }
+}
+
 private actor ClaudeRuntimeLogCache {
+    struct CountedUsageKey: Hashable {
+        var sessionID: String
+        var messageID: String
+    }
+
     struct SessionAggregate {
         var model: String?
         var inputTokens: Int
@@ -16,6 +138,7 @@ private actor ClaudeRuntimeLogCache {
     struct FileState {
         var offset: UInt64
         var sessions: [String: SessionAggregate]
+        var countedUsageKeys: Set<CountedUsageKey>
     }
 
     static let shared = ClaudeRuntimeLogCache()
@@ -59,8 +182,17 @@ private actor ClaudeRuntimeLogCache {
             let existing = fileStates[path]
 
             if existing == nil || fileSize < (existing?.offset ?? 0) {
-                let sessions = parseSessions(in: fileURL, projectPath: projectPath, startingAt: 0)
-                fileStates[path] = FileState(offset: fileSize, sessions: sessions)
+                let parsed = parseSessions(
+                    in: fileURL,
+                    projectPath: projectPath,
+                    startingAt: 0,
+                    existingCountedUsageKeys: []
+                )
+                fileStates[path] = FileState(
+                    offset: fileSize,
+                    sessions: parsed.sessions,
+                    countedUsageKeys: parsed.countedUsageKeys
+                )
                 continue
             }
 
@@ -72,16 +204,25 @@ private actor ClaudeRuntimeLogCache {
                 continue
             }
 
-            let deltaSessions = parseSessions(in: fileURL, projectPath: projectPath, startingAt: existing.offset)
+            let parsed = parseSessions(
+                in: fileURL,
+                projectPath: projectPath,
+                startingAt: existing.offset,
+                existingCountedUsageKeys: existing.countedUsageKeys
+            )
             var mergedSessions = existing.sessions
-            for (sessionID, delta) in deltaSessions {
+            for (sessionID, delta) in parsed.sessions {
                 let aggregate = mergeSessionAggregate(
                     mergedSessions[sessionID],
                     with: delta
                 )
                 mergedSessions[sessionID] = aggregate
             }
-            fileStates[path] = FileState(offset: fileSize, sessions: mergedSessions)
+            fileStates[path] = FileState(
+                offset: fileSize,
+                sessions: mergedSessions,
+                countedUsageKeys: parsed.countedUsageKeys
+            )
         }
 
         fileStatesByProjectPath[projectPath] = fileStates
@@ -130,9 +271,14 @@ private actor ClaudeRuntimeLogCache {
         return UInt64(max(0, size))
     }
 
-    private func parseSessions(in fileURL: URL, projectPath: String, startingAt offset: UInt64) -> [String: SessionAggregate] {
+    private func parseSessions(
+        in fileURL: URL,
+        projectPath: String,
+        startingAt offset: UInt64,
+        existingCountedUsageKeys: Set<CountedUsageKey>
+    ) -> (sessions: [String: SessionAggregate], countedUsageKeys: Set<CountedUsageKey>) {
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
-            return [:]
+            return ([:], existingCountedUsageKeys)
         }
         defer {
             try? handle.close()
@@ -141,16 +287,17 @@ private actor ClaudeRuntimeLogCache {
         do {
             try handle.seek(toOffset: offset)
         } catch {
-            return [:]
+            return ([:], existingCountedUsageKeys)
         }
 
         let data = handle.readDataToEndOfFile()
         guard !data.isEmpty,
               let text = String(data: data, encoding: .utf8) else {
-            return [:]
+            return ([:], existingCountedUsageKeys)
         }
 
         var sessions: [String: SessionAggregate] = [:]
+        var countedUsageKeys = existingCountedUsageKeys
         for line in text.split(separator: "\n") {
             guard let lineData = line.data(using: .utf8),
                   let row = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
@@ -162,13 +309,6 @@ private actor ClaudeRuntimeLogCache {
 
             let timestamp = (row["timestamp"] as? String).flatMap(parseClaudeISO8601Date)?.timeIntervalSince1970 ?? 0
             let message = row["message"] as? [String: Any] ?? [:]
-            let usage = message["usage"] as? [String: Any] ?? [:]
-            let input = (usage["input_tokens"] as? NSNumber)?.intValue ?? 0
-            let output = (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
-            let cacheCreation = (usage["cache_creation_input_tokens"] as? NSNumber)?.intValue ?? 0
-            let cacheRead = (usage["cache_read_input_tokens"] as? NSNumber)?.intValue ?? 0
-            let effectiveInput = input + cacheCreation + cacheRead
-            let total = effectiveInput + output
 
             var aggregate = sessions[sessionID] ?? SessionAggregate(
                 model: nil,
@@ -204,13 +344,40 @@ private actor ClaudeRuntimeLogCache {
             if let model = message["model"] as? String, !model.isEmpty {
                 aggregate.model = model
             }
-            aggregate.inputTokens += effectiveInput
-            aggregate.outputTokens += output
-            aggregate.totalTokens += total
+            if let usageKey = usageKey(for: row, message: message, sessionID: sessionID),
+               countedUsageKeys.contains(usageKey) == false {
+                countedUsageKeys.insert(usageKey)
+
+                let usage = message["usage"] as? [String: Any] ?? [:]
+                let input = (usage["input_tokens"] as? NSNumber)?.intValue ?? 0
+                let output = (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
+                let cacheCreation = (usage["cache_creation_input_tokens"] as? NSNumber)?.intValue ?? 0
+                let cacheRead = (usage["cache_read_input_tokens"] as? NSNumber)?.intValue ?? 0
+                let effectiveInput = input + cacheCreation + cacheRead
+                let total = effectiveInput + output
+
+                aggregate.inputTokens += effectiveInput
+                aggregate.outputTokens += output
+                aggregate.totalTokens += total
+            }
             aggregate.updatedAt = max(aggregate.updatedAt, timestamp)
             sessions[sessionID] = aggregate
         }
-        return sessions
+        return (sessions, countedUsageKeys)
+    }
+
+    private func usageKey(
+        for row: [String: Any],
+        message: [String: Any],
+        sessionID: String
+    ) -> CountedUsageKey? {
+        if let messageID = message["id"] as? String, !messageID.isEmpty {
+            return CountedUsageKey(sessionID: sessionID, messageID: messageID)
+        }
+        if let rowUUID = row["uuid"] as? String, !rowUUID.isEmpty {
+            return CountedUsageKey(sessionID: sessionID, messageID: rowUUID)
+        }
+        return nil
     }
 
     private func mergeSessionAggregate(
@@ -446,6 +613,18 @@ actor ClaudeRuntimeProbeService {
             externalSessionIDByRuntimeSessionID[runtimeSessionID] = externalSessionID
         }
 
+        let normalizedResponseState: AIResponseState? = {
+            guard let responseState = snapshot.responseState else {
+                return nil
+            }
+
+            logger.log(
+                "claude-runtime",
+                "suppress phase runtimeSession=\(runtimeSessionID) externalSession=\(externalSessionID) response=\(responseState.rawValue) reason=hook-owned-phase total=\(snapshot.totalTokens)"
+            )
+            return nil
+        }()
+
         return AIRuntimeContextSnapshot(
             tool: snapshot.tool,
             externalSessionID: externalSessionID,
@@ -454,11 +633,33 @@ actor ClaudeRuntimeProbeService {
             outputTokens: snapshot.outputTokens,
             totalTokens: snapshot.totalTokens,
             updatedAt: snapshot.updatedAt,
-            responseState: snapshot.responseState,
+            responseState: normalizedResponseState,
             wasInterrupted: snapshot.wasInterrupted,
             hasCompletedTurn: snapshot.hasCompletedTurn
         )
     }
+}
+
+func isClaudeInterruptedRow(_ row: [String: Any]) -> Bool {
+    if let toolUseResult = row["toolUseResult"] as? [String: Any],
+       let interrupted = toolUseResult["interrupted"] as? Bool,
+       interrupted {
+        return true
+    }
+
+    let message = row["message"] as? [String: Any] ?? [:]
+    if let content = message["content"] as? String {
+        return content.contains("[Request interrupted by user]")
+    }
+    if let items = message["content"] as? [[String: Any]] {
+        for item in items {
+            if let text = item["text"] as? String,
+               text.contains("[Request interrupted by user]") {
+                return true
+            }
+        }
+    }
+    return false
 }
 
 private func parseClaudeISO8601Date(_ value: String) -> Date? {
@@ -471,4 +672,14 @@ private func parseClaudeISO8601Date(_ value: String) -> Date? {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime]
     return formatter.date(from: value)
+}
+
+struct ClaudeHookRuntimeEnvelope: Decodable, Sendable {
+    var event: String
+    var tool: String
+    var dmuxSessionId: String
+    var dmuxProjectId: String
+    var dmuxProjectPath: String?
+    var receivedAt: Double
+    var payload: String
 }

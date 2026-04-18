@@ -198,6 +198,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if modifiers == [.control],
            event.charactersIgnoringModifiers?.lowercased() == "c",
            handleTerminalInterruptIfNeeded() {
+                return nil
+        }
+
+        if modifiers.isEmpty,
+           event.keyCode == 53,
+           handleTerminalEscapeIfNeeded() {
             return nil
         }
 
@@ -269,6 +275,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return model.sendInterruptToSelectedSession()
+    }
+
+    @MainActor
+    private func handleTerminalEscapeIfNeeded() -> Bool {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              !isStandardChromeWindow(window),
+              let model else {
+            return false
+        }
+
+        let responder = window.firstResponder
+        if responder is NSTextView,
+           SwiftTermTerminalRegistry.shared.ownsResponder(responder) == false {
+            return false
+        }
+
+        guard responder == nil || SwiftTermTerminalRegistry.shared.ownsResponder(responder) else {
+            return false
+        }
+
+        return model.sendEscapeToSelectedSessionIfInterruptingAI()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

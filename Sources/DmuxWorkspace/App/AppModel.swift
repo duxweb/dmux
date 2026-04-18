@@ -71,6 +71,7 @@ final class AppModel {
     private var activityStatusWatcher: DispatchSourceFileSystemObject?
     private var appActivationObservers: [NSObjectProtocol] = []
     private var terminalFocusObserver: NSObjectProtocol?
+    private var terminalInterruptObserver: NSObjectProtocol?
     private var runtimeBridgeObserver: NSObjectProtocol?
     private var runtimeActivityObserver: NSObjectProtocol?
     private var pendingActivityRefreshTask: Task<Void, Never>?
@@ -488,9 +489,19 @@ final class AppModel {
     }
 
     func openDebugLog() {
-        debugLog.log("app", "open debug log")
-        debugLog.openInSystemViewer()
-        statusMessage = String(localized: "app.debug_log.opened", defaultValue: "Opened debug log.", bundle: .module)
+        openRuntimeLog()
+    }
+
+    func openRuntimeLog() {
+        debugLog.log("app", "open runtime log")
+        debugLog.openRuntimeLogInSystemViewer()
+        statusMessage = String(localized: "app.runtime_log.opened", defaultValue: "Opened runtime log.", bundle: .module)
+    }
+
+    func openLiveLog() {
+        debugLog.log("app", "open live log")
+        debugLog.openLiveLogInSystemViewer()
+        statusMessage = String(localized: "app.live_log.opened", defaultValue: "Opened live log.", bundle: .module)
     }
 
     func exportDiagnosticsArchive() {
@@ -1147,7 +1158,52 @@ final class AppModel {
         }
         terminalFocusRequestID = sessionID
         let didSend = SwiftTermTerminalRegistry.shared.sendInterrupt(to: sessionID)
-        return didSend
+        guard didSend else {
+            return false
+        }
+
+        if runtimeStore.markInterrupted(sessionID: sessionID) {
+            NotificationCenter.default.post(
+                name: .dmuxAIRuntimeActivityPulse,
+                object: nil
+            )
+            NotificationCenter.default.post(
+                name: .dmuxAIRuntimeBridgeDidChange,
+                object: nil,
+                userInfo: ["kind": "interrupt"]
+            )
+        }
+
+        return true
+    }
+
+    func sendEscapeToSelectedSessionIfInterruptingAI() -> Bool {
+        guard let sessionID = selectedSessionID,
+              let tool = runtimeStore.tool(for: sessionID),
+              toolDriverFactory.canonicalToolName(tool) == "claude",
+              runtimeStore.responseState(for: sessionID) == .responding else {
+            return false
+        }
+
+        terminalFocusRequestID = sessionID
+        let didSend = SwiftTermTerminalRegistry.shared.sendEscape(to: sessionID)
+        guard didSend else {
+            return false
+        }
+
+        if runtimeStore.markInterrupted(sessionID: sessionID) {
+            NotificationCenter.default.post(
+                name: .dmuxAIRuntimeActivityPulse,
+                object: nil
+            )
+            NotificationCenter.default.post(
+                name: .dmuxAIRuntimeBridgeDidChange,
+                object: nil,
+                userInfo: ["kind": "interrupt"]
+            )
+        }
+
+        return true
     }
 
     func session(for sessionID: UUID) -> TerminalSession? {
@@ -2135,6 +2191,9 @@ final class AppModel {
         if let terminalFocusObserver {
             NotificationCenter.default.removeObserver(terminalFocusObserver)
         }
+        if let terminalInterruptObserver {
+            NotificationCenter.default.removeObserver(terminalInterruptObserver)
+        }
 
         terminalFocusObserver = NotificationCenter.default.addObserver(
             forName: .dmuxTerminalFocusDidChange,
@@ -2143,6 +2202,40 @@ final class AppModel {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.terminalFocusRenderVersion &+= 1
+            }
+        }
+
+        terminalInterruptObserver = NotificationCenter.default.addObserver(
+            forName: .dmuxTerminalInterruptDidSend,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let sessionID = notification.object as? UUID else {
+                return
+            }
+
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let tool = self.runtimeStore.tool(for: sessionID),
+                      self.toolDriverFactory.canonicalToolName(tool) == "claude",
+                      self.runtimeStore.responseState(for: sessionID) == .responding else {
+                    return
+                }
+
+                guard self.runtimeStore.markInterrupted(sessionID: sessionID) else {
+                    return
+                }
+
+                NotificationCenter.default.post(
+                    name: .dmuxAIRuntimeActivityPulse,
+                    object: nil
+                )
+                NotificationCenter.default.post(
+                    name: .dmuxAIRuntimeBridgeDidChange,
+                    object: nil,
+                    userInfo: ["kind": "interrupt"]
+                )
             }
         }
     }

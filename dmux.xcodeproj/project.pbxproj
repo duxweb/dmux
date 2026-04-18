@@ -13,6 +13,7 @@
 		A1B2C3D4E5F60718293A4B5D /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718293A4B60 /* Sparkle */; };
 		0D664E0A08F199B7A97D0BA2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = CDEB30421E61195A008FD00E /* Localizable.xcstrings */; };
 		0E5992E59E3539EDBAD6E6F5 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 79E5F0CE1296648C8A61C45E /* SwiftTerm */; };
+		E1A41C4E3A0A4C0A9D7B42A1 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = E1A41C4E3A0A4C0A9D7B42A2 /* Logging */; };
 		0FA3288DB5DECC9BDA2E1291 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E1EC9BC74648163A178985 /* Theme.swift */; };
 		1144DC09253CDEA30AC56B0E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF3062F44A5DB544744A8CAD /* SettingsView.swift */; };
 		151B69EF643EA9CF5E6975C2 /* ProjectActivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4202849CEE1FF3E6646D87DD /* ProjectActivityService.swift */; };
@@ -154,6 +155,7 @@
 			files = (
 				A1B2C3D4E5F60718293A4B5D /* Sparkle in Frameworks */,
 				0E5992E59E3539EDBAD6E6F5 /* SwiftTerm in Frameworks */,
+				E1A41C4E3A0A4C0A9D7B42A1 /* Logging in Frameworks */,
 				94E74A9C02052D31600A15A8 /* UniformTypeIdentifiers.framework in Frameworks */,
 				7CC77BFB4230078241327312 /* Carbon.framework in Frameworks */,
 				41CEA0910EEBD49E51352695 /* libsqlite3.tbd in Frameworks */,
@@ -393,6 +395,7 @@
 			packageProductDependencies = (
 				A1B2C3D4E5F60718293A4B60 /* Sparkle */,
 				79E5F0CE1296648C8A61C45E /* SwiftTerm */,
+				E1A41C4E3A0A4C0A9D7B42A2 /* Logging */,
 			);
 			productName = dmux;
 			productReference = DA51FF0D184B4B658DF3C288 /* Codux.app */;
@@ -433,6 +436,7 @@
 			packageReferences = (
 				A1B2C3D4E5F60718293A4B5F /* XCRemoteSwiftPackageReference "Sparkle" */,
 				DE0EE30F04D33716522175BA /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				E1A41C4E3A0A4C0A9D7B42A3 /* XCRemoteSwiftPackageReference "swift-log" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7651A8B853F6627D943F04C9 /* Products */;
@@ -714,6 +718,14 @@
 				kind = branch;
 			};
 		};
+		E1A41C4E3A0A4C0A9D7B42A3 /* XCRemoteSwiftPackageReference "swift-log" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-log.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -726,6 +738,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DE0EE30F04D33716522175BA /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		E1A41C4E3A0A4C0A9D7B42A2 /* Logging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E1A41C4E3A0A4C0A9D7B42A3 /* XCRemoteSwiftPackageReference "swift-log" */;
+			productName = Logging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

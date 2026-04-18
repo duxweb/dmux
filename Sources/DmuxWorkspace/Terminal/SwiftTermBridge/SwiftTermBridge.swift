@@ -9,6 +9,7 @@ import MetalKit
 extension Notification.Name {
     static let dmuxTerminalFocusDidChange = Notification.Name("dmux.terminalFocusDidChange")
     static let dmuxTerminalOutputDidChange = Notification.Name("dmux.terminalOutputDidChange")
+    static let dmuxTerminalInterruptDidSend = Notification.Name("dmux.terminalInterruptDidSend")
 }
 
 private final class SwiftTermOutputEventEmitter: @unchecked Sendable {
@@ -66,6 +67,19 @@ private final class DmuxLocalProcessTerminalView: LocalProcessTerminalView {
             }
         }
         super.dataReceived(slice: slice)
+    }
+
+    override func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        if let sessionID,
+           data.contains(0x03) {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .dmuxTerminalInterruptDidSend,
+                    object: sessionID
+                )
+            }
+        }
+        super.send(source: source, data: data)
     }
 
     func resetOutputObservation() {
@@ -938,6 +952,12 @@ final class SwiftTermTerminalContainerView: NSView {
         terminalView.send(source: terminalView, data: interrupt[...])
     }
 
+    func sendEscape() {
+        let escape: [UInt8] = [0x1b]
+        handleTerminalInteraction()
+        terminalView.send(source: terminalView, data: escape[...])
+    }
+
     func sendNativeCommandArrow(keyCode: UInt16) -> Bool {
         let sequence: [UInt8]
         switch keyCode {
@@ -1107,6 +1127,14 @@ final class SwiftTermTerminalRegistry {
         return true
     }
 
+    func sendEscape(to sessionID: UUID) -> Bool {
+        guard let container = containers[sessionID] else {
+            return false
+        }
+        container.sendEscape()
+        return true
+    }
+
     @discardableResult
     func focus(sessionID: UUID) -> Bool {
         guard let container = containers[sessionID] else {
@@ -1163,6 +1191,7 @@ final class SwiftTermTerminalRegistry {
             .sorted()
             .joined(separator: ", ")
     }
+
 }
 
 final class SwiftTermProcessDelegateProxy: NSObject, LocalProcessTerminalViewDelegate {

@@ -97,6 +97,14 @@ struct AppDiagnosticsExportService {
             to: logsDirectoryURL.appendingPathComponent(debugLog.previousLogFileURL().lastPathComponent, isDirectory: false)
         )
         copyIfExists(
+            from: debugLog.liveLogFileURL(),
+            to: logsDirectoryURL.appendingPathComponent(debugLog.liveLogFileURL().lastPathComponent, isDirectory: false)
+        )
+        copyIfExists(
+            from: debugLog.previousLiveLogFileURL(),
+            to: logsDirectoryURL.appendingPathComponent(debugLog.previousLiveLogFileURL().lastPathComponent, isDirectory: false)
+        )
+        copyIfExists(
             from: debugLog.performanceSummaryFileURL(),
             to: logsDirectoryURL.appendingPathComponent(debugLog.performanceSummaryFileURL().lastPathComponent, isDirectory: false)
         )

@@ -10,6 +10,104 @@ struct CodexParsedRuntimeState {
     var hasCompletedTurn: Bool
 }
 
+actor CodexRuntimeResponseLatch {
+    static let shared = CodexRuntimeResponseLatch()
+
+    private struct LatchState {
+        var lastRespondingAt: Double
+        var externalSessionID: String?
+        var awaitingDefinitiveStop: Bool
+    }
+
+    private var stateByRuntimeSessionID: [String: LatchState] = [:]
+    private var runtimeSessionIDsByExternalSessionID: [String: Set<String>] = [:]
+
+    func reset(runtimeSessionID: String) {
+        guard let existing = stateByRuntimeSessionID.removeValue(forKey: runtimeSessionID) else {
+            return
+        }
+        guard let externalSessionID = existing.externalSessionID else {
+            return
+        }
+        runtimeSessionIDsByExternalSessionID[externalSessionID]?.remove(runtimeSessionID)
+        if runtimeSessionIDsByExternalSessionID[externalSessionID]?.isEmpty == true {
+            runtimeSessionIDsByExternalSessionID[externalSessionID] = nil
+        }
+    }
+
+    func markResponding(runtimeSessionID: String, externalSessionID: String?, updatedAt: Double) {
+        let normalizedExternalSessionID = normalizedSessionID(externalSessionID)
+        let previousExternalSessionID = stateByRuntimeSessionID[runtimeSessionID]?.externalSessionID
+        if let previousExternalSessionID, previousExternalSessionID != normalizedExternalSessionID {
+            runtimeSessionIDsByExternalSessionID[previousExternalSessionID]?.remove(runtimeSessionID)
+            if runtimeSessionIDsByExternalSessionID[previousExternalSessionID]?.isEmpty == true {
+                runtimeSessionIDsByExternalSessionID[previousExternalSessionID] = nil
+            }
+        }
+
+        stateByRuntimeSessionID[runtimeSessionID] = LatchState(
+            lastRespondingAt: updatedAt,
+            externalSessionID: normalizedExternalSessionID,
+            awaitingDefinitiveStop: true
+        )
+        if let normalizedExternalSessionID {
+            runtimeSessionIDsByExternalSessionID[normalizedExternalSessionID, default: []].insert(runtimeSessionID)
+        }
+    }
+
+    func releaseIfDefinitiveStop(
+        runtimeSessionID: String,
+        externalSessionID: String?,
+        wasInterrupted: Bool,
+        hasCompletedTurn: Bool
+    ) {
+        guard wasInterrupted || hasCompletedTurn else {
+            return
+        }
+        reset(runtimeSessionID: runtimeSessionID)
+        if let normalizedExternalSessionID = normalizedSessionID(externalSessionID),
+           let runtimeSessionIDs = runtimeSessionIDsByExternalSessionID[normalizedExternalSessionID] {
+            for id in runtimeSessionIDs {
+                stateByRuntimeSessionID[id] = nil
+            }
+            runtimeSessionIDsByExternalSessionID[normalizedExternalSessionID] = nil
+        }
+    }
+
+    func shouldForceResponding(
+        runtimeSessionID: String,
+        externalSessionID: String?,
+        snapshotUpdatedAt: Double,
+        wasInterrupted: Bool
+    ) -> Bool {
+        guard wasInterrupted == false else {
+            return false
+        }
+
+        if let existing = stateByRuntimeSessionID[runtimeSessionID] {
+            return existing.awaitingDefinitiveStop
+        }
+
+        if let normalizedExternalSessionID = normalizedSessionID(externalSessionID),
+           let runtimeSessionIDs = runtimeSessionIDsByExternalSessionID[normalizedExternalSessionID] {
+            for id in runtimeSessionIDs {
+                if let existing = stateByRuntimeSessionID[id],
+                   existing.awaitingDefinitiveStop {
+                    stateByRuntimeSessionID[runtimeSessionID] = LatchState(
+                        lastRespondingAt: existing.lastRespondingAt,
+                        externalSessionID: normalizedExternalSessionID,
+                        awaitingDefinitiveStop: true
+                    )
+                    runtimeSessionIDsByExternalSessionID[normalizedExternalSessionID, default: []].insert(runtimeSessionID)
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+}
+
 struct CodexHookRuntimeEnvelope: Decodable, Sendable {
     var event: String
     var tool: String
@@ -55,9 +153,13 @@ func resolveCodexStopRuntimeState(transcriptPath: String?) async -> CodexParsedR
 
 actor CodexRuntimeProbeService {
     private var threadIDByRuntimeSessionID: [String: String] = [:]
+    private let logger = AppDebugLog.shared
 
     func reset(runtimeSessionID: String) {
         threadIDByRuntimeSessionID[runtimeSessionID] = nil
+        Task {
+            await CodexRuntimeResponseLatch.shared.reset(runtimeSessionID: runtimeSessionID)
+        }
     }
 
     func snapshot(
@@ -65,7 +167,8 @@ actor CodexRuntimeProbeService {
         projectPath: String,
         startedAt: Double,
         knownExternalSessionID: String?
-    ) -> AIRuntimeContextSnapshot? {
+    ) async -> AIRuntimeContextSnapshot? {
+        _ = startedAt
         let dbURL = AIRuntimeSourceLocator.codexDatabaseURL()
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
             return nil
@@ -79,49 +182,36 @@ actor CodexRuntimeProbeService {
 
         if let knownExternalSessionID, !knownExternalSessionID.isEmpty {
             threadIDByRuntimeSessionID[runtimeSessionID] = knownExternalSessionID
-            if let snapshot = threadSnapshot(db: db, threadID: knownExternalSessionID) {
+            if let snapshot = await threadSnapshot(
+                db: db,
+                runtimeSessionID: runtimeSessionID,
+                threadID: knownExternalSessionID
+            ) {
                 return snapshot
             }
             threadIDByRuntimeSessionID[runtimeSessionID] = nil
         }
 
         if let threadID = threadIDByRuntimeSessionID[runtimeSessionID],
-           let snapshot = threadSnapshot(db: db, threadID: threadID) {
+           let snapshot = await threadSnapshot(
+                db: db,
+                runtimeSessionID: runtimeSessionID,
+                threadID: threadID
+           ) {
             return snapshot
         }
-
-        let sql = """
-        SELECT id
-        FROM threads
-        WHERE cwd = ?
-          AND created_at >= ?
-          AND created_at <= ?
-        ORDER BY created_at DESC
-        LIMIT 1;
-        """
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, projectPath, -1, SQLITE_TRANSIENT_CODEX_RUNTIME)
-        sqlite3_bind_double(statement, 2, startedAt - 5)
-        sqlite3_bind_double(statement, 3, startedAt + 30)
-
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            return nil
-        }
-
-        guard let threadID = sqlite3_column_text(statement, 0).map({ String(cString: $0) }) else {
-            return nil
-        }
-
-        threadIDByRuntimeSessionID[runtimeSessionID] = threadID
-        return threadSnapshot(db: db, threadID: threadID)
+        logger.log(
+            "codex-runtime",
+            "miss runtimeSession=\(runtimeSessionID) projectPath=\(projectPath) reason=no-thread-binding"
+        )
+        return nil
     }
 
-    private func threadSnapshot(db: OpaquePointer, threadID: String) -> AIRuntimeContextSnapshot? {
+    private func threadSnapshot(
+        db: OpaquePointer,
+        runtimeSessionID: String,
+        threadID: String
+    ) async -> AIRuntimeContextSnapshot? {
         let sql = """
         SELECT model, tokens_used, updated_at, rollout_path
         FROM threads
@@ -146,6 +236,33 @@ actor CodexRuntimeProbeService {
         let rolloutPath = sqlite3_column_type(statement, 3) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(statement, 3))
         let parsedState = parseCodexRolloutRuntimeState(fileURL: rolloutPath.map(URL.init(fileURLWithPath:)))
 
+        let shouldForceResponding = await CodexRuntimeResponseLatch.shared.shouldForceResponding(
+            runtimeSessionID: runtimeSessionID,
+            externalSessionID: threadID,
+            snapshotUpdatedAt: max(updatedAt, parsedState?.updatedAt ?? 0),
+            wasInterrupted: parsedState?.wasInterrupted ?? false
+        )
+        let hasDefinitiveStop = (parsedState?.hasCompletedTurn == true) || (parsedState?.wasInterrupted == true)
+        let probeResponseState: AIResponseState? = {
+            if shouldForceResponding {
+                logger.log(
+                    "codex-runtime",
+                    "suppress phase runtimeSession=\(runtimeSessionID) external=\(threadID) reason=hook-responding-latch"
+                )
+                return nil
+            }
+            if hasDefinitiveStop {
+                return .idle
+            }
+            if parsedState?.responseState == .idle {
+                logger.log(
+                    "codex-runtime",
+                    "reject idle runtimeSession=\(runtimeSessionID) external=\(threadID) reason=non-definitive-probe-idle updatedAt=\(max(updatedAt, parsedState?.updatedAt ?? 0)) total=\(parsedState?.totalTokens ?? totalTokens)"
+                )
+            }
+            return nil
+        }()
+
         return AIRuntimeContextSnapshot(
             tool: "codex",
             externalSessionID: threadID,
@@ -154,9 +271,9 @@ actor CodexRuntimeProbeService {
             outputTokens: 0,
             totalTokens: parsedState?.totalTokens ?? totalTokens,
             updatedAt: max(updatedAt, parsedState?.updatedAt ?? 0),
-            responseState: parsedState?.responseState,
+            responseState: probeResponseState,
             wasInterrupted: parsedState?.wasInterrupted ?? false,
-            hasCompletedTurn: parsedState?.hasCompletedTurn ?? false
+            hasCompletedTurn: probeResponseState == nil ? false : (parsedState?.hasCompletedTurn ?? false)
         )
     }
 }
@@ -285,3 +402,11 @@ private func tailJSONLinesFromFile(at fileURL: URL, maxBytes: Int = 262_144) -> 
 }
 
 private let SQLITE_TRANSIENT_CODEX_RUNTIME = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+private func normalizedSessionID(_ value: String?) -> String? {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !value.isEmpty else {
+        return nil
+    }
+    return value
+}

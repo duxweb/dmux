@@ -19,6 +19,7 @@ final class AIRuntimeIngressService {
     private var runtimeSocketWatcher: DispatchSourceRead?
     private var runtimeSourceWatchersByPath: [String: DispatchSourceFileSystemObject] = [:]
     private var runtimeResponseSyncTasksByTool: [String: Task<Void, Never>] = [:]
+    private var recentRuntimeEventAtByKey: [String: Date] = [:]
     private var latestProjects: [Project] = []
     private var liveEnvelopesBySessionID: [UUID: AIToolUsageEnvelope] = [:]
     private var responsePayloadsBySessionID: [UUID: AIResponseStatePayload] = [:]
@@ -304,6 +305,14 @@ final class AIRuntimeIngressService {
                     return
                 }
 
+                let dedupeKey = "source|\(descriptor.1)|\(descriptor.0.watchKind.rawValue)|\(descriptor.0.path)"
+                guard self.shouldAcceptRuntimeEvent(key: dedupeKey, ttl: 0.18) else {
+                    self.logger.log(
+                        "runtime-ingress",
+                        "drop source tool=\(descriptor.1) path=\(descriptor.0.path) reason=dedupe"
+                    )
+                    return
+                }
                 self.scheduleRuntimeIngressHandling(for: descriptor.0, tool: descriptor.1)
             }
             watcher.setCancelHandler {
@@ -345,7 +354,7 @@ final class AIRuntimeIngressService {
                     self.runtimeStore.applyResponsePayload(payload)
                     self.logger.log(
                         "runtime-ingress",
-                        "payload tool=\(canonicalTool) session=\(payload.sessionId) response=\(payload.responseState.rawValue)"
+                        "payload tool=\(canonicalTool) session=\(payload.sessionId) response=\(payload.responseState.rawValue) source=\(payload.source?.rawValue ?? "unknown")"
                     )
                 }
                 for (sessionID, snapshot) in customUpdate.runtimeSnapshotsBySessionID {
@@ -356,7 +365,7 @@ final class AIRuntimeIngressService {
                     }
                     self.logger.log(
                         "runtime-ingress",
-                        "snapshot tool=\(snapshot.tool) session=\(sessionID.uuidString) model=\(snapshot.model ?? "nil") total=\(snapshot.totalTokens) response=\(snapshot.responseState?.rawValue ?? "nil")"
+                        "snapshot tool=\(snapshot.tool) session=\(sessionID.uuidString) model=\(snapshot.model ?? "nil") total=\(snapshot.totalTokens) response=\(snapshot.responseState?.rawValue ?? "nil") source=\(snapshot.source.rawValue)"
                     )
                 }
                 self.runtimeResponseSyncTasksByTool[canonicalTool] = nil
@@ -431,8 +440,16 @@ final class AIRuntimeIngressService {
 
         switch kind {
         case "usage":
-            guard let envelope = try? JSONDecoder().decode(AIToolUsageEnvelope.self, from: payloadData) else {
+            guard var envelope = try? JSONDecoder().decode(AIToolUsageEnvelope.self, from: payloadData) else {
                 logger.log("runtime-socket", "drop kind=usage reason=decode")
+                return
+            }
+            envelope.source = envelope.source ?? .socket
+            guard shouldAcceptRuntimeEvent(
+                key: runtimeSocketEventKey(kind: kind, data: payloadData),
+                ttl: 0.9
+            ) else {
+                logger.log("runtime-socket", "drop kind=usage session=\(envelope.sessionId) reason=dedupe")
                 return
             }
             guard matchesCurrentTerminalInstance(
@@ -461,7 +478,7 @@ final class AIRuntimeIngressService {
             }
             logger.log(
                 "runtime-socket",
-                "accept kind=usage tool=\(canonicalToolName(effectiveEnvelope.tool)) session=\(effectiveEnvelope.sessionId) status=\(effectiveEnvelope.status) instance=\(effectiveEnvelope.sessionInstanceId ?? "nil")"
+                "accept kind=usage tool=\(canonicalToolName(effectiveEnvelope.tool)) session=\(effectiveEnvelope.sessionId) status=\(effectiveEnvelope.status) instance=\(effectiveEnvelope.sessionInstanceId ?? "nil") source=\(effectiveEnvelope.source?.rawValue ?? "unknown")"
             )
             if effectiveEnvelope.status == "running" {
                 postRuntimeBridgeDidChange(kind: "runtime-socket")
@@ -474,8 +491,16 @@ final class AIRuntimeIngressService {
             }
 
         case "response":
-            guard let payload = try? JSONDecoder().decode(AIResponseStatePayload.self, from: payloadData) else {
+            guard var payload = try? JSONDecoder().decode(AIResponseStatePayload.self, from: payloadData) else {
                 logger.log("runtime-socket", "drop kind=response reason=decode")
+                return
+            }
+            payload.source = payload.source ?? .socket
+            guard shouldAcceptRuntimeEvent(
+                key: runtimeSocketEventKey(kind: kind, data: payloadData),
+                ttl: 0.9
+            ) else {
+                logger.log("runtime-socket", "drop kind=response session=\(payload.sessionId) reason=dedupe")
                 return
             }
             guard matchesCurrentTerminalInstance(
@@ -500,11 +525,18 @@ final class AIRuntimeIngressService {
             }
             logger.log(
                 "runtime-socket",
-                "accept kind=response tool=\(canonicalToolName(payload.tool)) session=\(payload.sessionId) state=\(payload.responseState.rawValue) instance=\(payload.sessionInstanceId ?? "nil")"
+                "accept kind=response tool=\(canonicalToolName(payload.tool)) session=\(payload.sessionId) state=\(payload.responseState.rawValue) instance=\(payload.sessionInstanceId ?? "nil") source=\(payload.source?.rawValue ?? "unknown")"
             )
             postRuntimeBridgeDidChange(kind: "runtime-socket")
 
         default:
+            guard shouldAcceptRuntimeEvent(
+                key: runtimeSocketEventKey(kind: kind, data: payloadData),
+                ttl: 1.5
+            ) else {
+                logger.log("runtime-socket", "drop kind=\(kind) reason=dedupe")
+                return
+            }
             let liveEnvelopes = liveEnvelopesBySessionID.values.sorted { $0.updatedAt > $1.updatedAt }
             let existingRuntime = currentRuntimeSnapshotsBySessionID()
             Task { [weak self] in
@@ -559,7 +591,8 @@ final class AIRuntimeIngressService {
                     outputTokens: snapshot.currentOutputTokens,
                     totalTokens: snapshot.currentTotalTokens,
                     updatedAt: snapshot.updatedAt.timeIntervalSince1970,
-                    responseState: snapshot.responseState
+                    responseState: snapshot.responseState,
+                    source: .probe
                 )
             )
         })
@@ -593,6 +626,29 @@ final class AIRuntimeIngressService {
             "normalize live session=\(sessionID.uuidString) tool=\(canonicalToolName(envelope.tool)) external=\(incomingExternalSessionID ?? "nil")->\(existingExternalSessionID)"
         )
         return effectiveEnvelope
+    }
+
+    private func shouldAcceptRuntimeEvent(key: String, ttl: TimeInterval) -> Bool {
+        let now = Date()
+        recentRuntimeEventAtByKey = recentRuntimeEventAtByKey.filter {
+            now.timeIntervalSince($0.value) < max(ttl * 4, 2)
+        }
+        if let previous = recentRuntimeEventAtByKey[key],
+           now.timeIntervalSince(previous) < ttl {
+            return false
+        }
+        recentRuntimeEventAtByKey[key] = now
+        return true
+    }
+
+    private func runtimeSocketEventKey(kind: String, data: Data) -> String {
+        var hasher = Hasher()
+        hasher.combine(kind)
+        hasher.combine(data.count)
+        for byte in data.prefix(128) {
+            hasher.combine(byte)
+        }
+        return "socket|\(kind)|\(hasher.finalize())"
     }
 
     private func normalizedExternalSessionID(_ value: String?) -> String? {

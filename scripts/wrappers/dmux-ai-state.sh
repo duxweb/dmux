@@ -6,6 +6,8 @@ zmodload zsh/datetime 2>/dev/null || true
 action="${1:-}"
 tool_name="${2:-${DMUX_ACTIVE_AI_TOOL:-}}"
 hook_payload="$(cat)"
+notification_type=""
+should_send_response_event=1
 
 if [[ -z "${DMUX_SESSION_ID:-}" || -z "${DMUX_PROJECT_ID:-}" || -z "${tool_name:-}" ]]; then
   exit 0
@@ -15,8 +17,47 @@ case "${action}" in
   session-start)
     response_state="idle"
     ;;
-  prompt-submit|pre-tool-use|before-agent)
+  prompt-submit|pre-tool-use|post-tool-use|before-agent|permission-request)
     response_state="responding"
+    ;;
+  notification)
+    notification_type="$(HOOK_PAYLOAD="${hook_payload}" /usr/bin/python3 - <<'PY'
+import json
+import os
+
+payload = os.environ.get("HOOK_PAYLOAD", "")
+if not payload:
+    raise SystemExit(0)
+
+try:
+    obj = json.loads(payload)
+except Exception:
+    raise SystemExit(0)
+
+def first_string(mapping, *keys):
+    if not isinstance(mapping, dict):
+        return None
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+value = first_string(obj, "notification_type")
+if value is None:
+    value = first_string(obj.get("notification"), "notification_type", "type", "kind", "reason")
+if value is None:
+    value = first_string(obj.get("data"), "notification_type", "type", "kind", "reason")
+if value:
+    print(value)
+PY
+)"
+    if [[ "${notification_type:-}" == "idle_prompt" ]]; then
+      response_state="idle"
+    else
+      response_state=""
+      should_send_response_event=0
+    fi
     ;;
   stop|stop-failure|session-end|idle|after-agent)
     response_state="idle"
@@ -169,6 +210,46 @@ write_codex_hook_event() {
   log_line "codex hook event=${event_name} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID}"
 }
 
+write_claude_hook_event() {
+  local event_name="$1"
+  local event_json
+  event_json="$(
+    {
+      print -rn -- '{"kind":"claude-hook","payload":{'
+      print -rn -- "\"event\":\"$(json_escape "${event_name}")\","
+      print -rn -- "\"tool\":\"$(json_escape "${tool_name}")\","
+      print -rn -- "\"dmuxSessionId\":\"$(json_escape "${DMUX_SESSION_ID}")\","
+      print -rn -- "\"dmuxProjectId\":\"$(json_escape "${DMUX_PROJECT_ID}")\","
+      print -rn -- "\"dmuxProjectPath\":\"$(json_escape "${DMUX_PROJECT_PATH:-}")\","
+      print -rn -- "\"receivedAt\":$(now),"
+      print -rn -- "\"payload\":\"$(json_escape "${hook_payload}")\""
+      print -rn -- '}}'
+    }
+  )"
+  send_runtime_event "${event_json}"
+  log_line "claude hook event=${event_name} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID}"
+}
+
+write_gemini_hook_event() {
+  local event_name="$1"
+  local event_json
+  event_json="$(
+    {
+      print -rn -- '{"kind":"gemini-hook","payload":{'
+      print -rn -- "\"event\":\"$(json_escape "${event_name}")\","
+      print -rn -- "\"tool\":\"$(json_escape "${tool_name}")\","
+      print -rn -- "\"dmuxSessionId\":\"$(json_escape "${DMUX_SESSION_ID}")\","
+      print -rn -- "\"dmuxProjectId\":\"$(json_escape "${DMUX_PROJECT_ID}")\","
+      print -rn -- "\"dmuxProjectPath\":\"$(json_escape "${DMUX_PROJECT_PATH:-}")\","
+      print -rn -- "\"receivedAt\":$(now),"
+      print -rn -- "\"payload\":\"$(json_escape "${hook_payload}")\""
+      print -rn -- '}}'
+    }
+  )"
+  send_runtime_event "${event_json}"
+  log_line "gemini hook event=${event_name} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID}"
+}
+
 case "${action}" in
   codex-prompt-submit)
     write_codex_hook_event "UserPromptSubmit"
@@ -185,18 +266,36 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
     session-start)
       write_claude_session_map
       log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} externalSession=$(resolved_claude_external_session_id || print -r -- nil)"
+      write_claude_hook_event "SessionStart"
       ;;
-    prompt-submit|pre-tool-use)
+    prompt-submit|pre-tool-use|post-tool-use|permission-request|notification)
       write_claude_session_map
-      log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
+      if [[ "${action}" == "notification" ]]; then
+        log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} notificationType=${notification_type:-unknown}"
+      else
+        log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
+      fi
+      case "${action}" in
+        prompt-submit) write_claude_hook_event "UserPromptSubmit" ;;
+        pre-tool-use) write_claude_hook_event "PreToolUse" ;;
+        post-tool-use) write_claude_hook_event "PostToolUse" ;;
+        permission-request) write_claude_hook_event "PermissionRequest" ;;
+        notification) write_claude_hook_event "Notification" ;;
+      esac
       ;;
     stop|stop-failure|idle)
       write_claude_session_map
       log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
+      case "${action}" in
+        stop) write_claude_hook_event "Stop" ;;
+        stop-failure) write_claude_hook_event "StopFailure" ;;
+        idle) write_claude_hook_event "Idle" ;;
+      esac
       ;;
     session-end)
       log_line "claude hook action=${action} clear-response session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
       clear_response_file
+      write_claude_hook_event "SessionEnd"
       clear_claude_session_map
       ;;
   esac
@@ -206,14 +305,20 @@ if [[ "${tool_name}" == "gemini" ]]; then
   case "${action}" in
     session-start|before-agent|after-agent)
       log_line "gemini hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
+      case "${action}" in
+        session-start) write_gemini_hook_event "SessionStart" ;;
+        before-agent) write_gemini_hook_event "BeforeAgent" ;;
+        after-agent) write_gemini_hook_event "AfterAgent" ;;
+      esac
       ;;
     session-end)
       log_line "gemini hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
+      write_gemini_hook_event "SessionEnd"
       ;;
   esac
 fi
 
-if [[ -z "${DMUX_RUNTIME_SOCKET:-}" ]]; then
+if [[ "${should_send_response_event}" != "1" || -z "${DMUX_RUNTIME_SOCKET:-}" ]]; then
   exit 0
 fi
 

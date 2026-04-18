@@ -362,8 +362,27 @@ final class AIRuntimeStateStore {
         apply(existing, for: sessionID)
         logger.log(
             "runtime-store",
-            "response session=\(sessionID.uuidString) tool=\(existing.tool) state=\(existing.responseState?.rawValue ?? "nil") updatedAt=\(existing.updatedAt)"
+            "response session=\(sessionID.uuidString) tool=\(existing.tool) state=\(existing.responseState?.rawValue ?? "nil") updatedAt=\(existing.updatedAt) source=\(payload.source?.rawValue ?? "unknown")"
         )
+    }
+
+    @discardableResult
+    func markInterrupted(sessionID: UUID, updatedAt: Double = Date().timeIntervalSince1970) -> Bool {
+        guard var existing = terminalBindingsByID[sessionID],
+              existing.responseState == .responding else {
+            return false
+        }
+
+        existing.responseState = .idle
+        existing.updatedAt = max(existing.updatedAt, updatedAt)
+        existing.interruptedAt = max(existing.interruptedAt ?? 0, updatedAt)
+        existing.hasCompletedTurn = false
+        apply(existing, for: sessionID)
+        logger.log(
+            "runtime-store",
+            "interrupt session=\(sessionID.uuidString) tool=\(existing.tool) state=\(existing.responseState?.rawValue ?? "nil") updatedAt=\(existing.updatedAt)"
+        )
+        return true
     }
 
     @discardableResult
@@ -433,6 +452,10 @@ final class AIRuntimeStateStore {
             || mergedRuntime.responseState == .idle
         if canApplySnapshotResponseState {
             if shouldPreserveHookRespondingState {
+                logger.log(
+                    "runtime-store",
+                    "preserve session=\(sessionID.uuidString) tool=\(existing.tool) field=responseState keep=responding incoming=idle source=\(mergedRuntime.source.rawValue)"
+                )
                 existing.responseState = .responding
             } else if let interruptedAt = existing.interruptedAt,
                       mergedRuntime.responseState == .responding,
@@ -526,7 +549,7 @@ final class AIRuntimeStateStore {
             let projected = self.snapshot(from: existing)
             logger.log(
                 "runtime-store",
-                "snapshot session=\(sessionID.uuidString) tool=\(existing.tool) model=\(projected.model ?? "nil") response=\(existing.responseState?.rawValue ?? "nil") total=\(projected.currentTotalTokens) external=\(projected.externalSessionID ?? "nil") origin=\(effectiveRuntime.sessionOrigin.rawValue)"
+                "snapshot session=\(sessionID.uuidString) tool=\(existing.tool) model=\(projected.model ?? "nil") response=\(existing.responseState?.rawValue ?? "nil") total=\(projected.currentTotalTokens) external=\(projected.externalSessionID ?? "nil") origin=\(effectiveRuntime.sessionOrigin.rawValue) source=\(effectiveRuntime.source.rawValue)"
             )
         }
 
@@ -791,6 +814,11 @@ final class AIRuntimeStateStore {
                 && hasIndexedHistoricalSession
                 && totalTokens > (indexedHistoricalTotal ?? 0)
                 && allowsHistoricalBaseline
+            let shouldPreferObservedRestoredBaseline =
+                attachmentOrigin == .unknown
+                && hasIndexedHistoricalSession
+                && totalTokens > 0
+                && totalTokens < (indexedHistoricalTotal ?? 0)
             let shouldSeedObservedBaselineOnFirstProgress =
                 totalTokens <= 0
                 && (
@@ -798,7 +826,9 @@ final class AIRuntimeStateStore {
                     || (attachmentOrigin == .unknown && hasIndexedHistoricalSession)
                 )
             let usesObservedBaseline =
-                (attachmentOrigin == .restored && hasIndexedHistoricalSession == false)
+                (attachmentOrigin == .restored && totalTokens > 0)
+                || (attachmentOrigin == .restored && hasIndexedHistoricalSession == false)
+                || shouldPreferObservedRestoredBaseline
                 || shouldAdoptObservedHistoricalBaseline
             let pendingBaselineSeed =
                 shouldSeedObservedBaselineOnFirstProgress

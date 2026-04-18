@@ -210,6 +210,23 @@ struct AIToolDriverFactory: Sendable {
     }
 }
 
+private actor AIToolRuntimeEventDeduper {
+    static let shared = AIToolRuntimeEventDeduper()
+
+    private var lastSeenAtByKey: [String: Date] = [:]
+
+    func shouldAccept(key: String, ttl: TimeInterval) -> Bool {
+        let now = Date()
+        lastSeenAtByKey = lastSeenAtByKey.filter { now.timeIntervalSince($0.value) < max(ttl * 4, 2) }
+        if let previous = lastSeenAtByKey[key],
+           now.timeIntervalSince(previous) < ttl {
+            return false
+        }
+        lastSeenAtByKey[key] = now
+        return true
+    }
+}
+
 private struct ClaudeToolDriver: AIToolDriver {
     let id = "claude"
     let aliases: Set<String> = ["claude", "claude-code"]
@@ -226,6 +243,177 @@ private struct ClaudeToolDriver: AIToolDriver {
         AIRuntimeSourceLocator.claudeProjectLogURLs().map {
             AIToolRuntimeSourceDescriptor(path: $0.path, watchKind: .file)
         }
+    }
+
+    func handleRuntimeIngressEvent(
+        descriptor: AIToolRuntimeSourceDescriptor,
+        projects: [Project],
+        liveEnvelopes: [AIToolUsageEnvelope]
+    ) async -> AIToolRuntimeIngressUpdate? {
+        guard descriptor.watchKind == .file else {
+            return nil
+        }
+
+        let fileURL = URL(fileURLWithPath: descriptor.path)
+        let interruptEvents = await ClaudeRuntimeInterruptWatchCache.shared.process(
+            fileURL: fileURL,
+            projectPath: Optional<String>.none
+        )
+        guard !interruptEvents.isEmpty else {
+            return nil
+        }
+
+        var responsePayloads: [AIResponseStatePayload] = []
+        var runtimeSnapshotsBySessionID: [UUID: AIRuntimeContextSnapshot] = [:]
+
+        for interruptEvent in interruptEvents {
+            guard let envelope = liveEnvelopes.first(where: {
+                canonicalTool($0.tool) == id
+                    && $0.externalSessionID == interruptEvent.externalSessionID
+                    && UUID(uuidString: $0.projectId).flatMap { projectID in
+                        projects.first(where: { $0.id == projectID })
+                    } != nil
+            }),
+                  let sessionID = UUID(uuidString: envelope.sessionId),
+                  let projectID = UUID(uuidString: envelope.projectId) else {
+                continue
+            }
+
+            AppDebugLog.shared.log(
+                "claude-watcher",
+                "interrupt session=\(sessionID.uuidString) external=\(interruptEvent.externalSessionID) updatedAt=\(interruptEvent.updatedAt)"
+            )
+
+            responsePayloads.append(
+                AIResponseStatePayload(
+                    sessionId: sessionID.uuidString,
+                    sessionInstanceId: envelope.sessionInstanceId,
+                    invocationId: envelope.invocationId,
+                    projectId: projectID.uuidString,
+                    projectPath: envelope.projectPath,
+                    tool: id,
+                    responseState: .idle,
+                    updatedAt: interruptEvent.updatedAt,
+                    source: .watcher
+                )
+            )
+
+            runtimeSnapshotsBySessionID[sessionID] = AIRuntimeContextSnapshot(
+                tool: id,
+                externalSessionID: interruptEvent.externalSessionID,
+                model: envelope.model,
+                inputTokens: max(0, envelope.inputTokens ?? 0),
+                outputTokens: max(0, envelope.outputTokens ?? 0),
+                totalTokens: max(0, envelope.totalTokens ?? 0),
+                updatedAt: interruptEvent.updatedAt,
+                responseState: .idle,
+                wasInterrupted: true,
+                hasCompletedTurn: false,
+                source: .watcher
+            )
+        }
+
+        guard !responsePayloads.isEmpty || !runtimeSnapshotsBySessionID.isEmpty else {
+            return nil
+        }
+
+        return AIToolRuntimeIngressUpdate(
+            responsePayloads: responsePayloads,
+            runtimeSnapshotsBySessionID: runtimeSnapshotsBySessionID
+        )
+    }
+
+    func handleRuntimeSocketEvent(
+        kind: String,
+        payloadData: Data,
+        projects: [Project],
+        liveEnvelopes: [AIToolUsageEnvelope],
+        existingRuntime: [UUID: AIRuntimeContextSnapshot]
+    ) async -> AIToolRuntimeIngressUpdate? {
+        _ = projects
+        guard kind == "claude-hook",
+              let envelope = try? JSONDecoder().decode(ClaudeHookRuntimeEnvelope.self, from: payloadData),
+              let sessionID = UUID(uuidString: envelope.dmuxSessionId) else {
+            return nil
+        }
+
+        let dedupeKey = "claude|\(envelope.event)|\(sessionID.uuidString)|\(payloadHash(envelope.payload))"
+        guard await AIToolRuntimeEventDeduper.shared.shouldAccept(key: dedupeKey, ttl: 1.0) else {
+            AppDebugLog.shared.log(
+                "claude-hook",
+                "drop duplicate event=\(envelope.event) session=\(sessionID.uuidString)"
+            )
+            return nil
+        }
+
+        let liveEnvelope = liveEnvelopes.first { UUID(uuidString: $0.sessionId) == sessionID }
+        let existingSnapshot = existingRuntime[sessionID]
+        if let liveEnvelope,
+           canonicalTool(liveEnvelope.tool) != id {
+            AppDebugLog.shared.log(
+                "claude-hook",
+                "ignore stale event=\(envelope.event) session=\(sessionID.uuidString) liveTool=\(liveEnvelope.tool)"
+            )
+            return nil
+        }
+        if liveEnvelope == nil,
+           let existingSnapshot,
+           canonicalTool(existingSnapshot.tool) != id {
+            AppDebugLog.shared.log(
+                "claude-hook",
+                "ignore stale event=\(envelope.event) session=\(sessionID.uuidString) runtimeTool=\(existingSnapshot.tool)"
+            )
+            return nil
+        }
+
+        let payloadObject: [String: Any]? = envelope.payload.data(using: .utf8)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let externalSessionID = stringValue(in: payloadObject, key: "session_id")
+            ?? existingSnapshot?.externalSessionID
+            ?? liveEnvelope?.externalSessionID
+        let projectPath = envelope.dmuxProjectPath
+            ?? liveEnvelope?.projectPath
+
+        switch envelope.event {
+        case "UserPromptSubmit":
+            if let projectPath, let externalSessionID, !projectPath.isEmpty, !externalSessionID.isEmpty {
+                let fileURL = AIRuntimeSourceLocator.claudeSessionLogURL(
+                    projectPath: projectPath,
+                    externalSessionID: externalSessionID
+                )
+                await ClaudeRuntimeInterruptWatchCache.shared.prime(
+                    fileURL: fileURL,
+                    externalSessionID: externalSessionID
+                )
+                AppDebugLog.shared.log(
+                    "claude-hook",
+                    "prime interrupt watcher session=\(sessionID.uuidString) external=\(externalSessionID) file=\(fileURL.lastPathComponent)"
+                )
+            } else {
+                AppDebugLog.shared.log(
+                    "claude-hook",
+                    "skip prime session=\(sessionID.uuidString) reason=missing-path-or-external"
+                )
+            }
+        case "Notification":
+            let notificationType = stringValue(in: payloadObject, key: "notification_type") ?? "unknown"
+            AppDebugLog.shared.log(
+                "claude-hook",
+                "notification session=\(sessionID.uuidString) type=\(notificationType)"
+            )
+        case "Stop", "StopFailure", "SessionEnd", "SessionStart", "PreToolUse", "PostToolUse", "PermissionRequest", "Idle":
+            AppDebugLog.shared.log(
+                "claude-hook",
+                "event=\(envelope.event) session=\(sessionID.uuidString) external=\(externalSessionID ?? "nil")"
+            )
+        default:
+            AppDebugLog.shared.log(
+                "claude-hook",
+                "ignore event=\(envelope.event) session=\(sessionID.uuidString)"
+            )
+        }
+
+        return nil
     }
 
     func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities {
@@ -260,6 +448,26 @@ private struct ClaudeToolDriver: AIToolDriver {
             try fileManager.removeItem(at: fileURL)
         }
     }
+
+    private func canonicalTool(_ tool: String) -> String {
+        aliases.contains(tool) ? id : tool
+    }
+
+    private func stringValue(in object: [String: Any]?, key: String) -> String? {
+        guard let object,
+              let value = object[key] as? String,
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private func payloadHash(_ payload: String) -> Int {
+        var hasher = Hasher()
+        hasher.combine(payload.count)
+        hasher.combine(payload.prefix(160))
+        return hasher.finalize()
+    }
 }
 
 private struct CodexToolDriver: AIToolDriver {
@@ -293,6 +501,15 @@ private struct CodexToolDriver: AIToolDriver {
               let projectID = UUID(uuidString: envelope.dmuxProjectId),
               let payloadText = envelope.payload.data(using: .utf8),
               let payloadObject = try? JSONSerialization.jsonObject(with: payloadText) as? [String: Any] else {
+            return nil
+        }
+
+        let dedupeKey = "codex|\(envelope.event)|\(sessionID.uuidString)|\(payloadHash(envelope.payload))"
+        guard await AIToolRuntimeEventDeduper.shared.shouldAccept(key: dedupeKey, ttl: 1.2) else {
+            AppDebugLog.shared.log(
+                "codex-hook",
+                "drop duplicate event=\(envelope.event) session=\(sessionID.uuidString)"
+            )
             return nil
         }
 
@@ -342,10 +559,27 @@ private struct CodexToolDriver: AIToolDriver {
             existingSnapshot?.updatedAt ?? 0
         )
 
+        if let existingSnapshot,
+           existingSnapshot.externalSessionID == externalSessionID,
+           existingSnapshot.responseState == .responding,
+           envelope.event == "UserPromptSubmit",
+           updatedAt <= existingSnapshot.updatedAt {
+            AppDebugLog.shared.log(
+                "codex-hook",
+                "drop stale event=\(envelope.event) session=\(sessionID.uuidString) updatedAt=\(updatedAt) existingAt=\(existingSnapshot.updatedAt)"
+            )
+            return nil
+        }
+
         let runtimeSnapshot: AIRuntimeContextSnapshot
         let responsePayload: AIResponseStatePayload
         switch envelope.event {
         case "UserPromptSubmit":
+            await CodexRuntimeResponseLatch.shared.markResponding(
+                runtimeSessionID: sessionID.uuidString,
+                externalSessionID: externalSessionID,
+                updatedAt: updatedAt
+            )
             runtimeSnapshot = AIRuntimeContextSnapshot(
                 tool: id,
                 externalSessionID: externalSessionID,
@@ -356,7 +590,8 @@ private struct CodexToolDriver: AIToolDriver {
                 updatedAt: updatedAt,
                 responseState: .responding,
                 wasInterrupted: false,
-                hasCompletedTurn: false
+                hasCompletedTurn: false,
+                source: .hook
             )
             responsePayload = AIResponseStatePayload(
                 sessionId: sessionID.uuidString,
@@ -366,15 +601,23 @@ private struct CodexToolDriver: AIToolDriver {
                 projectPath: nil,
                 tool: id,
                 responseState: .responding,
-                updatedAt: updatedAt
+                updatedAt: updatedAt,
+                source: .hook
             )
         case "Stop":
             let transcriptPath = stringValue(in: payloadObject, key: "transcript_path")
             let parsedState = await resolveCodexStopRuntimeState(transcriptPath: transcriptPath)
+            await CodexRuntimeResponseLatch.shared.releaseIfDefinitiveStop(
+                runtimeSessionID: sessionID.uuidString,
+                externalSessionID: externalSessionID,
+                wasInterrupted: parsedState?.wasInterrupted ?? false,
+                hasCompletedTurn: parsedState?.hasCompletedTurn ?? false
+            )
             AppDebugLog.shared.log(
                 "codex-hook",
                 "stop session=\(sessionID.uuidString) external=\(externalSessionID ?? "nil") transcript=\(transcriptPath ?? "nil") parsedModel=\(parsedState?.model ?? model ?? "nil") parsedTokens=\(parsedState?.totalTokens.map(String.init) ?? "nil") interrupted=\(parsedState?.wasInterrupted == true) completed=\(parsedState?.hasCompletedTurn == true)"
             )
+            let hasDefinitiveStop = (parsedState?.wasInterrupted == true) || (parsedState?.hasCompletedTurn == true)
             runtimeSnapshot = AIRuntimeContextSnapshot(
                 tool: id,
                 externalSessionID: externalSessionID,
@@ -383,20 +626,40 @@ private struct CodexToolDriver: AIToolDriver {
                 outputTokens: 0,
                 totalTokens: parsedState?.totalTokens ?? max(liveEnvelope?.totalTokens ?? 0, existingSnapshot?.totalTokens ?? 0),
                 updatedAt: max(updatedAt, parsedState?.updatedAt ?? 0),
-                responseState: .idle,
+                responseState: hasDefinitiveStop ? .idle : nil,
                 wasInterrupted: parsedState?.wasInterrupted ?? false,
-                hasCompletedTurn: parsedState?.hasCompletedTurn ?? false
+                hasCompletedTurn: parsedState?.hasCompletedTurn ?? false,
+                source: .hook
             )
-            responsePayload = AIResponseStatePayload(
-                sessionId: sessionID.uuidString,
-                sessionInstanceId: nil,
-                invocationId: nil,
-                projectId: projectID.uuidString,
-                projectPath: nil,
-                tool: id,
-                responseState: .idle,
-                updatedAt: runtimeSnapshot.updatedAt
-            )
+            if hasDefinitiveStop {
+                responsePayload = AIResponseStatePayload(
+                    sessionId: sessionID.uuidString,
+                    sessionInstanceId: nil,
+                    invocationId: nil,
+                    projectId: projectID.uuidString,
+                    projectPath: nil,
+                    tool: id,
+                    responseState: .idle,
+                    updatedAt: runtimeSnapshot.updatedAt,
+                    source: .hook
+                )
+            } else {
+                AppDebugLog.shared.log(
+                    "codex-hook",
+                    "defer stop session=\(sessionID.uuidString) external=\(externalSessionID ?? "nil") reason=non-definitive"
+                )
+                responsePayload = AIResponseStatePayload(
+                    sessionId: sessionID.uuidString,
+                    sessionInstanceId: nil,
+                    invocationId: nil,
+                    projectId: projectID.uuidString,
+                    projectPath: nil,
+                    tool: id,
+                    responseState: .responding,
+                    updatedAt: runtimeSnapshot.updatedAt,
+                    source: .hook
+                )
+            }
         default:
             AppDebugLog.shared.log("codex-hook", "ignore event=\(envelope.event) session=\(sessionID.uuidString)")
             return nil
@@ -462,11 +725,21 @@ private struct CodexToolDriver: AIToolDriver {
         aliases.contains(tool) ? id : tool
     }
 
-    private func stringValue(in object: [String: Any], key: String) -> String? {
+    private func stringValue(in object: [String: Any]?, key: String) -> String? {
+        guard let object else {
+            return nil
+        }
         guard let value = object[key] as? String, !value.isEmpty else {
             return nil
         }
         return value
+    }
+
+    private func payloadHash(_ payload: String) -> Int {
+        var hasher = Hasher()
+        hasher.combine(payload.count)
+        hasher.combine(payload.prefix(160))
+        return hasher.finalize()
     }
 
     private func shouldReuseExistingTotals(
@@ -493,6 +766,7 @@ private struct OpenCodeToolDriver: AIToolDriver {
     let runtimeRefreshInterval: TimeInterval = 0.75
     let isRealtimeTool = true
     let prefersHookDrivenResponseState = true
+    let freezesDisplayTokensWhileResponding = true
     let allowsRuntimeExternalSessionSwitch = true
 
     func matches(tool: String) -> Bool {
@@ -528,6 +802,15 @@ private struct OpenCodeToolDriver: AIToolDriver {
             return nil
         }
 
+        let dedupeKey = "opencode|\(sessionID.uuidString)|\(envelope.responseState?.rawValue ?? "nil")|\(Int(envelope.updatedAt))|\(envelope.totalTokens ?? -1)"
+        guard await AIToolRuntimeEventDeduper.shared.shouldAccept(key: dedupeKey, ttl: 1.0) else {
+            AppDebugLog.shared.log(
+                "opencode-driver",
+                "drop duplicate kind=\(kind) session=\(sessionID.uuidString)"
+            )
+            return nil
+        }
+
         let liveEnvelope = liveEnvelopes.first { UUID(uuidString: $0.sessionId) == sessionID }
         let existingSnapshot = existingRuntime[sessionID]
         if let liveEnvelope,
@@ -551,7 +834,19 @@ private struct OpenCodeToolDriver: AIToolDriver {
         let externalSessionID = normalizedSessionID(envelope.externalSessionID)
             ?? existingSnapshot?.externalSessionID
             ?? normalizedSessionID(liveEnvelope?.externalSessionID)
+        let projectPath = normalizedSessionID(envelope.projectPath)
+            ?? normalizedSessionID(liveEnvelope?.projectPath)
+        let switchedExternalSession =
+            externalSessionID != nil
+            && externalSessionID != existingSnapshot?.externalSessionID
+        let resolvedHistoricalSnapshot = resolvedExternalSessionSnapshot(
+            projectPath: projectPath,
+            externalSessionID: externalSessionID,
+            shouldResolve: switchedExternalSession
+                || ((envelope.totalTokens ?? 0) == 0 && envelope.responseState == .responding)
+        )
         let model = normalizedSessionID(envelope.model)
+            ?? resolvedHistoricalSnapshot?.model
             ?? existingSnapshot?.model
             ?? normalizedSessionID(liveEnvelope?.model)
         let canReuseExistingTotals = shouldReuseExistingTotals(
@@ -570,19 +865,33 @@ private struct OpenCodeToolDriver: AIToolDriver {
             : 0
         let updatedAt = max(
             envelope.updatedAt,
+            resolvedHistoricalSnapshot?.updatedAt ?? 0,
             liveEnvelope?.updatedAt ?? 0,
             existingSnapshot?.updatedAt ?? 0
         )
+
+        if let existingSnapshot,
+           existingSnapshot.externalSessionID == externalSessionID,
+           updatedAt < existingSnapshot.updatedAt,
+           envelope.responseState != .responding {
+            AppDebugLog.shared.log(
+                "opencode-driver",
+                "drop stale kind=\(kind) session=\(sessionID.uuidString) updatedAt=\(updatedAt) existingAt=\(existingSnapshot.updatedAt)"
+            )
+            return nil
+        }
 
         let runtimeSnapshot = AIRuntimeContextSnapshot(
             tool: id,
             externalSessionID: externalSessionID,
             model: model,
-            inputTokens: max(envelope.inputTokens ?? 0, inheritedInputTokens),
-            outputTokens: max(envelope.outputTokens ?? 0, inheritedOutputTokens),
-            totalTokens: max(envelope.totalTokens ?? 0, inheritedTotalTokens),
+            inputTokens: max(envelope.inputTokens ?? 0, resolvedHistoricalSnapshot?.inputTokens ?? 0, inheritedInputTokens),
+            outputTokens: max(envelope.outputTokens ?? 0, resolvedHistoricalSnapshot?.outputTokens ?? 0, inheritedOutputTokens),
+            totalTokens: max(envelope.totalTokens ?? 0, resolvedHistoricalSnapshot?.totalTokens ?? 0, inheritedTotalTokens),
             updatedAt: updatedAt,
-            responseState: envelope.responseState
+            responseState: envelope.responseState,
+            sessionOrigin: resolvedHistoricalSnapshot?.sessionOrigin ?? .unknown,
+            source: .socket
         )
 
         let responsePayloads: [AIResponseStatePayload]
@@ -596,7 +905,8 @@ private struct OpenCodeToolDriver: AIToolDriver {
                     projectPath: envelope.projectPath,
                     tool: id,
                     responseState: responseState,
-                    updatedAt: updatedAt
+                    updatedAt: updatedAt,
+                    source: .socket
                 ),
             ]
         } else {
@@ -605,7 +915,7 @@ private struct OpenCodeToolDriver: AIToolDriver {
 
         AppDebugLog.shared.log(
             "opencode-driver",
-            "socket kind=\(kind) session=\(sessionID.uuidString) external=\(externalSessionID ?? "nil") model=\(model ?? "nil") response=\(envelope.responseState?.rawValue ?? "nil") total=\(runtimeSnapshot.totalTokens) reuseTotals=\(canReuseExistingTotals)"
+            "socket kind=\(kind) session=\(sessionID.uuidString) external=\(externalSessionID ?? "nil") model=\(model ?? "nil") response=\(envelope.responseState?.rawValue ?? "nil") total=\(runtimeSnapshot.totalTokens) reuseTotals=\(canReuseExistingTotals) origin=\(runtimeSnapshot.sessionOrigin.rawValue)"
         )
 
         return AIToolRuntimeIngressUpdate(
@@ -697,6 +1007,116 @@ private struct OpenCodeToolDriver: AIToolDriver {
         }
         return false
     }
+
+    private func resolvedExternalSessionSnapshot(
+        projectPath: String?,
+        externalSessionID: String?,
+        shouldResolve: Bool
+    ) -> AIRuntimeContextSnapshot? {
+        guard shouldResolve,
+              let projectPath,
+              let externalSessionID else {
+            return nil
+        }
+
+        let databaseURL = AIRuntimeSourceLocator.opencodeDatabaseURL()
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else {
+            return nil
+        }
+
+        var db: OpaquePointer?
+        guard sqlite3_open(databaseURL.path, &db) == SQLITE_OK,
+              let db else {
+            if db != nil {
+                sqlite3_close(db)
+            }
+            return nil
+        }
+        defer { sqlite3_close(db) }
+
+        return try? fetchOpenCodeSessionSnapshot(
+            db: db,
+            projectPath: projectPath,
+            externalSessionID: externalSessionID
+        )
+    }
+}
+
+private func fetchOpenCodeSessionSnapshot(
+    db: OpaquePointer,
+    projectPath: String,
+    externalSessionID: String
+) throws -> AIRuntimeContextSnapshot? {
+    let sql = """
+    SELECT json_extract(m.data, '$.modelID') AS model,
+           COALESCE(json_extract(m.data, '$.tokens.input'), 0) AS input_tokens,
+           COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS output_tokens,
+           COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0) AS cache_read_tokens,
+           COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0) AS cache_write_tokens,
+           COALESCE(json_extract(m.data, '$.tokens.total'), 0) AS total_tokens,
+           COALESCE(json_extract(m.data, '$.time.completed'), json_extract(m.data, '$.time.created'), 0) AS completed_at,
+           s.time_updated AS session_updated_at
+    FROM session s
+    LEFT JOIN message m ON m.session_id = s.id
+    WHERE s.directory = ?
+      AND s.id = ?
+      AND s.time_archived IS NULL
+    ORDER BY m.time_created DESC;
+    """
+
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+          let statement else {
+        throw AIToolSessionControlError.storageFailure(String(cString: sqlite3_errmsg(db)))
+    }
+    defer { sqlite3_finalize(statement) }
+
+    sqlite3_bind_text(statement, 1, projectPath, -1, SQLITE_TRANSIENT_SESSION)
+    sqlite3_bind_text(statement, 2, externalSessionID, -1, SQLITE_TRANSIENT_SESSION)
+
+    var latestModel: String?
+    var inputTokens = 0
+    var outputTokens = 0
+    var totalTokens = 0
+    var updatedAt = 0.0
+    var hadRow = false
+
+    while sqlite3_step(statement) == SQLITE_ROW {
+        hadRow = true
+        if latestModel == nil, let rawModel = sqlite3_column_text(statement, 0) {
+            let model = String(cString: rawModel)
+            if !model.isEmpty {
+                latestModel = model
+            }
+        }
+        let input = Int(sqlite3_column_int64(statement, 1))
+        let output = Int(sqlite3_column_int64(statement, 2))
+        let cacheRead = Int(sqlite3_column_int64(statement, 3))
+        let cacheWrite = Int(sqlite3_column_int64(statement, 4))
+        let explicitTotal = Int(sqlite3_column_int64(statement, 5))
+        inputTokens += input + cacheRead + cacheWrite
+        outputTokens += output
+        totalTokens += max(explicitTotal, input + output + cacheRead + cacheWrite)
+        updatedAt = max(updatedAt, sqlite3_column_double(statement, 6) / 1000)
+        updatedAt = max(updatedAt, sqlite3_column_double(statement, 7) / 1000)
+    }
+
+    guard hadRow else {
+        return nil
+    }
+
+    return AIRuntimeContextSnapshot(
+        tool: "opencode",
+        externalSessionID: externalSessionID,
+        model: latestModel,
+        inputTokens: inputTokens,
+        outputTokens: outputTokens,
+        totalTokens: totalTokens,
+        updatedAt: updatedAt,
+        responseState: totalTokens > 0 ? .idle : nil,
+        sessionOrigin: totalTokens > 0 ? .restored : .fresh,
+        source: .probe
+    )
 }
 
 private struct GeminiToolDriver: AIToolDriver {
@@ -708,15 +1128,233 @@ private struct GeminiToolDriver: AIToolDriver {
     let freezesDisplayTokensWhileResponding = true
     let allowsRuntimeExternalSessionSwitch = true
     let seedsObservedBaselineOnFreshLaunch = true
-    let usesHistoricalExternalSessionHintForRuntimeProbe = false
 
     func matches(tool: String) -> Bool {
         aliases.contains(tool)
     }
 
     func runtimeSourceDescriptors(project: Project, envelope: AIToolUsageEnvelope?) -> [AIToolRuntimeSourceDescriptor] {
-        _ = envelope
-        return []
+        let projectPath = envelope?.projectPath ?? project.path
+        guard let chatsDirectoryURL = AIRuntimeSourceLocator.geminiChatsDirectoryURL(projectPath: projectPath),
+              FileManager.default.fileExists(atPath: chatsDirectoryURL.path) else {
+            return []
+        }
+        return [AIToolRuntimeSourceDescriptor(path: chatsDirectoryURL.path, watchKind: .directory)]
+    }
+
+    func handleRuntimeIngressEvent(
+        descriptor: AIToolRuntimeSourceDescriptor,
+        projects: [Project],
+        liveEnvelopes: [AIToolUsageEnvelope]
+    ) async -> AIToolRuntimeIngressUpdate? {
+        guard descriptor.watchKind == .directory else {
+            return nil
+        }
+
+        let matchingProjectPaths = Set(projects.compactMap { project -> String? in
+            guard AIRuntimeSourceLocator.geminiChatsDirectoryURL(projectPath: project.path)?.path == descriptor.path else {
+                return nil
+            }
+            return project.path
+        })
+        guard !matchingProjectPaths.isEmpty else {
+            return nil
+        }
+
+        var responsePayloads: [AIResponseStatePayload] = []
+        var runtimeSnapshotsBySessionID: [UUID: AIRuntimeContextSnapshot] = [:]
+
+        for envelope in liveEnvelopes {
+            guard canonicalTool(envelope.tool) == id,
+                  let sessionID = UUID(uuidString: envelope.sessionId),
+                  let projectID = UUID(uuidString: envelope.projectId),
+                  let projectPath = envelope.projectPath,
+                  matchingProjectPaths.contains(projectPath),
+                  let snapshot = resolvedSnapshot(
+                      projectPath: projectPath,
+                      liveEnvelope: envelope,
+                      existingSnapshot: nil,
+                      responseStateOverride: nil,
+                      updatedAt: envelope.updatedAt,
+                      marksCompletedTurn: envelope.responseState == .idle,
+                      source: .probe
+                  ) else {
+                continue
+            }
+
+            runtimeSnapshotsBySessionID[sessionID] = snapshot
+            if let responseState = snapshot.responseState {
+                responsePayloads.append(
+                    AIResponseStatePayload(
+                        sessionId: sessionID.uuidString,
+                        sessionInstanceId: envelope.sessionInstanceId,
+                        invocationId: envelope.invocationId,
+                        projectId: projectID.uuidString,
+                        projectPath: projectPath,
+                        tool: id,
+                        responseState: responseState,
+                        updatedAt: snapshot.updatedAt,
+                        source: .probe
+                    )
+                )
+            }
+        }
+
+        guard !responsePayloads.isEmpty || !runtimeSnapshotsBySessionID.isEmpty else {
+            return nil
+        }
+
+        return AIToolRuntimeIngressUpdate(
+            responsePayloads: responsePayloads,
+            runtimeSnapshotsBySessionID: runtimeSnapshotsBySessionID
+        )
+    }
+
+    func handleRuntimeSocketEvent(
+        kind: String,
+        payloadData: Data,
+        projects: [Project],
+        liveEnvelopes: [AIToolUsageEnvelope],
+        existingRuntime: [UUID: AIRuntimeContextSnapshot]
+    ) async -> AIToolRuntimeIngressUpdate? {
+        _ = projects
+        guard kind == "gemini-hook",
+              let envelope = try? JSONDecoder().decode(GeminiHookRuntimeEnvelope.self, from: payloadData),
+              let sessionID = UUID(uuidString: envelope.dmuxSessionId),
+              let projectID = UUID(uuidString: envelope.dmuxProjectId) else {
+            return nil
+        }
+
+        let dedupeKey = "gemini|\(envelope.event)|\(sessionID.uuidString)|\(payloadHash(envelope.payload))"
+        guard await AIToolRuntimeEventDeduper.shared.shouldAccept(key: dedupeKey, ttl: 1.0) else {
+            AppDebugLog.shared.log(
+                "gemini-hook",
+                "drop duplicate event=\(envelope.event) session=\(sessionID.uuidString)"
+            )
+            return nil
+        }
+
+        let liveEnvelope = liveEnvelopes.first { UUID(uuidString: $0.sessionId) == sessionID }
+        let existingSnapshot = existingRuntime[sessionID]
+        if let liveEnvelope,
+           canonicalTool(liveEnvelope.tool) != id {
+            AppDebugLog.shared.log(
+                "gemini-hook",
+                "ignore stale event=\(envelope.event) session=\(sessionID.uuidString) liveTool=\(liveEnvelope.tool)"
+            )
+            return nil
+        }
+        if liveEnvelope == nil,
+           let existingSnapshot,
+           canonicalTool(existingSnapshot.tool) != id {
+            AppDebugLog.shared.log(
+                "gemini-hook",
+                "ignore stale event=\(envelope.event) session=\(sessionID.uuidString) runtimeTool=\(existingSnapshot.tool)"
+            )
+            return nil
+        }
+
+        let payloadObject: [String: Any]? = envelope.payload.data(using: .utf8)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let externalSessionID = extractedSessionID(from: payloadObject)
+            ?? existingSnapshot?.externalSessionID
+            ?? normalizedSessionID(liveEnvelope?.externalSessionID)
+        let projectPath = normalizedSessionID(envelope.dmuxProjectPath)
+            ?? normalizedSessionID(liveEnvelope?.projectPath)
+        let updatedAt = max(
+            envelope.receivedAt,
+            liveEnvelope?.updatedAt ?? 0,
+            existingSnapshot?.updatedAt ?? 0
+        )
+
+        let responseStateOverride: AIResponseState?
+        switch envelope.event {
+        case "SessionStart":
+            responseStateOverride = .idle
+        case "BeforeAgent":
+            responseStateOverride = .responding
+        case "AfterAgent":
+            responseStateOverride = .idle
+        case "SessionEnd":
+            AppDebugLog.shared.log(
+                "gemini-hook",
+                "event=\(envelope.event) session=\(sessionID.uuidString) external=\(externalSessionID ?? "nil")"
+            )
+            return nil
+        default:
+            AppDebugLog.shared.log(
+                "gemini-hook",
+                "ignore event=\(envelope.event) session=\(sessionID.uuidString)"
+            )
+            return nil
+        }
+
+        let runtimeSnapshot = resolvedSnapshot(
+            projectPath: projectPath,
+            liveEnvelope: liveEnvelope,
+            existingSnapshot: existingSnapshot,
+            preferredExternalSessionID: externalSessionID,
+            responseStateOverride: responseStateOverride,
+            updatedAt: updatedAt,
+            marksCompletedTurn: false,
+            source: .hook
+        ) ?? fallbackSnapshot(
+            externalSessionID: externalSessionID,
+            liveEnvelope: liveEnvelope,
+            existingSnapshot: existingSnapshot,
+            responseStateOverride: responseStateOverride,
+            updatedAt: updatedAt,
+            marksCompletedTurn: false
+        )
+
+        let marksCompletedTurn: Bool = {
+            guard envelope.event == "AfterAgent" else {
+                return false
+            }
+            let previousTotal = max(
+                liveEnvelope?.totalTokens ?? 0,
+                existingSnapshot?.totalTokens ?? 0
+            )
+            return runtimeSnapshot.totalTokens > previousTotal
+        }()
+
+        let effectiveSnapshot: AIRuntimeContextSnapshot = {
+            guard marksCompletedTurn else {
+                return runtimeSnapshot
+            }
+            var next = runtimeSnapshot
+            next.hasCompletedTurn = true
+            return next
+        }()
+
+        AppDebugLog.shared.log(
+            "gemini-hook",
+            "event=\(envelope.event) session=\(sessionID.uuidString) external=\(effectiveSnapshot.externalSessionID ?? "nil") response=\(effectiveSnapshot.responseState?.rawValue ?? "nil") total=\(effectiveSnapshot.totalTokens) completed=\(marksCompletedTurn)"
+        )
+
+        let responsePayloads: [AIResponseStatePayload]
+        if let responseState = effectiveSnapshot.responseState {
+            responsePayloads = [
+                AIResponseStatePayload(
+                    sessionId: sessionID.uuidString,
+                    sessionInstanceId: liveEnvelope?.sessionInstanceId,
+                    invocationId: liveEnvelope?.invocationId,
+                    projectId: projectID.uuidString,
+                    projectPath: projectPath,
+                    tool: id,
+                    responseState: responseState,
+                    updatedAt: effectiveSnapshot.updatedAt,
+                    source: .hook
+                ),
+            ]
+        } else {
+            responsePayloads = []
+        }
+
+        return AIToolRuntimeIngressUpdate(
+            responsePayloads: responsePayloads,
+            runtimeSnapshotsBySessionID: [sessionID: effectiveSnapshot]
+        )
     }
 
     func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities {
@@ -729,6 +1367,155 @@ private struct GeminiToolDriver: AIToolDriver {
             return nil
         }
         return "gemini --resume \(shellQuoted(sessionID))"
+    }
+
+    private func canonicalTool(_ tool: String) -> String {
+        aliases.contains(tool) ? id : tool
+    }
+
+    private func normalizedSessionID(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private func extractedSessionID(from object: [String: Any]?) -> String? {
+        firstString(in: object, keys: ["session_id", "sessionId", "id"])
+    }
+
+    private func firstString(in root: Any?, keys: [String]) -> String? {
+        var stack: [Any] = []
+        if let root {
+            stack.append(root)
+        }
+
+        while let current = stack.popLast() {
+            if let dictionary = current as? [String: Any] {
+                for key in keys {
+                    if let value = dictionary[key] as? String,
+                       !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        return value
+                    }
+                }
+                stack.append(contentsOf: dictionary.values)
+                continue
+            }
+            if let array = current as? [Any] {
+                stack.append(contentsOf: array)
+            }
+        }
+
+        return nil
+    }
+
+    private func payloadHash(_ payload: String) -> Int {
+        var hasher = Hasher()
+        hasher.combine(payload.count)
+        hasher.combine(payload.prefix(160))
+        return hasher.finalize()
+    }
+
+    private func shouldReuseExistingTotals(
+        externalSessionID: String?,
+        liveEnvelope: AIToolUsageEnvelope?,
+        existingSnapshot: AIRuntimeContextSnapshot?
+    ) -> Bool {
+        guard let externalSessionID, !externalSessionID.isEmpty else {
+            return false
+        }
+        if normalizedSessionID(liveEnvelope?.externalSessionID) == externalSessionID {
+            return true
+        }
+        if existingSnapshot?.externalSessionID == externalSessionID {
+            return true
+        }
+        return false
+    }
+
+    private func resolvedSnapshot(
+        projectPath: String?,
+        liveEnvelope: AIToolUsageEnvelope?,
+        existingSnapshot: AIRuntimeContextSnapshot?,
+        preferredExternalSessionID: String? = nil,
+        responseStateOverride: AIResponseState?,
+        updatedAt: Double,
+        marksCompletedTurn: Bool,
+        source: AIRuntimeUpdateSource
+    ) -> AIRuntimeContextSnapshot? {
+        guard let projectPath = normalizedSessionID(projectPath) else {
+            return nil
+        }
+
+        let externalSessionID = normalizedSessionID(preferredExternalSessionID)
+            ?? normalizedSessionID(liveEnvelope?.externalSessionID)
+            ?? existingSnapshot?.externalSessionID
+        let startedAt = liveEnvelope?.startedAt ?? updatedAt
+        let parsedState = parseGeminiSessionRuntimeState(
+            projectPath: projectPath,
+            startedAt: startedAt,
+            preferredSessionID: externalSessionID,
+            preferredSessionIsAuthoritative: externalSessionID != nil
+        )
+        guard let parsedState else {
+            return nil
+        }
+
+        return AIRuntimeContextSnapshot(
+            tool: id,
+            externalSessionID: parsedState.externalSessionID,
+            model: parsedState.model
+                ?? existingSnapshot?.model
+                ?? normalizedSessionID(liveEnvelope?.model),
+            inputTokens: parsedState.inputTokens,
+            outputTokens: parsedState.outputTokens,
+            totalTokens: parsedState.totalTokens,
+            updatedAt: max(updatedAt, parsedState.updatedAt),
+            responseState: responseStateOverride ?? parsedState.responseState,
+            wasInterrupted: false,
+            hasCompletedTurn: marksCompletedTurn,
+            sessionOrigin: parsedState.origin,
+            source: source
+        )
+    }
+
+    private func fallbackSnapshot(
+        externalSessionID: String?,
+        liveEnvelope: AIToolUsageEnvelope?,
+        existingSnapshot: AIRuntimeContextSnapshot?,
+        responseStateOverride: AIResponseState?,
+        updatedAt: Double,
+        marksCompletedTurn: Bool
+    ) -> AIRuntimeContextSnapshot {
+        let canReuseExistingTotals = shouldReuseExistingTotals(
+            externalSessionID: externalSessionID,
+            liveEnvelope: liveEnvelope,
+            existingSnapshot: existingSnapshot
+        )
+        let inputTokens = canReuseExistingTotals
+            ? max(liveEnvelope?.inputTokens ?? 0, existingSnapshot?.inputTokens ?? 0)
+            : 0
+        let outputTokens = canReuseExistingTotals
+            ? max(liveEnvelope?.outputTokens ?? 0, existingSnapshot?.outputTokens ?? 0)
+            : 0
+        let totalTokens = canReuseExistingTotals
+            ? max(liveEnvelope?.totalTokens ?? 0, existingSnapshot?.totalTokens ?? 0)
+            : 0
+
+        return AIRuntimeContextSnapshot(
+            tool: id,
+            externalSessionID: externalSessionID,
+            model: existingSnapshot?.model ?? normalizedSessionID(liveEnvelope?.model),
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            totalTokens: totalTokens,
+            updatedAt: updatedAt,
+            responseState: responseStateOverride,
+            wasInterrupted: false,
+            hasCompletedTurn: marksCompletedTurn,
+            source: .hook
+        )
     }
 }
 
