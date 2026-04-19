@@ -282,6 +282,10 @@ open ~/Library/Logs/DiagnosticReports
 
 ---
 
+## GitHub Star 趋势
+
+[![Star History Chart](https://api.star-history.com/svg?repos=duxweb/codux&type=Date)](https://star-history.com/#duxweb/codux&Date)
+
 <p align="center">
   本来想叫 dmux，可惜名字被占了，那就叫 Codux 吧，中文谐音刚好是「酷 Dux」。
 </p>

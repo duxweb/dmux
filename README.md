@@ -38,52 +38,13 @@ Tools like Claude Code, GitHub Copilot CLI, Cursor, and Aider are turning the te
 
 ## Features
 
-### Multi-Project Workspace
-
-Organize all your projects in one place. Each project gets its own terminal sessions, split layout, and state — everything is saved and restored automatically. Real-time activity monitoring watches your AI tools across all projects and notifies you when tasks complete, so you can context-switch without missing a beat.
-
-### Flexible Split Panes
-
-Split terminals horizontally, add bottom tabs, drag to resize. Work on multiple tasks within the same project without losing context.
-
-![Codux Split Workspace](docs/images/screenshot.png)
-
-### Built-in Git Panel
-
-Branches, staged changes, file diffs, commit history, remote sync — all in a sidebar. No more switching to a separate Git GUI.
-
-![Codux Git Panel](docs/images/git.png)
-
-### AI Usage Dashboard
-
-Track AI coding tools running in your terminal — token consumption, model usage, tool breakdowns, daily trends, and live session monitoring. Currently supports **Claude Code**, **Codex (OpenAI)**, and **Gemini CLI**, with more tools coming soon. Know exactly where your AI budget goes. Plus a fun daily level ladder that reflects your usage intensity:
-
-- `Idle`
-- `Light`
-- `Active`
-- `Focus`
-- `Intense`
-- `Grind`
-- `Limit`
-- `Godlike`
-
-![Codux AI Stats](docs/images/ai-stats.png)
-
-![Codux Daily Level](docs/images/level.png)
-
-### Coding Pet Companion
-
-Codux includes a built-in desktop pet that grows with your AI workflow. Claim an egg, name your companion, and let it evolve as you keep coding. It is designed as a lightweight companion layer inside the app rather than a separate game system.
-
-The pet system tracks:
-
-- egg claim and hatching
-- level progression and stage evolution
-- personality growth values such as wisdom, chaos, night, stamina, and empathy
-- a per-species dex with unlocked stages and inheritance history
-- contextual bubble reactions for running, completion, errors, long sessions, hydration reminders, sedentary reminders, and late-night work
-
-![Codux Pet System](docs/images/pet.png)
+| Screenshot | Feature | Description |
+|:--|:--|:--|
+| ![Codux Split Workspace](docs/images/screenshot.png) | Multi-Project Workspace | Organize all your projects in one place. Each project keeps its own terminal sessions, split layout, and state, with activity monitoring that helps you switch context without missing task completion. |
+| ![Codux Git Panel](docs/images/git.png) | Built-in Git Panel | Manage branches, staged changes, file diffs, commit history, and remote sync directly in the sidebar instead of jumping to a separate Git app. |
+| ![Codux AI Stats](docs/images/ai-stats.png) | AI Usage Dashboard | Track token usage, model usage, tool breakdowns, daily trends, and live sessions for AI coding tools running inside your terminal. |
+| ![Codux Daily Level](docs/images/level.png) | Daily Level Ladder | See your current daily AI usage rank at a glance with the live ladder: `Idle`, `Light`, `Active`, `Focus`, `Intense`, `Grind`, `Limit`, `Godlike`. |
+| ![Codux Pet System](docs/images/pet.png) | Coding Pet Companion | Claim an egg, grow a companion, unlock evolutions, fill the dex, and get contextual bubble reactions while you work. |
 
 ### Beautiful & Intuitive
 
@@ -281,6 +242,10 @@ Please attach or paste:
 If convenient, compress the relevant files into a single `.zip` before submitting the issue.
 
 ---
+
+## GitHub Star Trend
+
+[![Star History Chart](https://api.star-history.com/svg?repos=duxweb/codux&type=Date)](https://star-history.com/#duxweb/codux&Date)
 
 <p align="center">
   Wanted to be dmux, but that name was taken. So it's Codux now, which sounds like "Cool Dux" in Chinese.
