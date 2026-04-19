@@ -8,6 +8,7 @@ enum AppWindowIdentifier {
     static let settings = NSUserInterfaceItemIdentifier("dmux.settings")
     static let about = NSUserInterfaceItemIdentifier("dmux.about")
     static let agreement = NSUserInterfaceItemIdentifier("dmux.agreement")
+    static let petDex = NSUserInterfaceItemIdentifier("dmux.petDex")
 }
 
 @MainActor
@@ -33,7 +34,8 @@ func isStandardChromeWindow(_ window: NSWindow) -> Bool {
     if let id = window.identifier?.rawValue {
         if id == AppWindowIdentifier.settings.rawValue
             || id == AppWindowIdentifier.about.rawValue
-            || id == AppWindowIdentifier.agreement.rawValue {
+            || id == AppWindowIdentifier.agreement.rawValue
+            || id == AppWindowIdentifier.petDex.rawValue {
             return true
         }
         if id.contains("Settings") || id.contains("settings") {

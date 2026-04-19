@@ -4,6 +4,7 @@ import SwiftUI
 private enum SettingsSectionTab: String, CaseIterable, Identifiable {
     case general
     case appearance
+    case pet
     case tools
     case notifications
     case shortcuts
@@ -15,6 +16,7 @@ private enum SettingsSectionTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .appearance: return "paintbrush"
+        case .pet: return "pawprint"
         case .tools: return "terminal"
         case .notifications: return "bell.badge"
         case .shortcuts: return "keyboard"
@@ -25,8 +27,10 @@ private enum SettingsSectionTab: String, CaseIterable, Identifiable {
     var preferredContentHeight: CGFloat {
         switch self {
         case .general:
-            return 430
+            return 390
         case .appearance:
+            return 430
+        case .pet:
             return 430
         case .tools:
             return 360
@@ -57,6 +61,12 @@ struct SettingsView: View {
                     Label(String(localized: "settings.tab.appearance", defaultValue: "Appearance", bundle: .module), systemImage: SettingsSectionTab.appearance.symbol)
                 }
                 .tag(SettingsSectionTab.appearance)
+
+            PetSettingsPane(model: model)
+                .tabItem {
+                    Label(String(localized: "settings.tab.pet", defaultValue: "Pet", bundle: .module), systemImage: SettingsSectionTab.pet.symbol)
+                }
+                .tag(SettingsSectionTab.pet)
 
             ToolSettingsPane(model: model)
                 .tabItem {
@@ -169,6 +179,79 @@ private struct GeneralSettingsPane: View {
             )) {
                 ForEach(RefreshIntervalOption.backgroundAIOptions, id: \.seconds) { option in
                     Text(option.title(model: model)).tag(option.seconds)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct PetSettingsPane: View {
+    let model: AppModel
+
+    var body: some View {
+        Form {
+            Section(String(localized: "settings.pet.section.general", defaultValue: "General", bundle: .module)) {
+                Toggle(String(localized: "settings.pet.enabled", defaultValue: "Enable Pet", bundle: .module), isOn: Binding(
+                    get: { model.appSettings.pet.enabled },
+                    set: { model.updatePetEnabled($0) }
+                ))
+
+                Toggle(String(localized: "settings.pet.static_mode", defaultValue: "Static Pet Sprite", bundle: .module), isOn: Binding(
+                    get: { model.appSettings.pet.staticMode },
+                    set: { model.updatePetStaticMode($0) }
+                ))
+            }
+
+            Section(String(localized: "settings.pet.section.reminders", defaultValue: "Reminders", bundle: .module)) {
+                Toggle(String(localized: "settings.pet.reminder.hydration", defaultValue: "Hydration Reminder", bundle: .module), isOn: Binding(
+                    get: { model.appSettings.pet.hydrationReminderEnabled },
+                    set: { model.updatePetHydrationReminderEnabled($0) }
+                ))
+
+                if model.appSettings.pet.hydrationReminderEnabled {
+                    Picker(String(localized: "settings.pet.reminder.hydration_interval", defaultValue: "Hydration Interval", bundle: .module), selection: Binding(
+                        get: { model.appSettings.pet.hydrationReminderInterval },
+                        set: { model.updatePetHydrationReminderInterval($0) }
+                    )) {
+                        ForEach(RefreshIntervalOption.petReminderOptions, id: \.seconds) { option in
+                            Text(option.title(model: model)).tag(option.seconds)
+                        }
+                    }
+                }
+
+                Toggle(String(localized: "settings.pet.reminder.sedentary", defaultValue: "Sedentary Reminder", bundle: .module), isOn: Binding(
+                    get: { model.appSettings.pet.sedentaryReminderEnabled },
+                    set: { model.updatePetSedentaryReminderEnabled($0) }
+                ))
+
+                if model.appSettings.pet.sedentaryReminderEnabled {
+                    Picker(String(localized: "settings.pet.reminder.sedentary_interval", defaultValue: "Sedentary Interval", bundle: .module), selection: Binding(
+                        get: { model.appSettings.pet.sedentaryReminderInterval },
+                        set: { model.updatePetSedentaryReminderInterval($0) }
+                    )) {
+                        ForEach(RefreshIntervalOption.petReminderOptions, id: \.seconds) { option in
+                            Text(option.title(model: model)).tag(option.seconds)
+                        }
+                    }
+                }
+
+                Toggle(String(localized: "settings.pet.reminder.late_night", defaultValue: "Late-Night Reminder", bundle: .module), isOn: Binding(
+                    get: { model.appSettings.pet.lateNightReminderEnabled },
+                    set: { model.updatePetLateNightReminderEnabled($0) }
+                ))
+
+                if model.appSettings.pet.lateNightReminderEnabled {
+                    Picker(String(localized: "settings.pet.reminder.late_night_interval", defaultValue: "Late-Night Interval", bundle: .module), selection: Binding(
+                        get: { model.appSettings.pet.lateNightReminderInterval },
+                        set: { model.updatePetLateNightReminderInterval($0) }
+                    )) {
+                        ForEach(RefreshIntervalOption.petReminderOptions, id: \.seconds) { option in
+                            Text(option.title(model: model)).tag(option.seconds)
+                        }
+                    }
                 }
             }
         }
@@ -664,6 +747,47 @@ private struct DeveloperSettingsPane: View {
                     Text(option.title(model: model)).tag(option.seconds)
                 }
             }
+
+            Section(String(localized: "settings.pet_debug.section", defaultValue: "Pet Debug", bundle: .module)) {
+                HStack {
+                    Button(String(localized: "settings.pet_debug.bubble", defaultValue: "Bubble", bundle: .module)) {
+                        model.debugShowPetBubble()
+                    }
+                    Button(String(localized: "settings.pet_debug.evolution", defaultValue: "Evolution FX", bundle: .module)) {
+                        model.debugShowPetEvolutionEffect()
+                    }
+                    Button(String(localized: "settings.pet_debug.max_level", defaultValue: "Max Level FX", bundle: .module)) {
+                        model.debugShowPetMaxLevelEffect()
+                    }
+                }
+
+                HStack {
+                    Button(String(localized: "settings.pet_debug.complete_hatch", defaultValue: "Complete Hatch", bundle: .module)) {
+                        model.debugCompletePetHatch()
+                    }
+                    Button(String(localized: "settings.pet_debug.level_up", defaultValue: "Level Up", bundle: .module)) {
+                        model.debugAdvancePetLevel()
+                    }
+                    Button(String(localized: "settings.pet_debug.next_stage", defaultValue: "Next Stage", bundle: .module)) {
+                        model.debugAdvancePetToNextStage()
+                    }
+                }
+
+                HStack {
+                    Button(PetSpecies.voidcat.eggChoiceName) {
+                        model.debugSwitchPetSpecies(.voidcat)
+                    }
+                    Button(PetSpecies.rusthound.eggChoiceName) {
+                        model.debugSwitchPetSpecies(.rusthound)
+                    }
+                    Button(PetSpecies.goose.eggChoiceName) {
+                        model.debugSwitchPetSpecies(.goose)
+                    }
+                    Button(PetSpecies.chaossprite.eggChoiceName) {
+                        model.debugSwitchPetSpecies(.chaossprite)
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
@@ -756,6 +880,7 @@ private struct RefreshIntervalOption {
     static let aiOptions = [60, 120, 180, 300, 600].map { RefreshIntervalOption(seconds: TimeInterval($0)) }
     static let backgroundAIOptions = [300, 600, 900, 1800].map { RefreshIntervalOption(seconds: TimeInterval($0)) }
     static let performanceMonitorOptions = [1, 2, 3, 5, 10].map { RefreshIntervalOption(seconds: TimeInterval($0)) }
+    static let petReminderOptions = [900, 1800, 2700, 3600, 5400, 7200, 10800].map { RefreshIntervalOption(seconds: TimeInterval($0)) }
 }
 
 // MARK: - Theme Preview Card

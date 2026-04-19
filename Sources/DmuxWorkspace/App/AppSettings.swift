@@ -19,6 +19,7 @@ struct AppSettings: Codable, Equatable {
     var aiBackgroundRefreshInterval: TimeInterval = 600
     var developer = AppDeveloperSettings()
     var shortcuts = AppShortcutConfiguration.defaults
+    var pet = AppPetSettings()
 
     init() {}
 
@@ -39,6 +40,7 @@ struct AppSettings: Codable, Equatable {
         case aiBackgroundRefreshInterval
         case developer
         case shortcuts
+        case pet
     }
 
     init(from decoder: Decoder) throws {
@@ -60,6 +62,43 @@ struct AppSettings: Codable, Equatable {
         developer = try container.decodeIfPresent(AppDeveloperSettings.self, forKey: .developer) ?? .init()
         shortcuts = (try container.decodeIfPresent(AppShortcutConfiguration.self, forKey: .shortcuts) ?? .defaults)
             .migratedFromLegacyDefaultsIfNeeded()
+        pet = try container.decodeIfPresent(AppPetSettings.self, forKey: .pet) ?? .init()
+    }
+}
+
+struct AppPetSettings: Codable, Equatable {
+    var enabled = true
+    var staticMode = false
+    var hydrationReminderEnabled = true
+    var hydrationReminderInterval: TimeInterval = 3600
+    var sedentaryReminderEnabled = true
+    var sedentaryReminderInterval: TimeInterval = 5400
+    var lateNightReminderEnabled = true
+    var lateNightReminderInterval: TimeInterval = 7200
+
+    init() {}
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case staticMode
+        case hydrationReminderEnabled
+        case hydrationReminderInterval
+        case sedentaryReminderEnabled
+        case sedentaryReminderInterval
+        case lateNightReminderEnabled
+        case lateNightReminderInterval
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        staticMode = try container.decodeIfPresent(Bool.self, forKey: .staticMode) ?? false
+        hydrationReminderEnabled = try container.decodeIfPresent(Bool.self, forKey: .hydrationReminderEnabled) ?? true
+        hydrationReminderInterval = max(300, try container.decodeIfPresent(TimeInterval.self, forKey: .hydrationReminderInterval) ?? 3600)
+        sedentaryReminderEnabled = try container.decodeIfPresent(Bool.self, forKey: .sedentaryReminderEnabled) ?? true
+        sedentaryReminderInterval = max(300, try container.decodeIfPresent(TimeInterval.self, forKey: .sedentaryReminderInterval) ?? 5400)
+        lateNightReminderEnabled = try container.decodeIfPresent(Bool.self, forKey: .lateNightReminderEnabled) ?? true
+        lateNightReminderInterval = max(300, try container.decodeIfPresent(TimeInterval.self, forKey: .lateNightReminderInterval) ?? 7200)
     }
 }
 

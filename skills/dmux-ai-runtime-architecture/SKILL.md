@@ -61,6 +61,18 @@ These files may change only for genuinely shared bugs or contract changes that a
 3. Check tool-specific probe resolution of `externalSessionID`, model, totals, and response state.
 4. Only inspect shared layers if the same failure shape appears across multiple tools.
 
+## Regression workflow
+
+Before and after changing runtime behavior, run:
+
+- `swift test --filter RuntimeDriverTests`
+- `swift test --filter RuntimeLifecycleScenarioTests`
+- `./scripts/dev/runtime-regression.sh`
+
+For the detailed runner matrix, model defaults, and scenario checklist, read:
+
+- `references/runtime-regression.md`
+
 ## Read next
 
 For the detailed architecture and “what can move / what must not move” rules, read:

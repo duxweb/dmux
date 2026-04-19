@@ -456,12 +456,7 @@ if [[ "$tool_name" == "gemini" ]]; then
 fi
 
 if [[ "$tool_name" == "opencode" ]]; then
-  local_permission_mode="$(configured_permission_mode || true)"
   launch_args=("$@")
-  if [[ "${local_permission_mode}" == "fullAccess" ]] \
-    && ! has_exact_arg "--dangerously-skip-permissions" "${launch_args[@]}"; then
-    launch_args=(--dangerously-skip-permissions "${launch_args[@]}")
-  fi
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
   opencode_config_dir="${wrapper_dir}/opencode-config"

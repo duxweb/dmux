@@ -69,7 +69,6 @@ private struct WorkspaceProjectView: View {
             }
         )
         .background(model.terminalChromeColor)
-        .id("workspace-\(workspace.projectID.uuidString)")
         .transaction { transaction in
             transaction.disablesAnimations = true
         }
@@ -357,7 +356,9 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard !isApplyingLayout, currentSessionIDs.count > 1, paneSplitView.isDraggingDivider else { return }
+        guard !isApplyingLayout,
+              currentSessionIDs.count > 1,
+              model.selectedProjectID == currentWorkspace.projectID else { return }
         let widths = paneSplitView.subviews.prefix(currentSessionIDs.count).map { $0.frame.width }
         let total = widths.reduce(0, +)
         guard total > 0 else { return }
@@ -495,6 +496,7 @@ private final class SplitViewController<Top: View, Bottom: View>: NSViewControll
     private var hasBottomRegion: Bool
     private var bottomHeight: CGFloat
     private var isApplyingLayout = false
+    private var hasCommittedInitialBottomLayout = false
     private let minimumTopHeight: CGFloat = 220
     private let minimumBottomHeight: CGFloat = 160
 
@@ -548,6 +550,9 @@ private final class SplitViewController<Top: View, Bottom: View>: NSViewControll
     }
 
     func update(workspace: ProjectWorkspace, top: Top, bottom: Bottom, dividerColor: NSColor, hasBottomRegion: Bool, bottomHeight: CGFloat) {
+        if currentWorkspace.projectID != workspace.projectID {
+            hasCommittedInitialBottomLayout = false
+        }
         currentWorkspace = workspace
         self.dividerColor = dividerColor
         self.hasBottomRegion = hasBottomRegion
@@ -568,6 +573,7 @@ private final class SplitViewController<Top: View, Bottom: View>: NSViewControll
         bottomHosting.view.alphaValue = hasBottomRegion ? 1 : 0
 
         if !hasBottomRegion {
+            hasCommittedInitialBottomLayout = false
             splitView.setPosition(splitView.bounds.height, ofDividerAt: 0)
             splitView.adjustSubviews()
             return
@@ -578,6 +584,7 @@ private final class SplitViewController<Top: View, Bottom: View>: NSViewControll
         let dividerPosition = max(minimumTopHeight, totalHeight - clampedBottomHeight)
         splitView.setPosition(dividerPosition, ofDividerAt: 0)
         splitView.adjustSubviews()
+        hasCommittedInitialBottomLayout = true
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
@@ -591,8 +598,13 @@ private final class SplitViewController<Top: View, Bottom: View>: NSViewControll
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard !isApplyingLayout, hasBottomRegion else { return }
+        guard !isApplyingLayout,
+              hasBottomRegion,
+              hasCommittedInitialBottomLayout,
+              model.selectedProjectID == currentWorkspace.projectID,
+              splitView.bounds.height > 0 else { return }
         let newBottomHeight = bottomHosting.view.frame.height
+        guard newBottomHeight > 0 else { return }
         model.updateBottomPaneHeight(newBottomHeight, for: currentWorkspace.projectID, availableHeight: splitView.bounds.height)
     }
 }

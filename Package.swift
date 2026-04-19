@@ -29,7 +29,7 @@ let package = Package(
             ],
             path: "Sources/DmuxWorkspace",
             resources: [
-                .process("Resources"),
+                .copy("Resources"),
             ],
             linkerSettings: [
                 .linkedFramework("UniformTypeIdentifiers"),

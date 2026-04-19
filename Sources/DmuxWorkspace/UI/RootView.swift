@@ -65,6 +65,7 @@ private struct MainWorkspaceWindowConfigurator: NSViewRepresentable {
 private struct TitlebarOverlayView: View {
     let model: AppModel
     @State private var isShowingLevelPopover = false
+    @State private var isShowingPetPopover = false
 
     var body: some View {
         let _ = model.aiStatsStore.renderVersion
@@ -101,6 +102,15 @@ private struct TitlebarOverlayView: View {
 
                 HStack(spacing: 10) {
                     let hasVSCode = ApplicationIconAsset.isInstalled("com.microsoft.VSCode")
+
+                    if model.appSettings.pet.enabled {
+                        TitlebarPetButton(
+                            model: model,
+                            allTimeTokens: totalAllTimeTokens,
+                            isShowingPopover: $isShowingPetPopover
+                        )
+                    }
+
                     if model.selectedProject != nil {
                         TitlebarAITodayLevelButton(
                             model: model,
@@ -164,10 +174,13 @@ private struct TitlebarOverlayView: View {
     }
 
     private var totalTodayTokens: Int {
-        guard !model.projects.isEmpty else {
-            return 0
-        }
+        guard !model.projects.isEmpty else { return 0 }
         return model.aiStatsStore.totalTodayTokensAcrossProjects(model.projects)
+    }
+
+    private var totalAllTimeTokens: Int {
+        guard !model.projects.isEmpty else { return 0 }
+        return model.aiStatsStore.totalAllTimeTokensAcrossProjects(model.projects)
     }
 }
 
@@ -488,7 +501,7 @@ private final class TerminalHorizontalSplitController: NSViewController, NSSplit
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard model.rightPanel != nil, !isApplyingLayout, splitView.isDraggingDivider else { return }
+        guard model.rightPanel != nil, !isApplyingLayout else { return }
         let width = rightPanelContainer.frame.width
         rightPanelWidthConstraint?.constant = width
         model.updateRightPanelWidth(width)
@@ -596,7 +609,6 @@ private final class WorkspaceTopLeftBorderView: NSView {
 final class DividerStyledHorizontalSplitView: NSSplitView {
     var customDividerColor: NSColor = .separatorColor
     var showsCustomDivider = true
-    private(set) var isDraggingDivider = false
 
     override var dividerColor: NSColor {
         customDividerColor
@@ -610,19 +622,6 @@ final class DividerStyledHorizontalSplitView: NSSplitView {
         guard showsCustomDivider else { return }
         customDividerColor.setFill()
         rect.fill()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        isDraggingDivider = dividerRect().insetBy(dx: -3, dy: 0).contains(point)
-        super.mouseDown(with: event)
-        isDraggingDivider = false
-    }
-
-    private func dividerRect() -> NSRect {
-        guard subviews.count >= 2, showsCustomDivider else { return .zero }
-        let x = subviews[0].frame.maxX
-        return NSRect(x: x, y: 0, width: dividerThickness, height: bounds.height)
     }
 }
 
@@ -814,6 +813,7 @@ private struct TitlebarAITodayLevelButton: View {
                     .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(AppTheme.textPrimary.opacity(isShowingPopover || isHovered ? 1 : 0.9))
                     .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.leading, 8)
             .padding(.trailing, 10)
@@ -838,6 +838,7 @@ private struct TitlebarAITodayLevelButton: View {
             .clipShape(RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: TitlebarControlMetrics.pillCornerRadius, style: .continuous))
         }
+        .fixedSize(horizontal: true, vertical: false)
         .buttonStyle(.plain)
         .floatingTooltip(String(localized: "ai.today_level", defaultValue: "Today's Level", bundle: .module), enabled: !isShowingPopover, placement: .below)
         .popover(isPresented: $isShowingPopover, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {

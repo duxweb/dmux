@@ -4,10 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-19
+
+### Added
+
+- Added the desktop pet system to Codux, including egg claim flow, hatching, level and evolution progression, inheritance, per-stage dex, and dedicated sprite/effect resources.
+- Added a dedicated `Settings > Pet` tab with pet enable/static mode controls plus configurable hydration, sedentary, and late-night reminder intervals.
+- Added localized user-facing pet documentation to both READMEs and integrated feature screenshots for split workspace, Git, AI stats, daily level, and pet views.
+
+### Changed
+
+- Refined pet growth so trait values start at `0` when the egg is claimed, accumulate from post-claim AI activity, and refresh on an hourly cadence.
+- Reworked pet personality scoring to remove tool-brand bias from wisdom, distribute long-term token growth across all attributes, and avoid collapsing into a single persona when scores stay close together.
+- Reworked empathy scoring to favor real iterative repair behavior, including multi-turn debugging loops and sustained correction-heavy coding sessions, instead of only very short prompt bursts.
+- Moved pet controls out of General settings into a dedicated Pet tab and tightened dex overlay interaction and copy for a more consistent user-facing experience.
+
 ### Fixed
 
 - Fixed Claude completion handling so `Stop` now marks a finished turn directly from hook semantics, while `Idle` and `SessionEnd` still clear loading without losing the distinction between cleanup and completion.
 - Fixed Codex loading stalls after non-definitive `Stop` hooks by treating settled idle probe state as a real completion signal and stopping deferred stop hooks from reasserting stale `responding` state.
+- Fixed pet storage so release and development builds now use separate encrypted local `.dat` files without triggering Keychain access prompts.
+- Fixed pet spotlight overlay dismissal so clicking anywhere on the dimmed background closes it reliably, with a stronger backdrop for better focus.
+- Fixed late-night pet reminders to use the `23:00-06:00` window and made reminder timing follow the configured pet reminder intervals.
 
 ## [0.2.2] - 2026-04-18
 

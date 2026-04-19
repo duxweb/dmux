@@ -287,6 +287,157 @@ final class AIStatsStore {
         }
     }
 
+    func totalAllTimeTokensAcrossProjects(_ projects: [Project]) -> Int {
+        projects.reduce(0) { partial, project in
+            if let indexed = aiUsageStore.indexedProjectSnapshot(projectID: project.id) {
+                return partial + indexed.heatmap.reduce(0) { $0 + $1.totalTokens }
+            }
+            return partial
+        }
+    }
+
+    func petStatsAcrossProjects(_ projects: [Project], claimedAt: Date?) -> PetStats {
+        guard let claimedAt else {
+            return .neutral
+        }
+
+        var sessions: [AISessionSummary] = []
+
+        for project in projects {
+            guard let indexed = aiUsageStore.indexedProjectSnapshot(projectID: project.id) else { continue }
+            sessions.append(contentsOf: indexed.sessions.filter { $0.lastSeenAt >= claimedAt })
+        }
+
+        return Self.computePetStats(from: sessions)
+    }
+
+    static func computePetStats(from sessions: [AISessionSummary]) -> PetStats {
+        guard !sessions.isEmpty else { return .neutral }
+
+        let totalRequests = sessions.reduce(0) { $0 + $1.requestCount }
+        let totalTokens   = sessions.reduce(0) { $0 + $1.totalTokens }
+        let totalSecs     = sessions.reduce(0) { $0 + $1.activeDurationSeconds }
+        let sessionCount  = max(1, sessions.count)
+
+        let avgTokPerReq = totalRequests > 0 ? Double(totalTokens) / Double(totalRequests) : 0
+        let reqPerHour  = totalSecs > 0 ? Double(totalRequests) / (Double(totalSecs) / 3600.0) : 0
+        let shortCount  = sessions.filter { $0.activeDurationSeconds < 300 }.count
+        let shortRatio  = Double(shortCount) / Double(sessions.count)
+        let nightCount = sessions.filter {
+            let h = Calendar.current.component(.hour, from: $0.firstSeenAt)
+            return h >= 22 || h < 6
+        }.count
+        let nightRatio = Double(nightCount) / Double(sessionCount)
+        let maxSecs = sessions.map { $0.activeDurationSeconds }.max() ?? 0
+        let avgSecs = totalSecs / sessions.count
+        let multiTurnSessions = sessions.filter { $0.requestCount >= 4 }
+        let multiTurnRatio = Double(multiTurnSessions.count) / Double(sessionCount)
+        let iterativeRepairSessions = sessions.filter { s in
+            guard s.requestCount >= 4, s.totalTokens > 0 else { return false }
+            let avgPerTurn = Double(s.totalTokens) / Double(s.requestCount)
+            return s.activeDurationSeconds >= 600 && avgPerTurn >= 280 && avgPerTurn <= 2_400
+        }
+        let iterativeRepairRatio = Double(iterativeRepairSessions.count) / Double(sessionCount)
+        let repairMinutes = iterativeRepairSessions.reduce(0) { $0 + $1.activeDurationSeconds }
+        let adjustmentLoopCount = sessions.filter { s in
+            guard s.requestCount >= 3, s.totalTokens > 0 else { return false }
+            let avgPerTurn = Double(s.totalTokens) / Double(s.requestCount)
+            return avgPerTurn >= 220 && avgPerTurn <= 1_800
+        }.count
+        let adjustmentLoopRatio = Double(adjustmentLoopCount) / Double(sessionCount)
+        let repairTokenBudget = iterativeRepairSessions.reduce(0) { $0 + $1.totalTokens }
+
+        func logPoints(_ value: Double, divisor: Double, weight: Double) -> Double {
+            guard value > 0, divisor > 0, weight > 0 else {
+                return 0
+            }
+            return log1p(value / divisor) * weight
+        }
+
+        func ratioPoints(_ value: Double, exponent: Double, weight: Double) -> Double {
+            guard value > 0, exponent > 0, weight > 0 else {
+                return 0
+            }
+            return pow(value, exponent) * weight
+        }
+
+        // Uncapped growth values. Use log/sqrt compression to keep huge token users from exploding
+        // while still letting long-term growth continue naturally.
+        let sharedGrowth =
+            logPoints(Double(totalTokens), divisor: 220_000, weight: 18)
+
+        let wisdomScore =
+            logPoints(avgTokPerReq, divisor: 520, weight: 92) +
+            logPoints(Double(totalSecs), divisor: 7_200, weight: 12) +
+            sharedGrowth
+
+        let chaosScore =
+            logPoints(reqPerHour, divisor: 2.4, weight: 112) +
+            ratioPoints(shortRatio, exponent: 0.72, weight: 84) +
+            logPoints(Double(totalRequests), divisor: 26, weight: 34) +
+            sharedGrowth
+
+        let nightScore =
+            ratioPoints(nightRatio, exponent: 0.68, weight: 132) +
+            logPoints(Double(nightCount), divisor: 3, weight: 36) +
+            logPoints(Double(totalTokens) * max(0.15, nightRatio), divisor: 160_000, weight: 16) +
+            sharedGrowth
+
+        let staminaScore =
+            logPoints(Double(maxSecs), divisor: 1_000, weight: 84) +
+            logPoints(Double(avgSecs), divisor: 480, weight: 86) +
+            logPoints(Double(totalSecs), divisor: 12_600, weight: 40) +
+            sharedGrowth
+
+        let empathyScore =
+            ratioPoints(iterativeRepairRatio, exponent: 0.72, weight: 112) +
+            ratioPoints(multiTurnRatio, exponent: 0.58, weight: 48) +
+            ratioPoints(adjustmentLoopRatio, exponent: 0.62, weight: 28) +
+            logPoints(Double(repairMinutes), divisor: 2_400, weight: 42) +
+            logPoints(Double(repairTokenBudget), divisor: 180_000, weight: 24) +
+            logPoints(Double(adjustmentLoopCount), divisor: 2, weight: 20) +
+            sharedGrowth
+
+        return PetStats(
+            wisdom: max(0, Int(wisdomScore.rounded())),
+            chaos: max(0, Int(chaosScore.rounded())),
+            night: max(0, Int(nightScore.rounded())),
+            stamina: max(0, Int(staminaScore.rounded())),
+            empathy: max(0, Int(empathyScore.rounded()))
+        )
+    }
+
+    func hiddenPetSpeciesChanceAcrossProjects(_ projects: [Project]) -> Double {
+        let cutoff = Date().addingTimeInterval(-7 * 86400)
+        var toolTotals: [String: Int] = [:]
+
+        for project in projects {
+            guard let indexed = aiUsageStore.indexedProjectSnapshot(projectID: project.id) else { continue }
+            for session in indexed.sessions where session.lastSeenAt >= cutoff {
+                guard let normalizedTool = Self.normalizedPetToolName(session.lastTool) else {
+                    continue
+                }
+                toolTotals[normalizedTool, default: 0] += session.totalTokens
+            }
+        }
+
+        return Self.hiddenPetSpeciesChance(forToolTotals: toolTotals)
+    }
+
+    static func hiddenPetSpeciesChance(forToolTotals toolTotals: [String: Int]) -> Double {
+        toolTotals.keys.count >= 2 ? 0.50 : 0.15
+    }
+
+    private static func normalizedPetToolName(_ tool: String?) -> String? {
+        guard let tool else { return nil }
+        let normalized = tool.lowercased()
+        if normalized.contains("claude") { return "claude" }
+        if normalized.contains("codex") { return "codex" }
+        if normalized.contains("gemini") { return "gemini" }
+        if normalized.contains("opencode") { return "opencode" }
+        return nil
+    }
+
     func cancelCurrent(project: Project?, projects: [Project]) {
         guard let project,
               let task = refreshTasks[project.id] else {

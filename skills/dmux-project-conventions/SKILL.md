@@ -32,6 +32,12 @@ This app is multilingual.
 - Keep commits scoped to the finished change.
 - Do not push half-verified UI changes as if they were complete.
 
+## Release workflow
+
+When the task touches release packaging, tags, appcast generation, or release notes, read:
+
+- `references/release-workflow.md`
+
 ## UI copy discipline
 
 - Prefer short section titles and keep long explanation text in secondary helper copy.

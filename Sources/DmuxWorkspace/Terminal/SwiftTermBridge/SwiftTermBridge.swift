@@ -214,6 +214,8 @@ final class SwiftTermTerminalContainerView: NSView {
     private var temporarilyPrefersCoreGraphicsDuringStructuralResize = false
     private var structuralResizeRestoreWorkItem: DispatchWorkItem?
     private var interactionEventMonitors: [Any] = []
+    private var selectionAutoscrollTimer: Timer?
+    private var selectionAutoscrollDelta: Int = 0
     private let logger = AppDebugLog.shared
     private let debugAIFocus = ProcessInfo.processInfo.environment["DMUX_DEBUG_AI_FOCUS"] == "1"
     private let startupDelay: TimeInterval = 0.22
@@ -551,6 +553,8 @@ final class SwiftTermTerminalContainerView: NSView {
         let masks: [NSEvent.EventTypeMask] = [
             .keyDown,
             .leftMouseDown,
+            .leftMouseDragged,
+            .leftMouseUp,
             .rightMouseDown,
             .otherMouseDown,
             .scrollWheel
@@ -588,6 +592,11 @@ final class SwiftTermTerminalContainerView: NSView {
                 focusTerminal()
                 handleTerminalInteraction()
             }
+            stopSelectionAutoscroll()
+        case .leftMouseDragged:
+            updateSelectionAutoscroll(with: event)
+        case .leftMouseUp:
+            stopSelectionAutoscroll()
         case .scrollWheel:
             let point = convert(event.locationInWindow, from: nil)
             if bounds.contains(point) {
@@ -599,6 +608,61 @@ final class SwiftTermTerminalContainerView: NSView {
             break
         }
         return event
+    }
+
+    private func updateSelectionAutoscroll(with event: NSEvent) {
+        let point = terminalView.convert(event.locationInWindow, from: nil)
+        let edgeInset: CGFloat = 18
+
+        let nextDelta: Int
+        if point.y < edgeInset {
+            let overflow = edgeInset - point.y
+            nextDelta = -max(1, Int(overflow / 10.0))
+        } else if point.y > terminalView.bounds.height - edgeInset {
+            let overflow = point.y - (terminalView.bounds.height - edgeInset)
+            nextDelta = max(1, Int(overflow / 10.0))
+        } else {
+            nextDelta = 0
+        }
+
+        selectionAutoscrollDelta = nextDelta
+        guard nextDelta != 0 else {
+            stopSelectionAutoscroll()
+            return
+        }
+
+        if selectionAutoscrollTimer == nil {
+            let timer = Timer.scheduledTimer(
+                timeInterval: 0.05,
+                target: self,
+                selector: #selector(handleSelectionAutoscrollTimer(_:)),
+                userInfo: nil,
+                repeats: true
+            )
+            RunLoop.main.add(timer, forMode: .common)
+            selectionAutoscrollTimer = timer
+        }
+    }
+
+    @objc
+    private func handleSelectionAutoscrollTimer(_ timer: Timer) {
+        guard terminalView.selectionActive else {
+            stopSelectionAutoscroll()
+            return
+        }
+        if selectionAutoscrollDelta > 0 {
+            terminalView.scrollUp(lines: selectionAutoscrollDelta)
+        } else if selectionAutoscrollDelta < 0 {
+            terminalView.scrollDown(lines: -selectionAutoscrollDelta)
+        } else {
+            stopSelectionAutoscroll()
+        }
+    }
+
+    private func stopSelectionAutoscroll() {
+        selectionAutoscrollDelta = 0
+        selectionAutoscrollTimer?.invalidate()
+        selectionAutoscrollTimer = nil
     }
 
     private func configureAcceleratedRenderingIfPossible() {

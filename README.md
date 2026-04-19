@@ -46,13 +46,44 @@ Organize all your projects in one place. Each project gets its own terminal sess
 
 Split terminals horizontally, add bottom tabs, drag to resize. Work on multiple tasks within the same project without losing context.
 
+![Codux Split Workspace](docs/images/screenshot.png)
+
 ### Built-in Git Panel
 
 Branches, staged changes, file diffs, commit history, remote sync — all in a sidebar. No more switching to a separate Git GUI.
 
+![Codux Git Panel](docs/images/git.png)
+
 ### AI Usage Dashboard
 
-Track AI coding tools running in your terminal — token consumption, model usage, tool breakdowns, daily trends, and live session monitoring. Currently supports **Claude Code**, **Codex (OpenAI)**, and **Gemini CLI**, with more tools coming soon. Know exactly where your AI budget goes. Plus a fun daily tier system (Iron → Bronze → Silver → Gold → Platinum → Diamond → Master → Grandmaster) that ranks your AI usage intensity — how far can you climb today?
+Track AI coding tools running in your terminal — token consumption, model usage, tool breakdowns, daily trends, and live session monitoring. Currently supports **Claude Code**, **Codex (OpenAI)**, and **Gemini CLI**, with more tools coming soon. Know exactly where your AI budget goes. Plus a fun daily level ladder that reflects your usage intensity:
+
+- `Idle`
+- `Light`
+- `Active`
+- `Focus`
+- `Intense`
+- `Grind`
+- `Limit`
+- `Godlike`
+
+![Codux AI Stats](docs/images/ai-stats.png)
+
+![Codux Daily Level](docs/images/level.png)
+
+### Coding Pet Companion
+
+Codux includes a built-in desktop pet that grows with your AI workflow. Claim an egg, name your companion, and let it evolve as you keep coding. It is designed as a lightweight companion layer inside the app rather than a separate game system.
+
+The pet system tracks:
+
+- egg claim and hatching
+- level progression and stage evolution
+- personality growth values such as wisdom, chaos, night, stamina, and empathy
+- a per-species dex with unlocked stages and inheritance history
+- contextual bubble reactions for running, completion, errors, long sessions, hydration reminders, sedentary reminders, and late-night work
+
+![Codux Pet System](docs/images/pet.png)
 
 ### Beautiful & Intuitive
 
@@ -106,6 +137,66 @@ brew upgrade --cask codux
 
 All shortcuts can be customized in **Settings > Shortcuts**.
 
+## Pet System
+
+### What It Is
+
+The pet system is a lightweight companion layer built into Codux. It turns your everyday AI coding activity into a long-term progression loop: hatch an egg, grow a companion, unlock evolutions, fill the dex, and eventually inherit your fully grown pet into history.
+
+### Current Pet Lineup
+
+| Species | Base Stages | Route A | Route B |
+|:--|:--|:--|:--|
+| `VoidCat` | `Huahua` → `Shadow Cat` → `Voidcat` | `Tomecat` → `Inkspirit` | `Shadecat` → `Nightspirit` |
+| `RustHound` | `Furball` → `Flop-Eared Pup` → `Rusthound` | `Blazehound` → `Sunflare` | `Ironwolf` → `Bloodmoon` |
+| `Goose` | `Chirpy` → `Dozy` → `Goosey` | `Dawnwing` → `Wildfire` | `Windwing` → `Tempest` |
+
+### How To Claim A Pet
+
+- Open Codux and look at the title bar pet button.
+- If you have not claimed a pet yet, click the pet button to open the egg claim dialog.
+- Choose one egg, optionally enter a custom name, then confirm the claim.
+- After claiming, the pet starts growing with your AI coding activity.
+
+### Where To Find It
+
+- `Title bar`: open the current pet popover, view hatching / level / traits, and access the dex
+- `Pet Dex`: view unlocked stages, current pet details, and inheritance history
+- `Settings > Pet`: configure pet enable state, static sprite mode, hydration reminders, sedentary reminders, and late-night reminders
+
+### Menus And UI Entry Points
+
+- The pet is not a separate app window by default; the main entry is the title bar pet button.
+- Clicking the title bar pet button opens:
+  - egg selection if no pet has been claimed
+  - the pet popover if a pet is active
+- The dex is opened from the pet popover.
+
+### Hidden Pet Unlock
+
+- One egg option is a random egg.
+- The random egg has a chance to hatch a hidden species.
+- The base chance is `15%`.
+- If you have actively used `2` or more AI tools in the last `7` days, the chance increases directly to `50%`.
+
+### Personality Dimensions
+
+- `Wisdom`: longer, deeper requests and sustained high-context work
+- `Chaos`: fast, frequent, short-cycle interaction
+- `Night`: late-night usage patterns
+- `Stamina`: long-running sessions and sustained active time
+- `Empathy`: iterative back-and-forth debugging and repair-style work
+
+### Reminders
+
+In **Settings > Pet**, you can configure:
+
+- hydration reminder interval
+- sedentary reminder interval
+- late-night reminder interval
+- pet enable / disable
+- static pet sprite mode
+
 ## System Requirements
 
 - macOS 14.0 (Sonoma) or later
@@ -113,8 +204,6 @@ All shortcuts can be customized in **Settings > Shortcuts**.
 ## Feedback
 
 Found a bug or have a feature request? Open an [issue on GitHub](https://github.com/duxweb/codux/issues).
-
-For AI runtime regression work, see [docs/runtime-regression.md](docs/runtime-regression.md). A one-shot developer entrypoint is also available at `./scripts/dev/runtime-regression.sh`.
 
 When reporting a bug, please include the following diagnostics whenever possible:
 
