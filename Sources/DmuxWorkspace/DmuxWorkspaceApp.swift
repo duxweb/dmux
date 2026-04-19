@@ -3,6 +3,12 @@ import AppKit
 import Observation
 import UserNotifications
 
+enum TerminalKeyRoutingPolicy {
+    static func shouldRouteToTerminal(modifiers: NSEvent.ModifierFlags) -> Bool {
+        !modifiers.contains(.command)
+    }
+}
+
 enum AppWindowIdentifier {
     static let main = NSUserInterfaceItemIdentifier("dmux.main")
     static let settings = NSUserInterfaceItemIdentifier("dmux.settings")
@@ -292,7 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        return true
+        return TerminalKeyRoutingPolicy.shouldRouteToTerminal(modifiers: modifiers)
     }
 
     @MainActor

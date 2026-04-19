@@ -4,8 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-04-20
+
 ### Fixed
 
+- Fixed terminal paste and other standard Command-key editing shortcuts after the terminal key passthrough change by keeping Command-based shortcuts in AppKit instead of forwarding them as raw terminal key events.
 - Fixed Git sidebar auto-refresh after terminal-driven Git operations so commits and other `.git` metadata updates now invalidate the changed-file list immediately instead of leaving stale entries behind until a manual refresh.
 
 ## [0.3.1] - 2026-04-20
