@@ -139,7 +139,7 @@ final class AIRuntimeIngressService {
         guard let sessionID = UUID(uuidString: sessionIDString) else {
             return false
         }
-        guard let expectedInstanceID = SwiftTermTerminalRegistry.shared.sessionInstanceID(for: sessionID) else {
+        guard let expectedInstanceID = DmuxTerminalBackend.shared.registry.sessionInstanceID(for: sessionID) else {
             return true
         }
         guard let sessionInstanceID, !sessionInstanceID.isEmpty else {

@@ -719,6 +719,18 @@ enum AppTerminalBackgroundPreset: String, Codable, CaseIterable, Identifiable {
             return false
         }
     }
+
+    var inactiveDimOpacity: CGFloat {
+        isLight ? 0.07 : 0.22
+    }
+
+    var inactiveDimColor: NSColor {
+        NSColor.black.withAlphaComponent(inactiveDimOpacity)
+    }
+
+    var inactiveBackgroundColor: NSColor {
+        backgroundColor.blended(withFraction: inactiveDimOpacity, of: .black) ?? backgroundColor
+    }
 }
 
 enum AppIconStyle: String, Codable, CaseIterable, Identifiable {

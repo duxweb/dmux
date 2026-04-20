@@ -181,7 +181,7 @@ struct AppCommands: Commands {
     }
 
     private var focusedTerminalSessionID: UUID? {
-        guard let focusedSessionID = SwiftTermTerminalRegistry.shared.focusedSessionID(),
+        guard let focusedSessionID = DmuxTerminalBackend.shared.registry.focusedSessionID(),
               model.selectedSessionID == focusedSessionID else {
             return nil
         }

@@ -112,6 +112,8 @@ final class AppModel {
             self.appSettings = AppSettings()
         }
 
+        DmuxTerminalBackend.shared.configure(using: appSettings)
+
         refreshGitState()
         resetActivityState()
         activityService.clearAllStatuses()
@@ -281,7 +283,7 @@ final class AppModel {
                 "failed session=\(sessionID.uuidString) detail=\(detail)"
             )
         }
-        SwiftTermTerminalRegistry.shared.release(sessionID: sessionID)
+        DmuxTerminalBackend.shared.registry.release(sessionID: sessionID)
 
         if selectedSessionID == sessionID {
             statusMessage = message
@@ -298,7 +300,7 @@ final class AppModel {
     func retryTerminalRecovery(_ sessionID: UUID) {
         terminalRecoveryIssueBySessionID[sessionID] = nil
         terminalRecoveryRetryTokenBySessionID[sessionID, default: 0] += 1
-        SwiftTermTerminalRegistry.shared.release(sessionID: sessionID)
+        DmuxTerminalBackend.shared.registry.release(sessionID: sessionID)
         terminalFocusRequestID = sessionID
         debugLog.log(
             "terminal-recovery",
@@ -320,7 +322,52 @@ final class AppModel {
     }
 
     var displayedFocusedTerminalSessionID: UUID? {
-        SwiftTermTerminalRegistry.shared.focusedSessionID() ?? selectedSessionID
+        Self.resolveDisplayedFocusedTerminalSessionID(
+            focusRequestID: terminalFocusRequestID,
+            registryFocusedSessionID: DmuxTerminalBackend.shared.registry.focusedSessionID(),
+            selectedSessionID: selectedSessionID
+        )
+    }
+
+    static func resolveDisplayedFocusedTerminalSessionID(
+        focusRequestID: UUID?,
+        registryFocusedSessionID: UUID?,
+        selectedSessionID: UUID?
+    ) -> UUID? {
+        focusRequestID ?? registryFocusedSessionID ?? selectedSessionID
+    }
+
+    static func shouldRefreshSelectionFocus(
+        requestedSessionID: UUID,
+        selectedSessionID: UUID?,
+        pendingFocusRequestID: UUID?,
+        registryFocusedSessionID: UUID?
+    ) -> Bool {
+        if selectedSessionID != requestedSessionID {
+            return true
+        }
+        if let pendingFocusRequestID {
+            return pendingFocusRequestID != requestedSessionID
+        }
+        return registryFocusedSessionID != requestedSessionID
+    }
+
+    static func shouldRefreshBottomTabSelection(
+        requestedSessionID: UUID,
+        selectedSessionID: UUID?,
+        selectedBottomTabSessionID: UUID?,
+        pendingFocusRequestID: UUID?,
+        registryFocusedSessionID: UUID?
+    ) -> Bool {
+        if selectedBottomTabSessionID != requestedSessionID {
+            return true
+        }
+        return shouldRefreshSelectionFocus(
+            requestedSessionID: requestedSessionID,
+            selectedSessionID: selectedSessionID,
+            pendingFocusRequestID: pendingFocusRequestID,
+            registryFocusedSessionID: registryFocusedSessionID
+        )
     }
 
     private func unlockDeferredTerminalStartupAfterInitialPresentation() {
@@ -1060,41 +1107,58 @@ final class AppModel {
     }
 
     func createNewTerminal() {
+        var newSessionID: UUID?
         mutateSelectedWorkspace { workspace, project in
             let session = TerminalSession.make(project: project, command: project.defaultCommand)
+            newSessionID = session.id
             workspace.sessions.append(session)
 
             if workspace.addTopSession(session.id) {
+                terminalFocusRequestID = session.id
                 statusMessage = "Created a new terminal pane."
             } else {
                 workspace.addBottomTab(session.id)
+                terminalFocusRequestID = session.id
                 statusMessage = "Top row is full, added a bottom tab instead."
             }
+        }
+        if newSessionID != nil {
+            refreshAIStatsIfNeeded()
         }
     }
 
     func createBottomTab() {
+        var newSessionID: UUID?
         mutateSelectedWorkspace { workspace, project in
             let session = TerminalSession.make(project: project, command: project.defaultCommand)
+            newSessionID = session.id
             workspace.sessions.append(session)
             workspace.addBottomTab(session.id)
+            terminalFocusRequestID = session.id
             statusMessage = workspace.bottomTabSessionIDs.count == 1
                 ? String(localized: "workspace.bottom_split.created", defaultValue: "Created the bottom split area.", bundle: .module)
                 : String(localized: "workspace.bottom_tab.created", defaultValue: "Added a new bottom tab.", bundle: .module)
         }
+        if newSessionID != nil {
+            refreshAIStatsIfNeeded()
+        }
     }
 
     func splitSelectedPane(axis: PaneAxis) {
+        var newSessionID: UUID?
         mutateSelectedWorkspace { workspace, project in
             let session = TerminalSession.make(project: project, command: project.defaultCommand)
+            newSessionID = session.id
             workspace.sessions.append(session)
 
             switch axis {
             case .horizontal:
                 if workspace.addTopSession(session.id) {
+                    terminalFocusRequestID = session.id
                     statusMessage = String(localized: "workspace.top_pane.horizontal_created", defaultValue: "Added a horizontal pane.", bundle: .module)
                 } else {
                     workspace.sessions.removeAll(where: { $0.id == session.id })
+                    newSessionID = nil
                     statusMessage = String(
                         format: String(localized: "workspace.top_pane.limit_format", defaultValue: "The top row supports up to %@ panes.", bundle: .module),
                         "\(ProjectWorkspace.maxTopPanes)"
@@ -1102,15 +1166,24 @@ final class AppModel {
                 }
             case .vertical:
                 workspace.addBottomTab(session.id)
+                terminalFocusRequestID = session.id
                 statusMessage = workspace.bottomTabSessionIDs.count == 1
                     ? String(localized: "workspace.bottom_split.created", defaultValue: "Created the bottom split area.", bundle: .module)
                     : String(localized: "workspace.bottom_tab.additional", defaultValue: "Added a tab to the bottom split area.", bundle: .module)
             }
         }
+        if newSessionID != nil {
+            refreshAIStatsIfNeeded()
+        }
     }
 
     func selectSession(_ sessionID: UUID) {
-        guard selectedSessionID != sessionID else {
+        guard Self.shouldRefreshSelectionFocus(
+            requestedSessionID: sessionID,
+            selectedSessionID: selectedSessionID,
+            pendingFocusRequestID: terminalFocusRequestID,
+            registryFocusedSessionID: DmuxTerminalBackend.shared.registry.focusedSessionID()
+        ) else {
             return
         }
         mutateSelectedWorkspace { workspace, _ in
@@ -1121,11 +1194,18 @@ final class AppModel {
     }
 
     func selectBottomTabSession(_ sessionID: UUID) {
-        guard selectedSessionID != sessionID else {
+        guard let workspace = selectedWorkspace else { return }
+        guard workspace.bottomTabSessionIDs.contains(sessionID) else { return }
+        guard Self.shouldRefreshBottomTabSelection(
+            requestedSessionID: sessionID,
+            selectedSessionID: workspace.selectedSessionID,
+            selectedBottomTabSessionID: workspace.selectedBottomTabSessionID,
+            pendingFocusRequestID: terminalFocusRequestID,
+            registryFocusedSessionID: DmuxTerminalBackend.shared.registry.focusedSessionID()
+        ) else {
             return
         }
         mutateSelectedWorkspace { workspace, _ in
-            guard workspace.bottomTabSessionIDs.contains(sessionID) else { return }
             workspace.selectedBottomTabSessionID = sessionID
             workspace.selectedSessionID = sessionID
             terminalFocusRequestID = sessionID
@@ -1151,9 +1231,9 @@ final class AppModel {
         }
         terminalFocusRequestID = sessionID
         terminalFocusRenderVersion &+= 1
-        _ = SwiftTermTerminalRegistry.shared.focus(sessionID: sessionID)
+        _ = DmuxTerminalBackend.shared.registry.focus(sessionID: sessionID)
         DispatchQueue.main.async {
-            _ = SwiftTermTerminalRegistry.shared.focus(sessionID: sessionID)
+            _ = DmuxTerminalBackend.shared.registry.focus(sessionID: sessionID)
         }
     }
 
@@ -1162,7 +1242,7 @@ final class AppModel {
             return false
         }
         terminalFocusRequestID = sessionID
-        let didSend = SwiftTermTerminalRegistry.shared.sendInterrupt(to: sessionID)
+        let didSend = DmuxTerminalBackend.shared.registry.sendInterrupt(to: sessionID)
         guard didSend else {
             return false
         }
@@ -1191,7 +1271,7 @@ final class AppModel {
         }
 
         terminalFocusRequestID = sessionID
-        let didSend = SwiftTermTerminalRegistry.shared.sendEscape(to: sessionID)
+        let didSend = DmuxTerminalBackend.shared.registry.sendEscape(to: sessionID)
         guard didSend else {
             return false
         }
@@ -1405,7 +1485,7 @@ final class AppModel {
                 projects: projects,
                 selectedSessionID: selectedSessionID
             )
-            SwiftTermTerminalRegistry.shared.release(sessionID: sessionID)
+            DmuxTerminalBackend.shared.registry.release(sessionID: sessionID)
             clearTerminalRecoveryState(for: sessionID)
             statusMessage = String(localized: "terminal.closed", defaultValue: "Closed terminal.", bundle: .module)
         }
@@ -2381,11 +2461,11 @@ final class AppModel {
     private func tryReuseTerminalCommand(_ command: String, sessionID: UUID) -> Bool {
         guard let selectedSessionID,
               selectedSessionID == sessionID,
-              let shellPID = SwiftTermTerminalRegistry.shared.shellPID(for: sessionID),
+              let shellPID = DmuxTerminalBackend.shared.registry.shellPID(for: sessionID),
               shellPID > 0 else {
             debugLog.log(
                 "terminal-command",
-                "reuse-failed session=\(sessionID.uuidString) selected=\(selectedSessionID?.uuidString ?? "nil") shellPID=\(SwiftTermTerminalRegistry.shared.shellPID(for: sessionID).map(String.init) ?? "nil") reason=missing-shell command=\(command)"
+                "reuse-failed session=\(sessionID.uuidString) selected=\(selectedSessionID?.uuidString ?? "nil") shellPID=\(DmuxTerminalBackend.shared.registry.shellPID(for: sessionID).map(String.init) ?? "nil") reason=missing-shell command=\(command)"
             )
             return false
         }
@@ -2401,7 +2481,7 @@ final class AppModel {
         }
 
         terminalFocusRequestID = sessionID
-        let didSend = SwiftTermTerminalRegistry.shared.sendText(command + "\n", to: sessionID)
+        let didSend = DmuxTerminalBackend.shared.registry.sendText(command + "\n", to: sessionID)
         debugLog.log(
             "terminal-command",
             "reuse-send session=\(sessionID.uuidString) shellPID=\(shellPID) sent=\(didSend) command=\(command)"

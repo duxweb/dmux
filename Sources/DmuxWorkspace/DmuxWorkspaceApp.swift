@@ -215,13 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        if modifiers == [.command],
-           (event.keyCode == 123 || event.keyCode == 124),
-           handleTerminalCommandArrowIfNeeded(event) {
-            return nil
-        }
-
-        if handleTerminalKeyDownIfNeeded(event, modifiers: modifiers) {
+        if handleMainMenuShortcutIfNeeded(event, modifiers: modifiers) {
             return nil
         }
 
@@ -248,48 +242,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @MainActor
+    private func handleMainMenuShortcutIfNeeded(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard modifiers.contains(.command) else {
+            return false
+        }
+        guard let mainMenu = NSApp.mainMenu else {
+            return false
+        }
+        return mainMenu.performKeyEquivalent(with: event)
+    }
+
+    @MainActor
     private func normalizedShortcutModifiers(for event: NSEvent) -> NSEvent.ModifierFlags {
         var modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         modifiers.remove(.numericPad)
         modifiers.remove(.function)
         return modifiers
-    }
-
-    @MainActor
-    private func handleTerminalCommandArrowIfNeeded(_ event: NSEvent) -> Bool {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              isStandardChromeWindow(window) == false else {
-            return false
-        }
-
-        return SwiftTermTerminalRegistry.shared.sendNativeCommandArrow(
-            keyCode: event.keyCode,
-            responder: window.firstResponder
-        )
-    }
-
-    @MainActor
-    private func handleTerminalKeyDownIfNeeded(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> Bool {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              !isStandardChromeWindow(window),
-              shouldRouteKeyToTerminal(event, modifiers: modifiers) else {
-            return false
-        }
-
-        let responder = window.firstResponder
-        if responder is NSTextView,
-           SwiftTermTerminalRegistry.shared.ownsResponder(responder) == false {
-            return false
-        }
-
-        guard responder == nil || SwiftTermTerminalRegistry.shared.ownsResponder(responder) else {
-            return false
-        }
-
-        return SwiftTermTerminalRegistry.shared.forwardKeyDown(
-            event,
-            responder: responder
-        )
     }
 
     @MainActor
@@ -316,11 +284,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let responder = window.firstResponder
         if responder is NSTextView,
-           SwiftTermTerminalRegistry.shared.ownsResponder(responder) == false {
+           DmuxTerminalBackend.shared.registry.ownsResponder(responder) == false {
             return false
         }
 
-        guard responder == nil || SwiftTermTerminalRegistry.shared.ownsResponder(responder) else {
+        guard responder == nil || DmuxTerminalBackend.shared.registry.ownsResponder(responder) else {
             return false
         }
 
@@ -337,11 +305,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let responder = window.firstResponder
         if responder is NSTextView,
-           SwiftTermTerminalRegistry.shared.ownsResponder(responder) == false {
+           DmuxTerminalBackend.shared.registry.ownsResponder(responder) == false {
             return false
         }
 
-        guard responder == nil || SwiftTermTerminalRegistry.shared.ownsResponder(responder) else {
+        guard responder == nil || DmuxTerminalBackend.shared.registry.ownsResponder(responder) else {
             return false
         }
 
@@ -358,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        SwiftTermTerminalRegistry.shared.terminateAll()
+        DmuxTerminalBackend.shared.registry.terminateAll()
     }
 
     @objc

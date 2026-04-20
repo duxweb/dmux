@@ -11,8 +11,8 @@
 		0677DA593A0554DAC639D0A3 /* AppReleaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6E2D396499849AD4FC84FC /* AppReleaseService.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* AppUpdaterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5E /* AppUpdaterService.swift */; };
 		A1B2C3D4E5F60718293A4B5D /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718293A4B60 /* Sparkle */; };
+		A7B8C9D0E1F2031425364758 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = A7B8C9D0E1F2031425364759 /* GhosttyTerminal */; };
 		0D664E0A08F199B7A97D0BA2 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = CDEB30421E61195A008FD00E /* Localizable.xcstrings */; };
-		0E5992E59E3539EDBAD6E6F5 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 79E5F0CE1296648C8A61C45E /* SwiftTerm */; };
 		E1A41C4E3A0A4C0A9D7B42A1 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = E1A41C4E3A0A4C0A9D7B42A2 /* Logging */; };
 		0FA3288DB5DECC9BDA2E1291 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E1EC9BC74648163A178985 /* Theme.swift */; };
 		1144DC09253CDEA30AC56B0E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF3062F44A5DB544744A8CAD /* SettingsView.swift */; };
@@ -49,7 +49,8 @@
 		5F0A9C1D7E2B4A5C8D9E0F19 /* PetEvolutionEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0A9C1D7E2B4A5C8D9E0F20 /* PetEvolutionEffect.swift */; };
 		5F0A9C1D7E2B4A5C8D9E0F12 /* Pets in Resources */ = {isa = PBXBuildFile; fileRef = 5F0A9C1D7E2B4A5C8D9E0F13 /* Pets */; };
 			5FA01743DC72CB240634D78B /* AIRuntimeStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D565A7C32094080CBA3579E /* AIRuntimeStateStore.swift */; };
-		60EB8107C6047E778572402C /* SwiftTermBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9077C938FB91120FAA30DF9C /* SwiftTermBridge.swift */; };
+		A7B8C9D0E1F2031425364760 /* GhosttyBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B8C9D0E1F2031425364761 /* GhosttyBridge.swift */; };
+		A7B8C9D0E1F2031425364762 /* DmuxTerminalBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B8C9D0E1F2031425364763 /* DmuxTerminalBackend.swift */; };
 		6FE3BAABA1DF148107499517 /* AIStatsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFE6C21DB9D84B024B4A9FC4 /* AIStatsPanelView.swift */; };
 		71BFF4A14483F673CAE0510F /* GitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF246B9127D41605A990516 /* GitService.swift */; };
 		72E1A73CB8485C9CA45589B7 /* WorkspaceEmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6917745C50EBB08B715DD786 /* WorkspaceEmptyStateView.swift */; };
@@ -136,7 +137,8 @@
 		88EA7F3568E80A7CE3A272F8 /* AppDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDebugLog.swift; sourceTree = "<group>"; };
 		8AF9CB866BDB2AF3ECA35178 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Package.swift; sourceTree = "<group>"; };
 		8F6676C32385770B36A6B87D /* AIRuntimeBridgeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRuntimeBridgeService.swift; sourceTree = "<group>"; };
-		9077C938FB91120FAA30DF9C /* SwiftTermBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTermBridge.swift; sourceTree = "<group>"; };
+		A7B8C9D0E1F2031425364761 /* GhosttyBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyBridge.swift; sourceTree = "<group>"; };
+		A7B8C9D0E1F2031425364763 /* DmuxTerminalBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DmuxTerminalBackend.swift; sourceTree = "<group>"; };
 		8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiRuntimeProbeService.swift; sourceTree = "<group>"; };
 		8C2D3E4F5061728394A5B6C7 /* OpenCodeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeRuntimeProbeService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeProbeService.swift; sourceTree = "<group>"; };
@@ -177,8 +179,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A7B8C9D0E1F2031425364758 /* GhosttyTerminal in Frameworks */,
 				A1B2C3D4E5F60718293A4B5D /* Sparkle in Frameworks */,
-				0E5992E59E3539EDBAD6E6F5 /* SwiftTerm in Frameworks */,
 				E1A41C4E3A0A4C0A9D7B42A1 /* Logging in Frameworks */,
 				94E74A9C02052D31600A15A8 /* UniformTypeIdentifiers.framework in Frameworks */,
 				7CC77BFB4230078241327312 /* Carbon.framework in Frameworks */,
@@ -242,12 +244,20 @@
 			path = About;
 			sourceTree = "<group>";
 		};
-		414F4E22CC72CFBA005D54AB /* SwiftTermBridge */ = {
+		A7B8C9D0E1F2031425364764 /* GhosttyBridge */ = {
 			isa = PBXGroup;
 			children = (
-				9077C938FB91120FAA30DF9C /* SwiftTermBridge.swift */,
+				A7B8C9D0E1F2031425364761 /* GhosttyBridge.swift */,
 			);
-			path = SwiftTermBridge;
+			path = GhosttyBridge;
+			sourceTree = "<group>";
+		};
+		A7B8C9D0E1F2031425364765 /* TerminalBackend */ = {
+			isa = PBXGroup;
+			children = (
+				A7B8C9D0E1F2031425364763 /* DmuxTerminalBackend.swift */,
+			);
+			path = TerminalBackend;
 			sourceTree = "<group>";
 		};
 		4D666198F82A96CCFE57ECA5 /* Frameworks */ = {
@@ -263,7 +273,8 @@
 		52F7BB419584471A9E2BF01C /* Terminal */ = {
 			isa = PBXGroup;
 			children = (
-				414F4E22CC72CFBA005D54AB /* SwiftTermBridge */,
+				A7B8C9D0E1F2031425364764 /* GhosttyBridge */,
+				A7B8C9D0E1F2031425364765 /* TerminalBackend */,
 			);
 			path = Terminal;
 			sourceTree = "<group>";
@@ -438,7 +449,7 @@
 			name = dmux;
 			packageProductDependencies = (
 				A1B2C3D4E5F60718293A4B60 /* Sparkle */,
-				79E5F0CE1296648C8A61C45E /* SwiftTerm */,
+				A7B8C9D0E1F2031425364759 /* GhosttyTerminal */,
 				E1A41C4E3A0A4C0A9D7B42A2 /* Logging */,
 			);
 			productName = dmux;
@@ -478,8 +489,8 @@
 			mainGroup = 6D7A0B5D2BCF85EFCB8A088C;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A7B8C9D0E1F2031425364766 /* XCRemoteSwiftPackageReference "libghostty-spm" */,
 				A1B2C3D4E5F60718293A4B5F /* XCRemoteSwiftPackageReference "Sparkle" */,
-				DE0EE30F04D33716522175BA /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				E1A41C4E3A0A4C0A9D7B42A3 /* XCRemoteSwiftPackageReference "swift-log" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -566,7 +577,8 @@
 				577F3384BE4EDD492C520037 /* RootView.swift in Sources */,
 				1144DC09253CDEA30AC56B0E /* SettingsView.swift in Sources */,
 				5369A85B6A7302F464349BC0 /* SidebarView.swift in Sources */,
-				60EB8107C6047E778572402C /* SwiftTermBridge.swift in Sources */,
+				A7B8C9D0E1F2031425364762 /* DmuxTerminalBackend.swift in Sources */,
+				A7B8C9D0E1F2031425364760 /* GhosttyBridge.swift in Sources */,
 				0FA3288DB5DECC9BDA2E1291 /* Theme.swift in Sources */,
 				72E1A73CB8485C9CA45589B7 /* WorkspaceEmptyStateView.swift in Sources */,
 				A9D536707C6623508B39B82C /* WorkspacePaths.swift in Sources */,
@@ -758,20 +770,20 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		A7B8C9D0E1F2031425364766 /* XCRemoteSwiftPackageReference "libghostty-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/duxphp/libghostty-spm.git";
+			requirement = {
+				branch = "pr/appkit-input-alignment";
+				kind = branch;
+			};
+		};
 		A1B2C3D4E5F60718293A4B5F /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 2.9.1;
-			};
-		};
-		DE0EE30F04D33716522175BA /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm.git";
-			requirement = {
-				branch = main;
-				kind = branch;
 			};
 		};
 		E1A41C4E3A0A4C0A9D7B42A3 /* XCRemoteSwiftPackageReference "swift-log" */ = {
@@ -785,15 +797,15 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A7B8C9D0E1F2031425364759 /* GhosttyTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A7B8C9D0E1F2031425364766 /* XCRemoteSwiftPackageReference "libghostty-spm" */;
+			productName = GhosttyTerminal;
+		};
 		A1B2C3D4E5F60718293A4B60 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A1B2C3D4E5F60718293A4B5F /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
-		};
-		79E5F0CE1296648C8A61C45E /* SwiftTerm */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = DE0EE30F04D33716522175BA /* XCRemoteSwiftPackageReference "SwiftTerm" */;
-			productName = SwiftTerm;
 		};
 		E1A41C4E3A0A4C0A9D7B42A2 /* Logging */ = {
 			isa = XCSwiftPackageProductDependency;

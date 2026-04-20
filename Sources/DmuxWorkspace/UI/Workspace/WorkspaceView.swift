@@ -203,7 +203,7 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         paneSplitView.customDividerColor = dividerColor
         if sessionIDsChanged {
             let survivingSessionIDs = workspace.topSessionIDs.filter { previousSessionIDs.contains($0) }
-            SwiftTermTerminalRegistry.shared.beginStructuralResizeTransition(for: survivingSessionIDs)
+            DmuxTerminalBackend.shared.registry.beginStructuralResizeTransition(for: survivingSessionIDs)
         }
         if sessionIDsChanged {
             rebuildPanes(for: workspace)
@@ -224,12 +224,20 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
             "top-pane rebuild project=\(workspace.projectID.uuidString) sessions=\(workspace.topSessionIDs.count)"
         )
 
-        for view in paneSplitView.arrangedSubviews {
-            view.removeFromSuperview()
+        let activeSessionIDs = Set(workspace.topSessionIDs)
+        let staleSessionIDs = Set(paneHosts.keys).subtracting(activeSessionIDs)
+        for sessionID in staleSessionIDs {
+            if let host = paneHosts.removeValue(forKey: sessionID) {
+                detachPaneHostView(host.view)
+                host.removeFromParent()
+            }
+            lastRenderedSessionByID.removeValue(forKey: sessionID)
         }
 
-        for sessionID in workspace.topSessionIDs {
-            guard let session = workspace.sessions.first(where: { $0.id == sessionID }) else { continue }
+        let sessionsByID = Dictionary(uniqueKeysWithValues: workspace.sessions.map { ($0.id, $0) })
+
+        for (index, sessionID) in workspace.topSessionIDs.enumerated() {
+            guard let session = sessionsByID[sessionID] else { continue }
             logger.log(
                 "startup-ui",
                 "top-pane prepare-host session=\(session.id.uuidString) project=\(session.projectID.uuidString)"
@@ -238,7 +246,8 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
             let host: NSHostingController<TerminalPaneView>
             if let existing = paneHosts[sessionID] {
                 host = existing
-                logger.log("startup-ui", "top-pane reuse-host session=\(session.id.uuidString)")
+                host.rootView = makePaneView(session: session, sessionID: sessionID)
+                lastRenderedSessionByID[sessionID] = session
             } else {
                 host = NSHostingController(
                     rootView: makePaneView(session: session, sessionID: sessionID)
@@ -254,9 +263,16 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
             }
 
             logger.log("startup-ui", "top-pane access-host-view session=\(session.id.uuidString)")
-            paneSplitView.addArrangedSubview(host.view)
-            logger.log("startup-ui", "top-pane attached-host-view session=\(session.id.uuidString)")
+            if paneSplitView.arrangedSubviews.contains(host.view) == false {
+                paneSplitView.insertArrangedSubview(host.view, at: min(index, paneSplitView.arrangedSubviews.count))
+                logger.log("startup-ui", "top-pane attached-host-view session=\(session.id.uuidString)")
+            } else if index >= paneSplitView.arrangedSubviews.count || paneSplitView.arrangedSubviews[index] !== host.view {
+                detachPaneHostView(host.view)
+                paneSplitView.insertArrangedSubview(host.view, at: index)
+                logger.log("startup-ui", "top-pane reordered-host-view session=\(session.id.uuidString) index=\(index)")
+            }
             host.view.translatesAutoresizingMaskIntoConstraints = true
+            host.view.autoresizingMask = [.width, .height]
             host.view.needsLayout = true
         }
 
@@ -271,6 +287,13 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         DispatchQueue.main.async { [weak self] in
             self?.applyRatiosIfNeeded()
         }
+    }
+
+    private func detachPaneHostView(_ view: NSView) {
+        if paneSplitView.arrangedSubviews.contains(view) {
+            paneSplitView.removeArrangedSubview(view)
+        }
+        view.removeFromSuperview()
     }
 
     private func updatePaneViews(for workspace: ProjectWorkspace) {
@@ -308,7 +331,6 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
             isFocused: sessionID == activeTerminalSessionID,
             isVisible: true,
             showsInactiveOverlay: showsInactiveOverlay,
-            prefersReducedMemoryMode: showsInactiveOverlay,
             onSelect: { self.model.selectSession(sessionID) },
             onClose: { self.model.closeSession(sessionID) },
             showsCloseButton: true
@@ -347,11 +369,21 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
             paneHosts[sessionID]?.view.layoutSubtreeIfNeeded()
             paneHosts[sessionID]?.view.needsDisplay = true
         }
+        DmuxTerminalBackend.shared.registry.reconcileGeometry(
+            for: currentSessionIDs,
+            reason: needsEqualDistribution ? "top-pane-equalize" : "top-pane-apply-ratios"
+        )
         paneSplitView.needsDisplay = true
         if needsEqualDistribution {
             model.updateTopPaneRatios(ratios)
             needsEqualDistribution = false
         }
+    }
+
+    func splitViewWillResizeSubviews(_ notification: Notification) {
+        guard currentSessionIDs.count > 1,
+              model.selectedProjectID == currentWorkspace.projectID else { return }
+        DmuxTerminalBackend.shared.registry.beginStructuralResizeTransition(for: currentSessionIDs)
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
@@ -362,6 +394,10 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         let total = widths.reduce(0, +)
         guard total > 0 else { return }
         model.updateTopPaneRatios(widths.map { $0 / total })
+        DmuxTerminalBackend.shared.registry.reconcileGeometry(
+            for: currentSessionIDs,
+            reason: "top-pane-divider-resized"
+        )
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
@@ -423,24 +459,19 @@ private struct BottomTabbedPaneView: View {
             )
 
             ZStack {
-                ForEach(workspace.bottomTabSessionIDs, id: \.self) { sessionID in
-                    if let session = workspace.sessions.first(where: { $0.id == sessionID }) {
-                        TerminalPaneView(
-                            model: model,
-                            session: session,
-                            terminalBackgroundPreset: model.terminalBackgroundPreset,
-                            isFocused: sessionID == activeTerminalSessionID,
-                            isVisible: sessionID == selectedBottomSessionID,
-                            showsInactiveOverlay: showsInactiveOverlay,
-                            prefersReducedMemoryMode: showsInactiveOverlay || sessionID != selectedBottomSessionID,
-                            onSelect: { model.selectBottomTabSession(sessionID) },
-                            onClose: {},
-                            showsCloseButton: false
-                        )
-                        .opacity(sessionID == selectedBottomSessionID ? 1 : 0)
-                        .allowsHitTesting(sessionID == selectedBottomSessionID)
-                        .zIndex(sessionID == selectedBottomSessionID ? 1 : 0)
-                    }
+                if let selectedBottomSessionID,
+                   let session = workspace.sessions.first(where: { $0.id == selectedBottomSessionID }) {
+                    TerminalPaneView(
+                        model: model,
+                        session: session,
+                        terminalBackgroundPreset: model.terminalBackgroundPreset,
+                        isFocused: selectedBottomSessionID == activeTerminalSessionID,
+                        isVisible: true,
+                        showsInactiveOverlay: showsInactiveOverlay,
+                        onSelect: { model.selectBottomTabSession(selectedBottomSessionID) },
+                        onClose: {},
+                        showsCloseButton: false
+                    )
                 }
             }
             .background(
@@ -691,7 +722,6 @@ private struct TerminalPaneView: View {
     let isFocused: Bool
     let isVisible: Bool
     let showsInactiveOverlay: Bool
-    let prefersReducedMemoryMode: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let showsCloseButton: Bool
@@ -705,16 +735,17 @@ private struct TerminalPaneView: View {
         model.terminalRecoveryIssue(for: session.id)
     }
 
-    private var inactiveOverlayColor: Color {
-        terminalBackgroundPreset.isLight
-            ? Color.black.opacity(0.07)
-            : Color.black.opacity(0.22)
+    private var paneBackgroundColor: Color {
+        if showsInactiveOverlay && !isFocused {
+            return Color(nsColor: terminalBackgroundPreset.inactiveBackgroundColor)
+        }
+        return model.terminalChromeColor
     }
 
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(model.terminalChromeColor)
+                .fill(paneBackgroundColor)
 
             Group {
                 if let recoveryIssue {
@@ -730,13 +761,6 @@ private struct TerminalPaneView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(terminalInsets)
-
-            if showsInactiveOverlay && !isFocused {
-                Rectangle()
-                    .fill(inactiveOverlayColor)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-            }
 
             if showsCloseButton && (isHovered || isFocused) {
                 VStack {
@@ -778,7 +802,7 @@ private struct TerminalPaneView: View {
 
     @ViewBuilder
     private var terminalHost: some View {
-        SwiftTermTerminalHostView(
+        GhosttyTerminalHostView(
             session: session,
             environment: terminalEnvironment(),
             terminalBackgroundPreset: terminalBackgroundPreset,
@@ -787,14 +811,14 @@ private struct TerminalPaneView: View {
             gpuMode: model.appSettings.terminalGPUMode,
             isFocused: isFocused,
             isVisible: isVisible,
-            prefersReducedMemoryMode: prefersReducedMemoryMode,
+            showsInactiveOverlay: showsInactiveOverlay,
             shouldFocus: model.terminalFocusRequestID == session.id,
             onInteraction: onSelect,
             onFocusConsumed: { model.consumeTerminalFocusRequest(session.id) },
             onStartupSucceeded: { model.noteTerminalStartupSucceeded(session.id) },
             onStartupFailure: { detail in model.noteTerminalStartupFailure(session.id, detail: detail) }
         )
-        .id("terminal-\(session.id.uuidString)-\(model.terminalRecoveryRetryToken(for: session.id))")
+        .id("terminal-\(session.id.uuidString)-\(model.terminalRecoveryRetryToken(for: session.id))-ghostty")
     }
 
     private func terminalEnvironment() -> [(String, String)] {

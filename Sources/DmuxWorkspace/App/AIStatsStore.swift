@@ -65,10 +65,10 @@ final class AIStatsStore {
     private let liveSessionCutoff = Date().timeIntervalSince1970
 
     private func effectiveSessionID(_ selectedSessionID: UUID?) -> UUID? {
-        let focusedSessionID = SwiftTermTerminalRegistry.shared.focusedSessionID()
+        let focusedSessionID = DmuxTerminalBackend.shared.registry.focusedSessionID()
         let resolvedSessionID = focusedSessionID ?? selectedSessionID
         if debugAIFocus {
-            let registrySnapshot = SwiftTermTerminalRegistry.shared.debugSnapshot()
+            let registrySnapshot = DmuxTerminalBackend.shared.registry.debugSnapshot()
             print("[AIStats] focusedSessionID=\(focusedSessionID?.uuidString ?? "nil") selectedSessionID=\(selectedSessionID?.uuidString ?? "nil") resolvedSessionID=\(resolvedSessionID?.uuidString ?? "nil") registry=[\(registrySnapshot)]")
         }
         return resolvedSessionID
@@ -1417,7 +1417,7 @@ final class AIStatsStore {
             .filter(isMeaningfulLiveEnvelope)
 
         if let selectedSessionID,
-           SwiftTermTerminalRegistry.shared.shellPID(for: selectedSessionID) != nil,
+           DmuxTerminalBackend.shared.registry.shellPID(for: selectedSessionID) != nil,
            let selectedEnvelope = projectEnvelopes.first(where: {
                UUID(uuidString: $0.sessionId) == selectedSessionID && isCurrentContextEligibleEnvelope($0)
            }),

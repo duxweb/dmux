@@ -395,6 +395,9 @@ private final class TerminalHorizontalSplitController: NSViewController, NSSplit
         workspaceContainer.translatesAutoresizingMaskIntoConstraints = false
         workspaceContainer.wantsLayer = true
         workspaceContainer.layer?.backgroundColor = NSColor.clear.cgColor
+        workspaceContainer.layer?.masksToBounds = true
+        workspaceContainer.layer?.cornerRadius = workspaceCornerRadius
+        workspaceContainer.layer?.maskedCorners = [.layerMinXMaxYCorner]
         workspaceHosting.view.translatesAutoresizingMaskIntoConstraints = false
         workspaceHosting.view.wantsLayer = true
         workspaceHosting.view.layer?.backgroundColor = NSColor.clear.cgColor
@@ -460,17 +463,35 @@ private final class TerminalHorizontalSplitController: NSViewController, NSSplit
         let widthConstraint = rightPanelContainer.widthAnchor.constraint(equalToConstant: 0)
         widthConstraint.isActive = true
         rightPanelWidthConstraint = widthConstraint
+
+        refreshGhosttyPortalHostRegistration()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        refreshGhosttyPortalHostRegistration()
         updateLayout(rightPanelWidth: model.rightPanelWidth, rightPanel: model.rightPanel)
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        refreshGhosttyPortalHostRegistration()
+    }
+
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        guard let window = view.window else {
+            return
+        }
+        GhosttyPortalHostRegistry.unregister(hostView: workspaceContainer, for: window)
     }
 
     func updateLayout(rightPanelWidth: CGFloat, rightPanel: RightPanelKind?) {
         guard view.bounds.width > 0, !isApplyingLayout else { return }
         isApplyingLayout = true
         defer { isApplyingLayout = false }
+
+        refreshGhosttyPortalHostRegistration()
 
         workspaceChromeContainer.layer?.backgroundColor = NSColor(model.terminalChromeColor).cgColor
         workspaceChromeContainer.layer?.borderWidth = 0
@@ -498,6 +519,13 @@ private final class TerminalHorizontalSplitController: NSViewController, NSSplit
 
         splitView.adjustSubviews()
         splitView.needsDisplay = true
+    }
+
+    private func refreshGhosttyPortalHostRegistration() {
+        guard let window = view.window else {
+            return
+        }
+        GhosttyPortalHostRegistry.register(hostView: workspaceContainer, for: window)
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {

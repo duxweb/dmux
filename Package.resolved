@@ -1,6 +1,24 @@
 {
-  "originHash" : "120054e19f8f921176734eb50873065c1990c1c8863c40393d1d3fffac41709c",
+  "originHash" : "1b73a7924fa60bde49417192ec2700ac06b621710f78fe19b779639e55d283bc",
   "pins" : [
+    {
+      "identity" : "libghostty-spm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/duxphp/libghostty-spm.git",
+      "state" : {
+        "branch" : "pr/appkit-input-alignment",
+        "revision" : "c39cab687301d3299c271eaffe28e5db46a89f4c"
+      }
+    },
+    {
+      "identity" : "msdisplaylink",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Lakr233/MSDisplayLink.git",
+      "state" : {
+        "revision" : "1ba3e769b734e456317fa7e45321fa7f53eefb67",
+        "version" : "2.1.0"
+      }
+    },
     {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
@@ -11,30 +29,12 @@
       }
     },
     {
-      "identity" : "swift-argument-parser",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-argument-parser",
-      "state" : {
-        "revision" : "626b5b7b2f45e1b0b1c6f4a309296d1d21d7311b",
-        "version" : "1.7.1"
-      }
-    },
-    {
       "identity" : "swift-log",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
       "state" : {
         "revision" : "5073617dac96330a486245e4c0179cb0a6fd2256",
         "version" : "1.12.0"
-      }
-    },
-    {
-      "identity" : "swiftterm",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/migueldeicaza/SwiftTerm.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "b6ce28a4b222b06d76a3fd44e904e00a95044d53"
       }
     }
   ],
