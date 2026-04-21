@@ -1443,7 +1443,8 @@ private final class GhosttyWindowPortal {
             entry.hostedView.removeFromSuperview()
             entry.mountedView.addSubview(entry.hostedView)
         }
-        if entry.mountedView.frame != frameInHost {
+        let frameChanged = entry.mountedView.frame != frameInHost
+        if frameChanged {
             entry.mountedView.frame = frameInHost
         }
         entry.mountedView.needsLayout = true
@@ -1451,7 +1452,9 @@ private final class GhosttyWindowPortal {
         entry.mountedView.isHidden = false
         entry.hostedView.isHidden = false
         entry.hostedView.layoutSubtreeIfNeeded()
-        entry.hostedView.reconcileGeometry(reason: "portal-sync", passCount: 2)
+        if frameChanged {
+            entry.hostedView.reconcileGeometry(reason: "portal-sync", passCount: 2)
+        }
     }
 }
 
@@ -1771,8 +1774,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             return
         }
 
-        _ = terminalView.reconcileGeometryNow()
-        terminalView.refreshSurfaceNow(reason: "theme-preset-changed")
+        scheduleGeometryReconcile(reason: "theme-preset-changed", passCount: 1)
     }
 
     func focusTerminal() {
@@ -2233,9 +2235,6 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     private func runGeometryReconcilePass(generation: UInt64) {
         guard generation == geometryReconcileGeneration else {
             geometryReconcileScheduled = false
-            let nextPassCount = max(1, pendingGeometryReconcilePasses)
-            pendingGeometryReconcilePasses = 0
-            scheduleGeometryReconcile(reason: "generation-refresh", passCount: nextPassCount)
             return
         }
 
@@ -2258,14 +2257,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         terminalView.layoutSubtreeIfNeeded()
         _ = terminalView.reconcileGeometryNow()
         alignTerminalSurfaceGeometry()
-        displayIfNeeded()
-        terminalView.displayIfNeeded()
         terminalView.fitToSize()
-        _ = terminalView.reconcileGeometryNow()
-        terminalView.refreshSurfaceNow(
-            reason: "codux.geometry-reconcile.\(configuredSession.id.uuidString)"
-        )
-        alignTerminalSurfaceGeometry()
 
         logger.log(
             "ghostty-geometry",
@@ -2283,12 +2275,9 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     }
 
     private func alignTerminalSurfaceGeometry() {
-        let terminalBounds = terminalView.bounds
-        guard terminalBounds.width > 0, terminalBounds.height > 0 else {
+        guard bounds.width > 0, bounds.height > 0 else {
             return
         }
-
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -2296,66 +2285,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         if terminalView.frame != bounds {
             terminalView.frame = bounds
         }
-
-        if let rootLayer = terminalView.layer {
-            if rootLayer.frame != terminalBounds {
-                rootLayer.frame = terminalBounds
-            }
-            if rootLayer.contentsScale != scale {
-                rootLayer.contentsScale = scale
-            }
-            rootLayer.masksToBounds = true
-            alignSublayers(of: rootLayer, in: terminalBounds, scale: scale)
-        }
-
-        if let metalLayer = terminalView.layer as? CAMetalLayer {
-            if metalLayer.frame != terminalBounds {
-                metalLayer.frame = terminalBounds
-            }
-            if metalLayer.contentsScale != scale {
-                metalLayer.contentsScale = scale
-            }
-
-            let drawableSize = CGSize(
-                width: max(1, floor(terminalBounds.width * scale)),
-                height: max(1, floor(terminalBounds.height * scale))
-            )
-            if metalLayer.drawableSize != drawableSize {
-                metalLayer.drawableSize = drawableSize
-            }
-        }
-
-        terminalView.needsDisplay = true
-        terminalView.layer?.setNeedsDisplay()
         CATransaction.commit()
-    }
-
-    private func alignSublayers(of layer: CALayer, in bounds: CGRect, scale: CGFloat) {
-        guard let sublayers = layer.sublayers, !sublayers.isEmpty else {
-            return
-        }
-
-        for sublayer in sublayers {
-            if sublayer.frame != bounds {
-                sublayer.frame = bounds
-            }
-            if sublayer.contentsScale != scale {
-                sublayer.contentsScale = scale
-            }
-            sublayer.masksToBounds = true
-
-            if let metalSublayer = sublayer as? CAMetalLayer {
-                let drawableSize = CGSize(
-                    width: max(1, floor(bounds.width * scale)),
-                    height: max(1, floor(bounds.height * scale))
-                )
-                if metalSublayer.drawableSize != drawableSize {
-                    metalSublayer.drawableSize = drawableSize
-                }
-            }
-
-            alignSublayers(of: sublayer, in: bounds, scale: scale)
-        }
     }
 
     private func configureTerminalView(_ view: AppTerminalView) {

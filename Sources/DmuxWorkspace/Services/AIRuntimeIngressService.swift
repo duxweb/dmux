@@ -23,7 +23,6 @@ final class AIRuntimeIngressService {
 
     func resetEphemeralState() {
         aiSessionStore.reset()
-        CodexRuntimePollingService.shared.reset()
         bridgeService.clearAllClaudeSessionMappings()
         bridgeService.clearLegacyLiveRuntimeState()
     }
