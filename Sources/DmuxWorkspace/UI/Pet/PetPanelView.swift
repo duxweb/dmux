@@ -386,10 +386,12 @@ struct TitlebarPetButton: View {
     }
     private var hasAnyRunningActivity: Bool {
         model.activityByProjectID.values.contains {
-            if case .running = $0 {
+            switch $0 {
+            case .running, .waitingInput:
                 return true
+            default:
+                return false
             }
-            return false
         }
     }
     private var isSleeping: Bool {
@@ -483,6 +485,8 @@ struct TitlebarPetButton: View {
         switch phase {
         case .running:
             triggerBubble("running", cooldown: 300)
+        case .waitingInput:
+            break
         case .completed(_, _, let exitCode):
             let trigger = (exitCode ?? 0) == 0 ? "complete" : "error"
             triggerBubble(trigger, cooldown: trigger == "complete" ? 300 : 600)
@@ -754,6 +758,10 @@ struct TitlebarPetButton: View {
                 option: result.option,
                 customName: result.customName,
                 hiddenSpeciesChance: hiddenSpeciesChance
+            )
+            petStore.refreshDerivedState(
+                currentAllTimeTokens: allTimeTokens,
+                computedStats: liveComputedStats
             )
         }
     }

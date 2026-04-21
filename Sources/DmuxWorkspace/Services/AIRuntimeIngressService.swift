@@ -5,229 +5,71 @@ extension Notification.Name {
     static let dmuxAIRuntimeBridgeDidChange = Notification.Name("dmuxAIRuntimeBridgeDidChange")
 }
 
-private actor AIRuntimeSocketEventPipeline {
-    static let shared = AIRuntimeSocketEventPipeline()
-
-    private var tailTasksByKey: [String: Task<Void, Never>] = [:]
-    private var latestTokenByKey: [String: UInt64] = [:]
-    private var nextToken: UInt64 = 0
-
-    func enqueue(key: String, operation: @escaping @Sendable () async -> Void) {
-        nextToken &+= 1
-        let token = nextToken
-        let previous = tailTasksByKey[key]
-        latestTokenByKey[key] = token
-
-        let task = Task {
-            _ = await previous?.result
-            await operation()
-            finish(key: key, token: token)
-        }
-
-        tailTasksByKey[key] = task
-    }
-
-    private func finish(key: String, token: UInt64) {
-        guard latestTokenByKey[key] == token else {
-            return
-        }
-        latestTokenByKey[key] = nil
-        tailTasksByKey[key] = nil
-    }
-}
-
 @MainActor
 final class AIRuntimeIngressService {
     static let shared = AIRuntimeIngressService()
 
     private let bridgeService = AIRuntimeBridgeService()
     private let logger = AppDebugLog.shared
-    private let runtimeStore = AIRuntimeStateStore.shared
-    private let usageStore = AIUsageStore()
+    private let aiSessionStore = AISessionStore.shared
     private let toolDriverFactory = AIToolDriverFactory.shared
-    private let appLaunchCutoff = Date().timeIntervalSince1970
+
     private var runtimeSocketListenerFD: Int32 = -1
     private var runtimeSocketWatcher: DispatchSourceRead?
-    private var runtimeSourceWatchersByPath: [String: DispatchSourceFileSystemObject] = [:]
-    private var runtimeResponseSyncTasksByTool: [String: Task<Void, Never>] = [:]
     private var recentRuntimeEventAtByKey: [String: Date] = [:]
     private var latestProjects: [Project] = []
-    private var liveEnvelopesBySessionID: [UUID: AIToolUsageEnvelope] = [:]
-    private var responsePayloadsBySessionID: [UUID: AIResponseStatePayload] = [:]
 
     private init() {}
 
     func resetEphemeralState() {
-        liveEnvelopesBySessionID.removeAll()
-        responsePayloadsBySessionID.removeAll()
+        aiSessionStore.reset()
         bridgeService.clearAllClaudeSessionMappings()
         bridgeService.clearLegacyLiveRuntimeState()
     }
 
     func importRuntime(projects: [Project], projectID: UUID? = nil, liveSessionCutoff: Double? = nil) -> [AIToolUsageEnvelope] {
+        _ = projectID
+        _ = liveSessionCutoff
+        ensureSocketListening()
         latestProjects = projects
-        let effectiveLiveSessionCutoff = max(liveSessionCutoff ?? 0, appLaunchCutoff)
-        let allowedProjectIDs: Set<UUID> = {
-            if let projectID {
-                return [projectID]
-            }
-            return Set(projects.map(\.id))
-        }()
-
-        let liveEnvelopes = liveEnvelopesBySessionID.values
-            .filter { envelope in
-                guard let payloadProjectID = UUID(uuidString: envelope.projectId),
-                      allowedProjectIDs.contains(payloadProjectID) else {
-                    return false
-                }
-                let startedAt = envelope.startedAt ?? envelope.updatedAt
-                return startedAt >= effectiveLiveSessionCutoff - 2
-            }
-            .filter { envelope in
-                matchesCurrentTerminalInstance(
-                    sessionIDString: envelope.sessionId,
-                    sessionInstanceID: envelope.sessionInstanceId
-                )
-            }
-            .map { effectiveLiveEnvelope($0) }
-            .sorted { $0.updatedAt > $1.updatedAt }
-
-        let responseStates = responsePayloadsBySessionID.values
-            .filter { payload in
-                guard let payloadProjectID = UUID(uuidString: payload.projectId),
-                      allowedProjectIDs.contains(payloadProjectID) else {
-                    return false
-                }
-                return matchesCurrentTerminalInstance(
-                    sessionIDString: payload.sessionId,
-                    sessionInstanceID: payload.sessionInstanceId
-                )
-            }
-
-        for envelope in liveEnvelopes where envelope.status == "running" {
-            runtimeStore.applyLiveEnvelope(envelope)
-        }
-
-        let liveSessionIDs = Set(liveEnvelopes.compactMap { UUID(uuidString: $0.sessionId) })
-        for payload in responseStates
-        where toolDriverFactory.appliesGenericResponsePayloads(for: payload.tool)
-            && UUID(uuidString: payload.sessionId).map(liveSessionIDs.contains) == true {
-            runtimeStore.applyResponsePayload(payload)
-        }
-
-        if let projectID {
-            runtimeStore.prune(projectID: projectID, liveSessionIDs: liveSessionIDs)
-        } else {
-            let liveSessionIDsByProjectID = Dictionary(grouping: liveEnvelopes.compactMap { envelope -> (UUID, UUID)? in
-                guard envelope.status == "running",
-                      let projectID = UUID(uuidString: envelope.projectId),
-                      let sessionID = UUID(uuidString: envelope.sessionId) else {
-                    return nil
-                }
-                return (projectID, sessionID)
-            }, by: \.0).mapValues { Set($0.map(\.1)) }
-
-            for project in projects {
-                runtimeStore.prune(projectID: project.id, liveSessionIDs: liveSessionIDsByProjectID[project.id] ?? [])
-            }
-        }
-
-        return liveEnvelopes
+        return []
     }
 
-    private func matchesCurrentTerminalInstance(sessionIDString: String, sessionInstanceID: String?) -> Bool {
-        guard let sessionID = UUID(uuidString: sessionIDString) else {
-            return false
-        }
-        guard let expectedInstanceID = DmuxTerminalBackend.shared.registry.sessionInstanceID(for: sessionID) else {
-            return true
-        }
-        guard let sessionInstanceID, !sessionInstanceID.isEmpty else {
-            return false
-        }
-        return sessionInstanceID == expectedInstanceID
-    }
-
-    private func postRuntimeBridgeDidChange(
-        kind: String,
-        switchedSessionID: UUID? = nil,
-        tool: String? = nil,
-        clearedSessionID: UUID? = nil,
-        clearedTool: String? = nil
-    ) {
-        var userInfo: [String: Any] = ["kind": kind]
-        if let switchedSessionID, let tool {
-            userInfo["didSwitchExternalSession"] = true
-            userInfo["sessionID"] = switchedSessionID.uuidString
-            userInfo["tool"] = canonicalToolName(tool)
-        }
-        if let clearedSessionID, let clearedTool {
-            userInfo["didClearRuntimeSession"] = true
-            userInfo["clearedSessionID"] = clearedSessionID.uuidString
-            userInfo["clearedTool"] = canonicalToolName(clearedTool)
-        }
-        NotificationCenter.default.post(
-            name: .dmuxAIRuntimeBridgeDidChange,
-            object: nil,
-            userInfo: userInfo
-        )
-    }
-
-    func runtimeSourceDescriptors(for liveEnvelopes: [AIToolUsageEnvelope], projects: [Project]) -> [(path: String, tool: String)] {
-        liveEnvelopes
-            .filter { $0.status == "running" }
-            .compactMap { envelope -> [(path: String, tool: String)]? in
-                guard let projectID = UUID(uuidString: envelope.projectId),
-                      let project = projects.first(where: { $0.id == projectID }),
-                      let driver = toolDriverFactory.driver(for: envelope.tool) else {
-                    return nil
-                }
-                return driver.runtimeSourceDescriptors(project: project, envelope: envelope).map {
-                    (path: $0.path, tool: driver.id)
-                }
-            }
-            .flatMap { $0 }
+    func refreshRuntimeSources(projects: [Project], liveEnvelopes: [AIToolUsageEnvelope]) {
+        _ = liveEnvelopes
+        latestProjects = projects
     }
 
     func canonicalToolName(_ tool: String) -> String {
         toolDriverFactory.canonicalToolName(tool)
     }
 
-    func runtimeRefreshInterval(for tool: String) -> TimeInterval {
-        toolDriverFactory.runtimeRefreshInterval(for: tool)
-    }
-
     func isRealtimeTool(_ tool: String) -> Bool {
         toolDriverFactory.isRealtimeTool(tool)
     }
 
-    func realtimeToolsNeedingSync(in liveEnvelopes: [AIToolUsageEnvelope], excluding excluded: Set<String> = []) -> Set<String> {
-        Set(
-            liveEnvelopes
-                .filter { isRealtimeTool($0.tool) }
-                .map { canonicalToolName($0.tool) }
-        ).subtracting(excluded)
-    }
-
     func clearResponseState(sessionID: UUID) {
-        responsePayloadsBySessionID[sessionID] = nil
+        _ = sessionID
     }
 
     func clearLiveState(sessionID: UUID) {
-        liveEnvelopesBySessionID[sessionID] = nil
-        responsePayloadsBySessionID[sessionID] = nil
+        aiSessionStore.removeTerminal(sessionID)
+    }
+
+    func ingestManagedRuntimeSocketEventForTesting(kind: String, payloadData: Data) async {
+        await processDecodedEvent(kind: kind, payloadData: payloadData)
     }
 
     func startWatching() {
-        runtimeSocketWatcher?.cancel()
-        runtimeSocketWatcher = nil
+        let socketPath = bridgeService.runtimeEventSocketURL().path
         if runtimeSocketListenerFD >= 0 {
             close(runtimeSocketListenerFD)
             runtimeSocketListenerFD = -1
         }
-
-        let socketPath = bridgeService.runtimeEventSocketURL().path
         unlink(socketPath)
+
+        runtimeSocketWatcher?.cancel()
+        runtimeSocketWatcher = nil
 
         let listener = socket(AF_UNIX, SOCK_STREAM, 0)
         guard listener >= 0 else {
@@ -267,160 +109,36 @@ final class AIRuntimeIngressService {
         _ = fcntl(listener, F_SETFL, fcntl(listener, F_GETFL) | O_NONBLOCK)
         runtimeSocketListenerFD = listener
         logger.log("runtime-socket", "listening path=\(socketPath)")
+
         let watcher = DispatchSource.makeReadSource(fileDescriptor: listener, queue: .main)
         watcher.setEventHandler { [weak self] in
             self?.acceptPendingRuntimeConnections()
         }
         watcher.setCancelHandler { [weak self] in
-            guard let self else { return }
-            if self.runtimeSocketListenerFD >= 0 {
-                close(self.runtimeSocketListenerFD)
-                self.runtimeSocketListenerFD = -1
+            guard let self else {
+                return
             }
-            unlink(socketPath)
+            if self.runtimeSocketListenerFD == listener {
+                self.runtimeSocketListenerFD = -1
+                self.runtimeSocketWatcher = nil
+            }
         }
         watcher.resume()
         runtimeSocketWatcher = watcher
     }
 
-    func refreshRuntimeSources(projects: [Project], liveEnvelopes: [AIToolUsageEnvelope]) {
-        latestProjects = projects
-        let nextDescriptors = liveEnvelopes
-            .filter { $0.status == "running" }
-            .compactMap { envelope -> [(AIToolRuntimeSourceDescriptor, String)]? in
-                guard let projectID = UUID(uuidString: envelope.projectId),
-                      let project = projects.first(where: { $0.id == projectID }),
-                      let driver = toolDriverFactory.driver(for: envelope.tool) else {
-                    return nil
-                }
-                return driver.runtimeSourceDescriptors(project: project, envelope: envelope).map {
-                    ($0, driver.id)
-                }
-            }
-            .flatMap { $0 }
-        let nextPaths = Set(nextDescriptors.map(\.0.path))
-
-        for (path, watcher) in runtimeSourceWatchersByPath where !nextPaths.contains(path) {
-            watcher.cancel()
-            runtimeSourceWatchersByPath[path] = nil
+    func ensureSocketListening() {
+        let socketPath = bridgeService.runtimeEventSocketURL().path
+        let listenerMissing = runtimeSocketWatcher == nil || runtimeSocketListenerFD < 0
+        let socketMissing = FileManager.default.fileExists(atPath: socketPath) == false
+        guard listenerMissing || socketMissing else {
+            return
         }
-
-        for descriptor in nextDescriptors {
-            if runtimeSourceWatchersByPath[descriptor.0.path] != nil {
-                continue
-            }
-
-            let fd = open(descriptor.0.path, O_EVTONLY)
-            guard fd >= 0 else {
-                continue
-            }
-
-            let watcher = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fd,
-                eventMask: [.write, .extend, .rename, .delete],
-                queue: .main
-            )
-            watcher.setEventHandler { [weak self] in
-                guard let self else {
-                    return
-                }
-                let events = watcher.data
-                if descriptor.0.watchKind == .file && (events.contains(.rename) || events.contains(.delete)) {
-                    watcher.cancel()
-                    self.runtimeSourceWatchersByPath[descriptor.0.path] = nil
-                    NotificationCenter.default.post(
-                        name: .dmuxAIRuntimeBridgeDidChange,
-                        object: nil,
-                        userInfo: ["kind": "runtime-source"]
-                    )
-                    return
-                }
-
-                let dedupeKey = "source|\(descriptor.1)|\(descriptor.0.watchKind.rawValue)|\(descriptor.0.path)"
-                guard self.shouldAcceptRuntimeEvent(key: dedupeKey, ttl: 0.18) else {
-                    self.logger.log(
-                        "runtime-ingress",
-                        "drop source tool=\(descriptor.1) path=\(descriptor.0.path) reason=dedupe"
-                    )
-                    return
-                }
-                self.scheduleRuntimeIngressHandling(for: descriptor.0, tool: descriptor.1)
-            }
-            watcher.setCancelHandler {
-                close(fd)
-            }
-            watcher.resume()
-            runtimeSourceWatchersByPath[descriptor.0.path] = watcher
-        }
-    }
-
-    private func scheduleRuntimeIngressHandling(for descriptor: AIToolRuntimeSourceDescriptor, tool: String) {
-        let canonicalTool = canonicalToolName(tool)
-        runtimeResponseSyncTasksByTool[canonicalTool]?.cancel()
-
-        let currentProjects = latestProjects
-        let liveEnvelopes = importRuntime(projects: currentProjects)
-        let debounceDelay = max(0.08, min(0.24, runtimeRefreshInterval(for: canonicalTool) * 0.35))
-
-        runtimeResponseSyncTasksByTool[canonicalTool] = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(debounceDelay))
-            guard !Task.isCancelled else {
-                return
-            }
-
-            guard let self, !Task.isCancelled else {
-                return
-            }
-
-            if let driver = self.toolDriverFactory.driver(for: canonicalTool),
-               let customUpdate = await driver.handleRuntimeIngressEvent(
-                   descriptor: descriptor,
-                   projects: currentProjects,
-                   liveEnvelopes: liveEnvelopes
-               ) {
-                let hasActivityUpdate = !customUpdate.responsePayloads.isEmpty || !customUpdate.runtimeSnapshotsBySessionID.isEmpty
-                var switchedSessionID: UUID?
-                var switchedTool: String?
-                for payload in customUpdate.responsePayloads {
-                    self.runtimeStore.applyResponsePayload(payload)
-                    self.logger.log(
-                        "runtime-ingress",
-                        "payload tool=\(canonicalTool) session=\(payload.sessionId) response=\(payload.responseState.rawValue) source=\(payload.source?.rawValue ?? "unknown")"
-                    )
-                }
-                for (sessionID, snapshot) in customUpdate.runtimeSnapshotsBySessionID {
-                    let result = self.runtimeStore.applyRuntimeSnapshot(sessionID: sessionID, snapshot: snapshot)
-                    if result?.didSwitchExternalSession == true {
-                        switchedSessionID = sessionID
-                        switchedTool = snapshot.tool
-                    }
-                    self.logger.log(
-                        "runtime-ingress",
-                        "snapshot tool=\(snapshot.tool) session=\(sessionID.uuidString) model=\(snapshot.model ?? "nil") total=\(snapshot.totalTokens) response=\(snapshot.responseState?.rawValue ?? "nil") source=\(snapshot.source.rawValue)"
-                    )
-                }
-                self.runtimeResponseSyncTasksByTool[canonicalTool] = nil
-                if hasActivityUpdate {
-                    NotificationCenter.default.post(
-                        name: .dmuxAIRuntimeActivityPulse,
-                        object: nil
-                    )
-                }
-                self.postRuntimeBridgeDidChange(
-                    kind: "runtime-source",
-                    switchedSessionID: switchedSessionID,
-                    tool: switchedTool
-                )
-                return
-            }
-
-            self.runtimeResponseSyncTasksByTool[canonicalTool] = nil
-            NotificationCenter.default.post(
-                name: .dmuxAIRuntimeBridgeDidChange,
-                object: nil,
-                userInfo: ["kind": "runtime-source"]
-            )
-        }
+        logger.log(
+            "runtime-socket",
+            "self-heal restart path=\(socketPath) reason=\(listenerMissing ? "listener-missing" : "socket-missing")"
+        )
+        startWatching()
     }
 
     private func acceptPendingRuntimeConnections() {
@@ -469,230 +187,124 @@ final class AIRuntimeIngressService {
             return
         }
 
-        switch kind {
-        case "usage":
-            guard var envelope = try? JSONDecoder().decode(AIToolUsageEnvelope.self, from: payloadData) else {
-                logger.log("runtime-socket", "drop kind=usage reason=decode")
-                return
-            }
-            envelope.source = envelope.source ?? .socket
-            guard shouldAcceptRuntimeEvent(
-                key: runtimeSocketEventKey(kind: kind, data: payloadData),
-                ttl: 0.9
-            ) else {
-                logger.log("runtime-socket", "drop kind=usage session=\(envelope.sessionId) reason=dedupe")
-                return
-            }
-            guard matchesCurrentTerminalInstance(
-                sessionIDString: envelope.sessionId,
-                sessionInstanceID: envelope.sessionInstanceId
-            ) else {
-                logger.log(
-                    "runtime-socket",
-                    "drop kind=usage session=\(envelope.sessionId) instance=\(envelope.sessionInstanceId ?? "nil") reason=instance-mismatch"
-                )
-                return
-            }
-            guard let sessionID = UUID(uuidString: envelope.sessionId) else {
-                logger.log("runtime-socket", "drop kind=usage session=\(envelope.sessionId) reason=invalid-session-id")
-                return
-            }
-            let effectiveEnvelope = effectiveLiveEnvelope(envelope)
-            persistManagedRealtimeEnvelope(effectiveEnvelope)
-            if effectiveEnvelope.status == "running" {
-                liveEnvelopesBySessionID[sessionID] = effectiveEnvelope
-                runtimeStore.applyLiveEnvelope(effectiveEnvelope)
-            } else {
-                liveEnvelopesBySessionID[sessionID] = nil
-                responsePayloadsBySessionID[sessionID] = nil
-                runtimeStore.clearSession(sessionID)
-            }
-            logger.log(
-                "runtime-socket",
-                "accept kind=usage tool=\(canonicalToolName(effectiveEnvelope.tool)) session=\(effectiveEnvelope.sessionId) status=\(effectiveEnvelope.status) instance=\(effectiveEnvelope.sessionInstanceId ?? "nil") source=\(effectiveEnvelope.source?.rawValue ?? "unknown")"
-            )
-            if effectiveEnvelope.status == "running" {
-                postRuntimeBridgeDidChange(kind: "runtime-socket")
-            } else {
-                postRuntimeBridgeDidChange(
-                    kind: "runtime-socket",
-                    clearedSessionID: sessionID,
-                    clearedTool: effectiveEnvelope.tool
-                )
-            }
+        logger.log(
+            "runtime-socket",
+            "received kind=\(kind) bytes=\(payloadData.count)"
+        )
 
-        case "response":
-            guard var payload = try? JSONDecoder().decode(AIResponseStatePayload.self, from: payloadData) else {
-                logger.log("runtime-socket", "drop kind=response reason=decode")
+        Task { [weak self] in
+            guard let self else {
                 return
             }
-            payload.source = payload.source ?? .socket
-            guard shouldAcceptRuntimeEvent(
-                key: runtimeSocketEventKey(kind: kind, data: payloadData),
-                ttl: 0.9
-            ) else {
-                logger.log("runtime-socket", "drop kind=response session=\(payload.sessionId) reason=dedupe")
+            await self.processDecodedEvent(kind: kind, payloadData: payloadData)
+        }
+    }
+
+    private func processDecodedEvent(kind: String, payloadData: Data) async {
+        switch kind {
+        case "ai-hook":
+            guard let event = try? JSONDecoder().decode(AIHookEvent.self, from: payloadData) else {
+                logger.log("runtime-socket", "drop kind=ai-hook reason=decode")
                 return
-            }
-            guard matchesCurrentTerminalInstance(
-                sessionIDString: payload.sessionId,
-                sessionInstanceID: payload.sessionInstanceId
-            ) else {
-                logger.log(
-                    "runtime-socket",
-                    "drop kind=response session=\(payload.sessionId) instance=\(payload.sessionInstanceId ?? "nil") reason=instance-mismatch"
-                )
-                return
-            }
-            guard let sessionID = UUID(uuidString: payload.sessionId) else {
-                logger.log("runtime-socket", "drop kind=response session=\(payload.sessionId) reason=invalid-session-id")
-                return
-            }
-            persistManagedRealtimeResponse(payload)
-            responsePayloadsBySessionID[sessionID] = payload
-            if liveEnvelopesBySessionID[sessionID] != nil,
-               toolDriverFactory.appliesGenericResponsePayloads(for: payload.tool) {
-                runtimeStore.applyResponsePayload(payload)
             }
             logger.log(
-                "runtime-socket",
-                "accept kind=response tool=\(canonicalToolName(payload.tool)) session=\(payload.sessionId) state=\(payload.responseState.rawValue) instance=\(payload.sessionInstanceId ?? "nil") source=\(payload.source?.rawValue ?? "unknown")"
+                "runtime-ingress",
+                "receive ai-hook terminal=\(event.terminalID.uuidString) tool=\(event.tool) kind=\(event.kind.rawValue) external=\(event.aiSessionID ?? "nil") total=\(event.totalTokens.map(String.init) ?? "nil")"
             )
-            postRuntimeBridgeDidChange(kind: "runtime-socket")
+            guard shouldAcceptRuntimeEvent(
+                key: runtimeSocketEventKey(kind: kind, data: payloadData),
+                ttl: 0.35
+            ) else {
+                logger.log("runtime-socket", "drop kind=ai-hook terminal=\(event.terminalID.uuidString) reason=dedupe")
+                return
+            }
+            await processAIHookEvent(event)
+
+        case "manual-interrupt":
+            guard let event = try? JSONDecoder().decode(AIManualInterruptEvent.self, from: payloadData) else {
+                logger.log("runtime-socket", "drop kind=manual-interrupt reason=decode")
+                return
+            }
+            logger.log(
+                "runtime-interrupt",
+                "receive manual-interrupt terminal=\(event.terminalID.uuidString) updatedAt=\(event.updatedAt)"
+            )
+            processManualInterruptEvent(event)
+
+        case "opencode-runtime":
+            guard let envelope = try? JSONDecoder().decode(AIToolUsageEnvelope.self, from: payloadData) else {
+                logger.log("runtime-socket", "drop kind=opencode-runtime reason=decode")
+                return
+            }
+            guard shouldAcceptRuntimeEvent(
+                key: runtimeSocketEventKey(kind: kind, data: payloadData),
+                ttl: 0.35
+            ) else {
+                logger.log("runtime-socket", "drop kind=opencode-runtime session=\(envelope.sessionId) reason=dedupe")
+                return
+            }
+            processOpencodeRuntimeEnvelope(envelope)
 
         default:
-            guard shouldAcceptRuntimeEvent(
-                key: runtimeSocketEventKey(kind: kind, data: payloadData),
-                ttl: 1.5
-            ) else {
-                logger.log("runtime-socket", "drop kind=\(kind) reason=dedupe")
-                return
-            }
-            if let pipelineKey = runtimeEventPipelineKey(kind: kind, payloadData: payloadData) {
-                Task { [weak self] in
-                    guard let self else {
-                        return
-                    }
-                    await AIRuntimeSocketEventPipeline.shared.enqueue(key: pipelineKey) { [weak self] in
-                        guard let self else {
-                            return
-                        }
-                        await self.processManagedRuntimeSocketEvent(kind: kind, payloadData: payloadData)
-                    }
-                }
-                return
-            }
-            Task { [weak self] in
-                guard let self else {
-                    return
-                }
-                await self.processManagedRuntimeSocketEvent(kind: kind, payloadData: payloadData)
-            }
+            logger.log("runtime-socket", "ignore kind=\(kind) reason=unsupported")
         }
     }
 
-    private func runtimeEventPipelineKey(kind: String, payloadData: Data) -> String? {
-        guard kind == "codex-hook",
-              let envelope = try? JSONDecoder().decode(CodexHookRuntimeEnvelope.self, from: payloadData),
-              !envelope.dmuxSessionId.isEmpty else {
-            return nil
-        }
-        return "\(kind)|\(envelope.dmuxSessionId)"
-    }
-
-    private func processManagedRuntimeSocketEvent(kind: String, payloadData: Data) async {
-        let context = await MainActor.run {
-            (
-                projects: latestProjects,
-                liveEnvelopes: liveEnvelopesBySessionID.values.sorted { $0.updatedAt > $1.updatedAt },
-                existingRuntime: currentRuntimeSnapshotsBySessionID()
+    private func processAIHookEvent(_ event: AIHookEvent) async {
+        let currentSession = aiSessionStore.session(for: event.terminalID)
+        let resolvedEvent = await toolDriverFactory.resolveHookEvent(event, currentSession: currentSession)
+        logger.log(
+            "runtime-ingress",
+            "apply ai-hook terminal=\(resolvedEvent.terminalID.uuidString) tool=\(resolvedEvent.tool) kind=\(resolvedEvent.kind.rawValue) external=\(resolvedEvent.aiSessionID ?? "nil") model=\(resolvedEvent.model ?? "nil") total=\(resolvedEvent.totalTokens.map(String.init) ?? "nil")"
+        )
+        let didChange = aiSessionStore.apply(resolvedEvent)
+        guard didChange else {
+            logger.log(
+                "runtime-ingress",
+                "skip ai-hook terminal=\(resolvedEvent.terminalID.uuidString) tool=\(resolvedEvent.tool) kind=\(resolvedEvent.kind.rawValue) reason=no-change"
             )
-        }
-
-        guard let update = await AIToolDriverFactory.shared.handleRuntimeSocketEvent(
-            kind: kind,
-            payloadData: payloadData,
-            projects: context.projects,
-            liveEnvelopes: context.liveEnvelopes,
-            existingRuntime: context.existingRuntime
-        ) else {
             return
         }
 
-        await MainActor.run {
-            var switchedSessionID: UUID?
-            var switchedTool: String?
-            for payload in update.responsePayloads {
-                if let sessionID = UUID(uuidString: payload.sessionId) {
-                    responsePayloadsBySessionID[sessionID] = payload
-                }
-                runtimeStore.applyResponsePayload(payload)
-            }
-            for (sessionID, snapshot) in update.runtimeSnapshotsBySessionID {
-                let result = runtimeStore.applyRuntimeSnapshot(sessionID: sessionID, snapshot: snapshot)
-                if result?.didSwitchExternalSession == true {
-                    switchedSessionID = sessionID
-                    switchedTool = snapshot.tool
-                }
-            }
-            postRuntimeBridgeDidChange(
-                kind: "runtime-socket",
-                switchedSessionID: switchedSessionID,
-                tool: switchedTool
-            )
-        }
+        postRuntimeBridgeDidChange(kind: "ai-hook")
     }
 
-    private func currentRuntimeSnapshotsBySessionID() -> [UUID: AIRuntimeContextSnapshot] {
-        let snapshots = latestProjects.flatMap { project in
-            runtimeStore.liveSnapshots(projectID: project.id)
+    private func processOpencodeRuntimeEnvelope(_ envelope: AIToolUsageEnvelope) {
+        let didChange = aiSessionStore.applyOpencodeEnvelope(envelope)
+        guard didChange else {
+            return
         }
-        return Dictionary(uniqueKeysWithValues: snapshots.map { snapshot in
-            (
-                snapshot.sessionID,
-                AIRuntimeContextSnapshot(
-                    tool: snapshot.tool ?? "",
-                    externalSessionID: snapshot.externalSessionID,
-                    model: snapshot.model,
-                    inputTokens: snapshot.currentInputTokens,
-                    outputTokens: snapshot.currentOutputTokens,
-                    totalTokens: snapshot.currentTotalTokens,
-                    updatedAt: snapshot.updatedAt.timeIntervalSince1970,
-                    responseState: snapshot.responseState,
-                    source: .probe
-                )
-            )
-        })
+
+        postRuntimeBridgeDidChange(kind: "opencode-runtime")
     }
 
-    private func effectiveLiveEnvelope(_ envelope: AIToolUsageEnvelope) -> AIToolUsageEnvelope {
-        guard toolDriverFactory.allowsRuntimeExternalSessionSwitch(for: envelope.tool),
-              let sessionID = UUID(uuidString: envelope.sessionId),
-              let binding = runtimeStore.terminalBindingsByID[sessionID],
-              let existingExternalSessionID = normalizedExternalSessionID(binding.lastKnownExternalSessionID) else {
-            return envelope
-        }
-
-        let incomingExternalSessionID = normalizedExternalSessionID(envelope.externalSessionID)
-        guard existingExternalSessionID != incomingExternalSessionID else {
-            return envelope
-        }
-
-        var effectiveEnvelope = envelope
-        effectiveEnvelope.externalSessionID = existingExternalSessionID
-        if (effectiveEnvelope.model?.isEmpty ?? true),
-           let existingModel = normalizedNonEmptyString(binding.lastKnownModel) {
-            effectiveEnvelope.model = existingModel
-        }
-        if effectiveEnvelope.responseState == nil {
-            effectiveEnvelope.responseState = binding.responseState
-        }
-
-        logger.log(
-            "runtime-ingress",
-            "normalize live session=\(sessionID.uuidString) tool=\(canonicalToolName(envelope.tool)) external=\(incomingExternalSessionID ?? "nil")->\(existingExternalSessionID)"
+    private func processManualInterruptEvent(_ event: AIManualInterruptEvent) {
+        let previousState = aiSessionStore.session(for: event.terminalID)
+        let didChange = aiSessionStore.markInterrupted(
+            terminalID: event.terminalID,
+            updatedAt: event.updatedAt
         )
-        return effectiveEnvelope
+        guard didChange else {
+            logger.log("runtime-socket", "drop kind=manual-interrupt terminal=\(event.terminalID.uuidString) reason=no-live-session")
+            return
+        }
+
+        let nextState = aiSessionStore.session(for: event.terminalID)
+        logger.log(
+            "runtime-interrupt",
+            "applied manual-interrupt terminal=\(event.terminalID.uuidString) prev=\(previousState?.state.rawValue ?? "nil") next=\(nextState?.state.rawValue ?? "nil") interrupted=\(nextState?.wasInterrupted == true)"
+        )
+
+        postRuntimeBridgeDidChange(kind: "manual-interrupt")
+    }
+
+    private func postRuntimeBridgeDidChange(kind: String) {
+        NotificationCenter.default.post(name: .dmuxAIRuntimeActivityPulse, object: nil)
+        NotificationCenter.default.post(
+            name: .dmuxAIRuntimeBridgeDidChange,
+            object: nil,
+            userInfo: ["kind": kind]
+        )
     }
 
     private func shouldAcceptRuntimeEvent(key: String, ttl: TimeInterval) -> Bool {
@@ -709,143 +321,32 @@ final class AIRuntimeIngressService {
     }
 
     private func runtimeSocketEventKey(kind: String, data: Data) -> String {
-        var hasher = Hasher()
-        hasher.combine(kind)
-        hasher.combine(data.count)
-        for byte in data.prefix(128) {
-            hasher.combine(byte)
-        }
-        return "socket|\(kind)|\(hasher.finalize())"
-    }
-
-    private func normalizedExternalSessionID(_ value: String?) -> String? {
-        normalizedNonEmptyString(value)
-    }
-
-    private func normalizedNonEmptyString(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
-            return nil
-        }
-        return value
-    }
-
-    private func shouldPersistManagedRealtime(tool: String) -> Bool {
-        _ = tool
-        return false
-    }
-
-    private func persistManagedRealtimeEnvelope(_ envelope: AIToolUsageEnvelope) {
-        guard shouldPersistManagedRealtime(tool: envelope.tool),
-              let projectID = UUID(uuidString: envelope.projectId) else {
-            return
+        if kind == "ai-hook",
+           let event = try? JSONDecoder().decode(AIHookEvent.self, from: data) {
+            let timeBucket = Int(event.updatedAt * 10)
+            let sessionID = event.aiSessionID?.isEmpty == false ? event.aiSessionID! : event.terminalID.uuidString
+            return "socket|ai-hook|\(sessionID)|\(event.kind.rawValue)|\(timeBucket)"
         }
 
-        let project = latestProjects.first(where: { $0.id == projectID })
-        let projectPath = project?.path ?? envelope.projectPath
-        let projectName = project?.name ?? envelope.projectName
-        guard let projectPath, !projectPath.isEmpty else {
-            return
-        }
-
-        let canonicalTool = canonicalToolName(envelope.tool)
-        let recordID = managedRecordID(for: envelope, canonicalTool: canonicalTool)
-        let existing = usageStore.managedRealtimeRecord(recordID: recordID)
-        let startedAt = envelope.startedAt.map { Date(timeIntervalSince1970: $0) } ?? Date(timeIntervalSince1970: envelope.updatedAt)
-        let updatedAt = Date(timeIntervalSince1970: envelope.updatedAt)
-        let finishedAt = envelope.finishedAt.map { Date(timeIntervalSince1970: $0) }
-        let maxContextUsagePercent = max(existing?.maxContextUsagePercent ?? 0, envelope.contextUsagePercent ?? 0)
-
-        let record = AIManagedRealtimeSessionRecord(
-            recordID: recordID,
-            invocationID: envelope.invocationId ?? existing?.invocationID,
-            runtimeSessionID: envelope.sessionId,
-            externalSessionID: envelope.externalSessionID ?? existing?.externalSessionID,
-            projectID: projectID,
-            projectPath: projectPath,
-            projectName: projectName,
-            sessionTitle: resolvedManagedSessionTitle(envelope: envelope, existing: existing, fallbackProjectName: projectName),
-            tool: canonicalTool,
-            model: envelope.model ?? existing?.model,
-            startedAt: min(existing?.startedAt ?? startedAt, startedAt),
-            updatedAt: max(existing?.updatedAt ?? updatedAt, updatedAt),
-            finishedAt: finishedAt ?? existing?.finishedAt,
-            status: envelope.status,
-            responseState: envelope.responseState ?? existing?.responseState,
-            totalInputTokens: max(existing?.totalInputTokens ?? 0, envelope.inputTokens ?? 0),
-            totalOutputTokens: max(existing?.totalOutputTokens ?? 0, envelope.outputTokens ?? 0),
-            totalTokens: max(existing?.totalTokens ?? 0, envelope.totalTokens ?? 0),
-            maxContextUsagePercent: maxContextUsagePercent > 0 ? maxContextUsagePercent : existing?.maxContextUsagePercent
-        )
-        usageStore.saveManagedRealtimeRecord(record)
-        logger.log(
-            "managed-ai-session",
-            "save tool=\(canonicalTool) record=\(recordID) project=\(projectName) status=\(record.status) external=\(record.externalSessionID ?? "nil") invocation=\(record.invocationID ?? "nil")"
-        )
-    }
-
-    private func persistManagedRealtimeResponse(_ payload: AIResponseStatePayload) {
-        guard shouldPersistManagedRealtime(tool: payload.tool),
-              let projectID = UUID(uuidString: payload.projectId) else {
-            return
-        }
-
-        let project = latestProjects.first(where: { $0.id == projectID })
-        let projectPath = project?.path ?? payload.projectPath
-        let projectName = project?.name
-        guard let projectPath, !projectPath.isEmpty else {
-            return
-        }
-
-        let canonicalTool = canonicalToolName(payload.tool)
-        let recordID = managedRecordID(for: payload, canonicalTool: canonicalTool)
-        guard var existing = usageStore.managedRealtimeRecord(recordID: recordID) else {
-            return
-        }
-
-        existing.responseState = payload.responseState
-        existing.updatedAt = max(existing.updatedAt, Date(timeIntervalSince1970: payload.updatedAt))
-        existing.projectPath = projectPath
-        if let projectName {
-            existing.projectName = projectName
-        }
-        usageStore.saveManagedRealtimeRecord(existing)
-        logger.log(
-            "managed-ai-session",
-            "response tool=\(canonicalTool) record=\(recordID) state=\(payload.responseState.rawValue) project=\(existing.projectName)"
-        )
-    }
-
-    private func managedRecordID(for envelope: AIToolUsageEnvelope, canonicalTool: String) -> String {
-        if let invocationID = envelope.invocationId, !invocationID.isEmpty {
-            return invocationID
-        }
-        if let externalSessionID = envelope.externalSessionID, !externalSessionID.isEmpty {
-            return "\(canonicalTool):\(externalSessionID)"
-        }
-        let startedAt = envelope.startedAt ?? envelope.updatedAt
-        return "\(canonicalTool):\(envelope.sessionId):\(String(format: "%.3f", startedAt))"
-    }
-
-    private func managedRecordID(for payload: AIResponseStatePayload, canonicalTool: String) -> String {
-        if let invocationID = payload.invocationId, !invocationID.isEmpty {
-            return invocationID
-        }
-        return "\(canonicalTool):\(payload.sessionId):\(String(format: "%.3f", payload.updatedAt))"
-    }
-
-    private func resolvedManagedSessionTitle(
-        envelope: AIToolUsageEnvelope,
-        existing: AIManagedRealtimeSessionRecord?,
-        fallbackProjectName: String
-    ) -> String {
-        let candidate = envelope.sessionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !candidate.isEmpty, candidate != "Terminal" {
-            return candidate
-        }
-        if let existingTitle = existing?.sessionTitle, !existingTitle.isEmpty {
-            return existingTitle
-        }
-        return fallbackProjectName
+        let sessionID: String = {
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return "unknown"
+            }
+            if let value = object["sessionId"] as? String, !value.isEmpty {
+                return value
+            }
+            if let value = object["session_id"] as? String, !value.isEmpty {
+                return value
+            }
+            if let value = object["terminalID"] as? String, !value.isEmpty {
+                return value
+            }
+            if let value = object["terminalId"] as? String, !value.isEmpty {
+                return value
+            }
+            return "unknown"
+        }()
+        let bucket = Int(Date().timeIntervalSince1970 * 2)
+        return "socket|\(kind)|\(sessionID)|\(bucket)"
     }
 }

@@ -1,0 +1,244 @@
+import XCTest
+@testable import DmuxWorkspace
+
+@MainActor
+final class AIRuntimeIngressHookEventTests: XCTestCase {
+    private let ingress = AIRuntimeIngressService.shared
+    private let store = AISessionStore.shared
+
+    override func setUp() async throws {
+        store.reset()
+        ingress.resetEphemeralState()
+    }
+
+    override func tearDown() async throws {
+        store.reset()
+        ingress.resetEphemeralState()
+    }
+
+    func testClaudeSnapshotTracksLatestUsageForRepeatedMessageID() async throws {
+        let projectPath = "/tmp/dmux-claude-runtime-\(UUID().uuidString)"
+        let sessionID = UUID().uuidString.lowercased()
+        let logURL = AIRuntimeSourceLocator.claudeSessionLogURL(projectPath: projectPath, externalSessionID: sessionID)
+        try FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: logURL.deletingLastPathComponent()) }
+
+        let firstRow = """
+        {"cwd":"\(projectPath)","sessionId":"\(sessionID)","timestamp":"2026-04-21T03:00:44.548Z","type":"assistant","uuid":"row-1","message":{"id":"msg-1","model":"claude-sonnet-4-6","usage":{"input_tokens":3,"cache_creation_input_tokens":19077,"cache_read_input_tokens":8151,"output_tokens":1}}}
+        """
+        let secondRow = """
+        {"cwd":"\(projectPath)","sessionId":"\(sessionID)","timestamp":"2026-04-21T03:00:47.562Z","type":"assistant","uuid":"row-2","message":{"id":"msg-1","model":"claude-sonnet-4-6","usage":{"input_tokens":3,"cache_creation_input_tokens":19077,"cache_read_input_tokens":8151,"output_tokens":228}}}
+        """
+        try "\(firstRow)\n\(secondRow)\n".write(to: logURL, atomically: true, encoding: .utf8)
+
+        let snapshot = await ClaudeRuntimeLogCache.shared.snapshot(
+            projectPath: projectPath,
+            externalSessionID: sessionID
+        )
+
+        XCTAssertEqual(snapshot?.model, "claude-sonnet-4-6")
+        XCTAssertEqual(snapshot?.totalTokens, 27_459)
+        XCTAssertEqual(snapshot?.outputTokens, 228)
+    }
+
+    func testClaudeDriverUsesSnapshotTotalWhenHookPayloadOmitsTokens() async throws {
+        let projectPath = "/tmp/dmux-claude-driver-\(UUID().uuidString)"
+        let sessionID = UUID().uuidString.lowercased()
+        let logURL = AIRuntimeSourceLocator.claudeSessionLogURL(projectPath: projectPath, externalSessionID: sessionID)
+        try FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: logURL.deletingLastPathComponent()) }
+
+        let row = """
+        {"cwd":"\(projectPath)","sessionId":"\(sessionID)","timestamp":"2026-04-21T03:10:47.562Z","type":"assistant","uuid":"row-1","message":{"id":"msg-1","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"cache_creation_input_tokens":20,"cache_read_input_tokens":30,"output_tokens":40},"stop_reason":"end_turn"}}
+        """
+        try "\(row)\n".write(to: logURL, atomically: true, encoding: .utf8)
+
+        let resolved = await ClaudeToolDriver().resolveHookEvent(
+            AIHookEvent(
+                kind: .turnCompleted,
+                terminalID: UUID(),
+                terminalInstanceID: "instance-1",
+                projectID: UUID(),
+                projectName: "Codux",
+                projectPath: projectPath,
+                sessionTitle: "Claude",
+                tool: "claude",
+                aiSessionID: sessionID,
+                model: nil,
+                totalTokens: nil,
+                updatedAt: 200,
+                metadata: .init(transcriptPath: nil, notificationType: nil, reason: nil)
+            ),
+            currentSession: AISessionStore.TerminalSessionState(
+                terminalID: UUID(),
+                terminalInstanceID: "instance-1",
+                projectID: UUID(),
+                projectName: "Codux",
+                sessionTitle: "Claude",
+                tool: "claude",
+                aiSessionID: sessionID,
+                state: .responding,
+                model: nil,
+                baselineTotalTokens: 0,
+                committedTotalTokens: 0,
+                updatedAt: 199,
+                startedAt: 198,
+                wasInterrupted: false,
+                hasCompletedTurn: false,
+                notificationType: nil,
+                targetToolName: nil,
+                interactionMessage: nil
+            )
+        )
+
+        XCTAssertEqual(resolved.model, "claude-sonnet-4-6")
+        XCTAssertEqual(resolved.totalTokens, 100)
+    }
+
+    func testAIHookPromptSubmittedUpdatesSessionStore() async throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let payload = try JSONEncoder().encode(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-thread",
+                model: "gpt-5.4",
+                totalTokens: 10,
+                updatedAt: 100,
+                metadata: nil
+            )
+        )
+
+        await ingress.ingestManagedRuntimeSocketEventForTesting(kind: "ai-hook", payloadData: payload)
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertEqual(session.tool, "codex")
+        XCTAssertEqual(session.aiSessionID, "codex-thread")
+        XCTAssertEqual(session.model, "gpt-5.4")
+    }
+
+    func testAIHookTurnCompletedTransitionsSessionToIdle() async throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+
+        let promptPayload = try JSONEncoder().encode(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-thread",
+                model: "gpt-5.4",
+                totalTokens: 12,
+                updatedAt: 100,
+                metadata: nil
+            )
+        )
+        await ingress.ingestManagedRuntimeSocketEventForTesting(kind: "ai-hook", payloadData: promptPayload)
+
+        let stopPayload = try JSONEncoder().encode(
+            AIHookEvent(
+                kind: .turnCompleted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-thread",
+                model: nil,
+                totalTokens: 44,
+                updatedAt: 101,
+                metadata: .init(transcriptPath: nil, notificationType: nil, reason: nil)
+            )
+        )
+        await ingress.ingestManagedRuntimeSocketEventForTesting(kind: "ai-hook", payloadData: stopPayload)
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertEqual(session.committedTotalTokens, 44)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+    }
+
+    func testAIHookNeedsInputPreservesInteractionMetadata() async throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let payload = try JSONEncoder().encode(
+            AIHookEvent(
+                kind: .needsInput,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-2",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "claude",
+                aiSessionID: "claude-thread",
+                model: "sonnet",
+                totalTokens: nil,
+                updatedAt: 200,
+                metadata: .init(
+                    transcriptPath: nil,
+                    notificationType: "permission-request",
+                    reason: "tool-approval",
+                    targetToolName: "Bash",
+                    message: "Approve Bash?"
+                )
+            )
+        )
+
+        await ingress.ingestManagedRuntimeSocketEventForTesting(kind: "ai-hook", payloadData: payload)
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .needsInput)
+        XCTAssertEqual(session.notificationType, "permission-request")
+        XCTAssertEqual(session.targetToolName, "Bash")
+        XCTAssertEqual(session.interactionMessage, "Approve Bash?")
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .waitingInput(tool: "claude"))
+    }
+
+    func testManualInterruptTransitionsRunningSessionToIdleInterrupted() async throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+
+        let promptPayload = try JSONEncoder().encode(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-3",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-thread",
+                model: "gpt-5.4",
+                totalTokens: 12,
+                updatedAt: 300,
+                metadata: nil
+            )
+        )
+        await ingress.ingestManagedRuntimeSocketEventForTesting(kind: "ai-hook", payloadData: promptPayload)
+
+        let interruptPayload = try JSONEncoder().encode(
+            AIManualInterruptEvent(
+                terminalID: terminalID,
+                updatedAt: 301
+            )
+        )
+        await ingress.ingestManagedRuntimeSocketEventForTesting(kind: "manual-interrupt", payloadData: interruptPayload)
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertTrue(session.wasInterrupted)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+    }
+}

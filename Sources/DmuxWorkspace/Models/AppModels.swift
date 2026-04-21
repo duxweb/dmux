@@ -224,6 +224,18 @@ enum PaneAxis: String, Codable, Hashable {
     case vertical
 }
 
+enum DetachedTerminalRegion: String, Hashable, Sendable {
+    case top
+    case bottom
+}
+
+struct DetachedTerminalPlacement: Equatable, Hashable, Sendable {
+    var projectID: UUID
+    var region: DetachedTerminalRegion
+    var index: Int
+    var topPaneRatios: [CGFloat]
+}
+
 struct ProjectWorkspace: Identifiable, Codable, Hashable {
     var id: UUID { projectID }
     var projectID: UUID
@@ -241,12 +253,32 @@ struct ProjectWorkspace: Identifiable, Codable, Hashable {
         !bottomTabSessionIDs.isEmpty
     }
 
+    var visibleSessionIDs: [UUID] {
+        topSessionIDs + bottomTabSessionIDs
+    }
+
+    var visibleSessionCount: Int {
+        visibleSessionIDs.count
+    }
+
     func containsTopSession(_ sessionID: UUID) -> Bool {
         topSessionIDs.contains(sessionID)
     }
 
     func containsBottomSession(_ sessionID: UUID) -> Bool {
         bottomTabSessionIDs.contains(sessionID)
+    }
+
+    func containsVisibleSession(_ sessionID: UUID) -> Bool {
+        containsTopSession(sessionID) || containsBottomSession(sessionID)
+    }
+
+    func containsSession(_ sessionID: UUID) -> Bool {
+        sessions.contains { $0.id == sessionID }
+    }
+
+    func session(for sessionID: UUID) -> TerminalSession? {
+        sessions.first { $0.id == sessionID }
     }
 
     func resolvedTopPaneRatios() -> [CGFloat] {
@@ -302,6 +334,78 @@ struct ProjectWorkspace: Identifiable, Codable, Hashable {
             if let replacement = topSessionIDs.last ?? bottomTabSessionIDs.last ?? sessions.first?.id {
                 selectedSessionID = replacement
             }
+        }
+    }
+
+    mutating func detachVisibleSession(_ sessionID: UUID) -> DetachedTerminalPlacement? {
+        let originalTopRatios = resolvedTopPaneRatios()
+
+        if let index = topSessionIDs.firstIndex(of: sessionID) {
+            topSessionIDs.remove(at: index)
+            if index < topPaneRatios.count {
+                topPaneRatios.remove(at: index)
+            }
+            topPaneRatios = resolvedTopPaneRatios()
+            reconcileSelectionAfterVisibleRemoval(of: sessionID)
+            return DetachedTerminalPlacement(
+                projectID: projectID,
+                region: .top,
+                index: index,
+                topPaneRatios: originalTopRatios
+            )
+        }
+
+        if let index = bottomTabSessionIDs.firstIndex(of: sessionID) {
+            bottomTabSessionIDs.remove(at: index)
+            reconcileSelectionAfterVisibleRemoval(of: sessionID)
+            return DetachedTerminalPlacement(
+                projectID: projectID,
+                region: .bottom,
+                index: index,
+                topPaneRatios: originalTopRatios
+            )
+        }
+
+        return nil
+    }
+
+    mutating func restoreDetachedSession(_ sessionID: UUID, placement: DetachedTerminalPlacement) {
+        guard containsSession(sessionID), containsVisibleSession(sessionID) == false else {
+            return
+        }
+
+        switch placement.region {
+        case .top:
+            let insertIndex = min(max(placement.index, 0), topSessionIDs.count)
+            topSessionIDs.insert(sessionID, at: insertIndex)
+            if placement.topPaneRatios.count == topSessionIDs.count {
+                topPaneRatios = placement.topPaneRatios
+            } else {
+                let equalRatio = 1 / CGFloat(topSessionIDs.count)
+                topPaneRatios = Array(repeating: equalRatio, count: topSessionIDs.count)
+            }
+            topPaneRatios = resolvedTopPaneRatios()
+            selectedSessionID = sessionID
+
+        case .bottom:
+            let insertIndex = min(max(placement.index, 0), bottomTabSessionIDs.count)
+            bottomTabSessionIDs.insert(sessionID, at: insertIndex)
+            selectedBottomTabSessionID = sessionID
+            selectedSessionID = sessionID
+        }
+    }
+
+    private mutating func reconcileSelectionAfterVisibleRemoval(of sessionID: UUID) {
+        if selectedBottomTabSessionID == sessionID {
+            selectedBottomTabSessionID = bottomTabSessionIDs.last
+        }
+
+        guard selectedSessionID == sessionID else {
+            return
+        }
+
+        if let replacement = topSessionIDs.last ?? selectedBottomTabSessionID ?? bottomTabSessionIDs.last {
+            selectedSessionID = replacement
         }
     }
 

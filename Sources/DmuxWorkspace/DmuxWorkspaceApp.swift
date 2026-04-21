@@ -15,6 +15,11 @@ enum AppWindowIdentifier {
     static let about = NSUserInterfaceItemIdentifier("dmux.about")
     static let agreement = NSUserInterfaceItemIdentifier("dmux.agreement")
     static let petDex = NSUserInterfaceItemIdentifier("dmux.petDex")
+    static let detachedTerminalPrefix = "dmux.detached-terminal."
+
+    static func detachedTerminal(_ sessionID: UUID) -> NSUserInterfaceItemIdentifier {
+        NSUserInterfaceItemIdentifier("\(detachedTerminalPrefix)\(sessionID.uuidString)")
+    }
 }
 
 @MainActor
@@ -54,6 +59,11 @@ func isStandardChromeWindow(_ window: NSWindow) -> Bool {
 @MainActor
 func isMainWorkspaceWindow(_ window: NSWindow) -> Bool {
     window.identifier == AppWindowIdentifier.main
+}
+
+@MainActor
+func isDetachedTerminalWindow(_ window: NSWindow) -> Bool {
+    window.identifier?.rawValue.hasPrefix(AppWindowIdentifier.detachedTerminalPrefix) == true
 }
 
 @MainActor
@@ -228,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return event
         }
 
-        if isStandardChromeWindow(window) {
+        if isStandardChromeWindow(window) || isDetachedTerminalWindow(window) {
             window.performClose(nil)
             return nil
         }
@@ -336,7 +346,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        guard !isStandardChromeWindow(window) else {
+        guard !isStandardChromeWindow(window),
+              !isDetachedTerminalWindow(window) else {
             return
         }
 
@@ -371,6 +382,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if isStandardChromeWindow(window) {
             applyStandardWindowChrome(window, toolbarStyle: .preference)
+            return
+        }
+
+        if isDetachedTerminalWindow(window) {
+            applyStandardWindowChrome(window)
             return
         }
 
@@ -417,7 +433,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @MainActor
     private func restoreTerminalFocusIfNeeded(for window: NSWindow) {
         guard !(window is NSPanel),
-              !isStandardChromeWindow(window) else {
+              !isStandardChromeWindow(window),
+              !isDetachedTerminalWindow(window) else {
             return
         }
         model?.restoreSelectedTerminalFocusIfNeeded()

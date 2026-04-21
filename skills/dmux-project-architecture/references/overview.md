@@ -12,7 +12,7 @@
 
 - `AppModel`
 - `AIStatsStore`
-- `AIRuntimeStateStore`
+- `AISessionStore`
 - `GitStore`
 - `PetStore`
 
@@ -21,7 +21,7 @@
 - `PersistenceService` owns persisted app snapshot
 - `PetStore` owns persisted pet-specific state
 - `AIStatsStore` merges indexed usage and live runtime state
-- `AIRuntimeStateStore` owns ephemeral runtime/session live state only
+- `AISessionStore` owns ephemeral hook-driven runtime/session live state only
 
 ## Current pet status
 
@@ -40,6 +40,8 @@ Implemented:
 ## Test map
 
 - `RuntimeDriverTests`
-- `RuntimeLifecycleScenarioTests`
+- `AIRuntimeIngressHookEventTests`
+- `AIRuntimeIngressSocketTests`
+- `AISessionStoreTests`
 - `PetFeatureTests`
-- `scripts/dev/runtime-regression.sh`
+- `scripts/dev/runtime-hook-smoke.py`

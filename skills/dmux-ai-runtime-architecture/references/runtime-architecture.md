@@ -110,7 +110,7 @@ If a change here would alter `codex`, `claude`, or `gemini` behavior while you a
 
 File:
 
-- `Sources/DmuxWorkspace/App/AIRuntimeStateStore.swift`
+- `Sources/DmuxWorkspace/App/AISessionStore.swift`
 
 Responsibilities:
 

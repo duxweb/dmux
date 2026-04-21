@@ -52,7 +52,7 @@ final class AppModel {
     var isGeneratingCommitMessage = false
     var terminalFocusRequestID: UUID?
     var terminalFocusRenderVersion: UInt64 = 0
-    let runtimeStore = AIRuntimeStateStore.shared
+    let aiSessionStore = AISessionStore.shared
     let aiStatsStore = AIStatsStore()
     let petStore = PetStore.shared
     let gitStore = GitStore()
@@ -82,8 +82,9 @@ final class AppModel {
     private var cachedActivityPayloadByProjectID: [UUID: ProjectActivityPayload] = [:]
     private var lastCompletionTokenByProjectID: [UUID: String] = [:]
     private var clearedCompletionTokenByProjectID: [UUID: String] = [:]
+    private var lastWaitingInputTokenByProjectID: [UUID: String] = [:]
     private var realtimeCompletionByProjectID: [UUID: RealtimeCompletionState] = [:]
-    private var lastRealtimeResponseBySessionID: [UUID: AIResponseState?] = [:]
+    private var lastRealtimeRunningBySessionID: [UUID: Bool] = [:]
     private var realtimeProjectIDBySessionID: [UUID: UUID] = [:]
     private var isSystemUIReady = false
     private var isTerminalStartupUnlocked = false
@@ -95,6 +96,7 @@ final class AppModel {
     private var pendingStartupRecoveryDialog: ConfirmDialogState?
     private var hasPresentedStartupRecoveryDialog = false
     private var hasScheduledLaunchUpdateCheck = false
+    private var detachedTerminalPlacementBySessionID: [UUID: DetachedTerminalPlacement] = [:]
 
     init(snapshot: AppSnapshot?, persistenceService: PersistenceService, startupIssues: [PersistenceLoadIssue] = []) {
         self.persistenceService = persistenceService
@@ -174,14 +176,15 @@ final class AppModel {
     }
 
     private func resetActivityState() {
-        runtimeStore.reset()
+        aiSessionStore.reset()
         activityByProjectID = [:]
         activityRenderVersion = 0
         cachedActivityPayloadByProjectID.removeAll()
         lastCompletionTokenByProjectID.removeAll()
         clearedCompletionTokenByProjectID.removeAll()
+        lastWaitingInputTokenByProjectID.removeAll()
         realtimeCompletionByProjectID.removeAll()
-        lastRealtimeResponseBySessionID.removeAll()
+        lastRealtimeRunningBySessionID.removeAll()
         realtimeProjectIDBySessionID.removeAll()
     }
 
@@ -205,6 +208,14 @@ final class AppModel {
         }
 
         return projects.first(where: { $0.id == selectedProjectID })
+    }
+
+    func terminalSession(for sessionID: UUID) -> TerminalSession? {
+        workspaces.lazy.compactMap { $0.session(for: sessionID) }.first
+    }
+
+    func isDetachedTerminal(_ sessionID: UUID) -> Bool {
+        detachedTerminalPlacementBySessionID[sessionID] != nil
     }
 
     func presentStartupRecoveryIfNeeded() {
@@ -971,10 +982,10 @@ final class AppModel {
         )
 
         if let selectedSessionID = selectedSessionID {
-            runtimeStore.registerExpectedLogicalSession(
-                sessionID: selectedSessionID,
+            aiSessionStore.registerExpectedLogicalSession(
+                terminalID: selectedSessionID,
                 tool: tool,
-                externalSessionID: externalSessionID,
+                aiSessionID: externalSessionID,
                 indexedSummary: session
             )
         }
@@ -987,17 +998,17 @@ final class AppModel {
             return
         }
         if let selectedSessionID = selectedSessionID {
-            runtimeStore.clearExpectedLogicalSession(sessionID: selectedSessionID)
+            aiSessionStore.clearExpectedLogicalSession(terminalID: selectedSessionID)
         }
 
         guard let newSessionID = createSplitTerminal(command: command, axis: .horizontal) else {
             statusMessage = String(localized: "workspace.split.create_failed", defaultValue: "Unable to create a new split pane.", bundle: .module)
             return
         }
-        runtimeStore.registerExpectedLogicalSession(
-            sessionID: newSessionID,
+        aiSessionStore.registerExpectedLogicalSession(
+            terminalID: newSessionID,
             tool: tool,
-            externalSessionID: externalSessionID,
+            aiSessionID: externalSessionID,
             indexedSummary: session
         )
         debugLog.log(
@@ -1177,6 +1188,48 @@ final class AppModel {
         }
     }
 
+    func detachSession(_ sessionID: UUID) {
+        if isDetachedTerminal(sessionID) {
+            DetachedTerminalWindowPresenter.show(model: self, sessionID: sessionID)
+            return
+        }
+
+        guard let workspaceIndex = workspaces.firstIndex(where: { $0.containsVisibleSession(sessionID) }),
+              let session = workspaces[workspaceIndex].session(for: sessionID),
+              let placement = workspaces[workspaceIndex].detachVisibleSession(sessionID) else {
+            statusMessage = String(localized: "terminal.detach.unavailable", defaultValue: "Unable to detach this terminal.", bundle: .module)
+            return
+        }
+
+        detachedTerminalPlacementBySessionID[sessionID] = placement
+        let projectID = workspaces[workspaceIndex].projectID
+        persist()
+        if selectedProjectID == projectID {
+            terminalFocusRequestID = workspaces[workspaceIndex].selectedSessionID
+        }
+        refreshAIStatsIfNeeded()
+        DetachedTerminalWindowPresenter.show(model: self, sessionID: sessionID)
+        statusMessage = String(
+            format: String(localized: "terminal.detach.success_format", defaultValue: "Detached %@ into a separate window.", bundle: .module),
+            session.title
+        )
+    }
+
+    func restoreDetachedSession(_ sessionID: UUID, shouldFocus: Bool = true) {
+        guard let placement = detachedTerminalPlacementBySessionID.removeValue(forKey: sessionID),
+              let workspaceIndex = workspaces.firstIndex(where: { $0.projectID == placement.projectID }) else {
+            return
+        }
+
+        workspaces[workspaceIndex].restoreDetachedSession(sessionID, placement: placement)
+        persist()
+        if shouldFocus && selectedProjectID == placement.projectID {
+            terminalFocusRequestID = sessionID
+            terminalFocusRenderVersion &+= 1
+        }
+        refreshAIStatsIfNeeded()
+    }
+
     func selectSession(_ sessionID: UUID) {
         guard Self.shouldRefreshSelectionFocus(
             requestedSessionID: sessionID,
@@ -1191,6 +1244,12 @@ final class AppModel {
             terminalFocusRequestID = sessionID
         }
         refreshAIStatsIfNeeded()
+    }
+
+    func requestTerminalFocus(_ sessionID: UUID) {
+        terminalFocusRequestID = sessionID
+        terminalFocusRenderVersion &+= 1
+        _ = DmuxTerminalBackend.shared.registry.focus(sessionID: sessionID)
     }
 
     func selectBottomTabSession(_ sessionID: UUID) {
@@ -1238,7 +1297,7 @@ final class AppModel {
     }
 
     func sendInterruptToSelectedSession() -> Bool {
-        guard let sessionID = selectedSessionID else {
+        guard let sessionID = DmuxTerminalBackend.shared.registry.focusedSessionID() ?? selectedSessionID else {
             return false
         }
         terminalFocusRequestID = sessionID
@@ -1247,26 +1306,16 @@ final class AppModel {
             return false
         }
 
-        if runtimeStore.markInterrupted(sessionID: sessionID) {
-            NotificationCenter.default.post(
-                name: .dmuxAIRuntimeActivityPulse,
-                object: nil
-            )
-            NotificationCenter.default.post(
-                name: .dmuxAIRuntimeBridgeDidChange,
-                object: nil,
-                userInfo: ["kind": "interrupt"]
-            )
-        }
+        _ = Self.handleManagedTerminalInterrupt(sessionID: sessionID, sessionStore: aiSessionStore)
 
         return true
     }
 
     func sendEscapeToSelectedSessionIfInterruptingAI() -> Bool {
-        guard let sessionID = selectedSessionID,
-              let tool = runtimeStore.tool(for: sessionID),
+        guard let sessionID = DmuxTerminalBackend.shared.registry.focusedSessionID() ?? selectedSessionID,
+              let tool = aiSessionStore.tool(for: sessionID),
               toolDriverFactory.canonicalToolName(tool) == "claude",
-              runtimeStore.responseState(for: sessionID) == .responding else {
+              aiSessionStore.isRunning(terminalID: sessionID) else {
             return false
         }
 
@@ -1276,18 +1325,47 @@ final class AppModel {
             return false
         }
 
-        if runtimeStore.markInterrupted(sessionID: sessionID) {
-            NotificationCenter.default.post(
-                name: .dmuxAIRuntimeActivityPulse,
-                object: nil
+        _ = Self.handleManagedTerminalInterrupt(sessionID: sessionID, sessionStore: aiSessionStore)
+
+        return true
+    }
+
+    @discardableResult
+    static func handleManagedTerminalInterrupt(
+        sessionID: UUID,
+        sessionStore: AISessionStore = .shared,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let logger = AppDebugLog.shared
+        let previousSession = sessionStore.session(for: sessionID)
+        logger.log(
+            "runtime-interrupt",
+            "request terminal=\(sessionID.uuidString) tool=\(previousSession?.tool ?? "nil") state=\(previousSession?.state.rawValue ?? "nil")"
+        )
+        guard sessionStore.tool(for: sessionID) != nil,
+              sessionStore.markInterrupted(terminalID: sessionID) else {
+            logger.log(
+                "runtime-interrupt",
+                "skip terminal=\(sessionID.uuidString) reason=missing-live-session"
             )
-            NotificationCenter.default.post(
-                name: .dmuxAIRuntimeBridgeDidChange,
-                object: nil,
-                userInfo: ["kind": "interrupt"]
-            )
+            return false
         }
 
+        let nextSession = sessionStore.session(for: sessionID)
+        logger.log(
+            "runtime-interrupt",
+            "applied terminal=\(sessionID.uuidString) nextState=\(nextSession?.state.rawValue ?? "nil") interrupted=\(nextSession?.wasInterrupted == true)"
+        )
+
+        notificationCenter.post(
+            name: .dmuxAIRuntimeActivityPulse,
+            object: nil
+        )
+        notificationCenter.post(
+            name: .dmuxAIRuntimeBridgeDidChange,
+            object: nil,
+            userInfo: ["kind": "interrupt"]
+        )
         return true
     }
 
@@ -1296,15 +1374,21 @@ final class AppModel {
     }
 
     func activityPhase(for projectID: UUID) -> ProjectActivityPhase {
-        let runtimePhase = runtimeStore.projectPhase(projectID: projectID)
+        let runtimePhase = aiSessionStore.projectPhase(projectID: projectID)
         if runtimePhase != .idle {
             logActivityPhaseResolution(projectID: projectID, source: "runtime", phase: runtimePhase)
             return runtimePhase
         }
         if let phase = activityByProjectID[projectID], phase != .idle {
-            if case .running(let tool) = phase, isRealtimeAITool(tool) {
+            switch phase {
+            case .running(let tool) where isRealtimeAITool(tool):
                 logActivityPhaseResolution(projectID: projectID, source: "cached-realtime->idle", phase: .idle)
                 return .idle
+            case .waitingInput(let tool) where isRealtimeAITool(tool):
+                logActivityPhaseResolution(projectID: projectID, source: "cached-realtime->idle", phase: .idle)
+                return .idle
+            default:
+                break
             }
             logActivityPhaseResolution(projectID: projectID, source: "cached", phase: phase)
             return phase
@@ -1469,6 +1553,25 @@ final class AppModel {
     }
 
     func closeSession(_ sessionID: UUID) {
+        if let placement = detachedTerminalPlacementBySessionID.removeValue(forKey: sessionID) {
+            mutateWorkspace(projectID: placement.projectID) { workspace in
+                workspace.removeSession(sessionID)
+            }
+            runtimeIngressService.clearLiveState(sessionID: sessionID)
+            runtimeIngressService.clearResponseState(sessionID: sessionID)
+            aiStatsStore.handleTerminalSessionClosed(
+                sessionID: sessionID,
+                project: selectedProject,
+                projects: projects,
+                selectedSessionID: selectedSessionID
+            )
+            DmuxTerminalBackend.shared.registry.release(sessionID: sessionID)
+            clearTerminalRecoveryState(for: sessionID)
+            DetachedTerminalWindowPresenter.dismiss(sessionID: sessionID, restoreOnClose: false)
+            statusMessage = String(localized: "terminal.closed", defaultValue: "Closed terminal.", bundle: .module)
+            return
+        }
+
         mutateSelectedWorkspace { workspace, _ in
             let totalCount = workspace.sessions.count
             guard totalCount > 1 else {
@@ -2252,6 +2355,7 @@ final class AppModel {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.logApplicationActivationActivity()
+                self?.runtimeIngressService.ensureSocketListening()
                 self?.performanceMonitor.setApplicationActive(true)
                 self?.updateGitRemoteSyncPolling()
                 self?.refreshAIStatsIfNeeded()
@@ -2301,26 +2405,10 @@ final class AppModel {
             }
 
             Task { @MainActor [weak self] in
-                guard let self,
-                      let tool = self.runtimeStore.tool(for: sessionID),
-                      self.toolDriverFactory.canonicalToolName(tool) == "claude",
-                      self.runtimeStore.responseState(for: sessionID) == .responding else {
+                guard let self else {
                     return
                 }
-
-                guard self.runtimeStore.markInterrupted(sessionID: sessionID) else {
-                    return
-                }
-
-                NotificationCenter.default.post(
-                    name: .dmuxAIRuntimeActivityPulse,
-                    object: nil
-                )
-                NotificationCenter.default.post(
-                    name: .dmuxAIRuntimeBridgeDidChange,
-                    object: nil,
-                    userInfo: ["kind": "interrupt"]
-                )
+                _ = Self.handleManagedTerminalInterrupt(sessionID: sessionID, sessionStore: self.aiSessionStore)
             }
         }
     }
@@ -2334,6 +2422,8 @@ final class AppModel {
                 activityLabel = "idle"
             case .running(let tool):
                 activityLabel = "running:\(tool)"
+            case .waitingInput(let tool):
+                activityLabel = "waiting-input:\(tool)"
             case .completed(let tool, _, let exitCode):
                 activityLabel = "completed:\(tool):\(exitCode.map(String.init) ?? "nil")"
             }
@@ -2400,6 +2490,17 @@ final class AppModel {
         persist()
     }
 
+    private func mutateWorkspace(projectID: UUID, _ transform: (inout ProjectWorkspace) -> Void) {
+        guard let index = workspaces.firstIndex(where: { $0.projectID == projectID }) else {
+            return
+        }
+
+        var updatedWorkspaces = workspaces
+        transform(&updatedWorkspaces[index])
+        workspaces = updatedWorkspaces
+        persist()
+    }
+
     private func createSplitTerminal(command: String, axis: PaneAxis) -> UUID? {
         guard let selectedProjectID,
               let project = projects.first(where: { $0.id == selectedProjectID }),
@@ -2445,12 +2546,12 @@ final class AppModel {
             return false
         }
 
-        if let binding = runtimeStore.terminalBindingsByID[selectedSessionID],
-           binding.status == "running",
-           !binding.tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let session = aiSessionStore.session(for: selectedSessionID),
+           session.state != .idle,
+           !session.tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             debugLog.log(
                 "terminal-command",
-                "reuse-failed session=\(selectedSessionID.uuidString) reason=runtime-live tool=\(binding.tool) response=\(binding.responseState?.rawValue ?? "nil") command=\(command)"
+                "reuse-failed session=\(selectedSessionID.uuidString) reason=runtime-live tool=\(session.tool) running=\(aiSessionStore.isRunning(terminalID: selectedSessionID)) command=\(command)"
             )
             return false
         }
@@ -2773,7 +2874,7 @@ final class AppModel {
         for project in projects {
             let payload = payloads[project.id]
             var phase = activityService.phase(for: payload)
-            let runtimeSnapshots = runtimeStore.liveSnapshots(projectID: project.id)
+            let runtimeSnapshots = aiSessionStore.liveSnapshots(projectID: project.id)
             updateRealtimeCompletionTracking(project: project, runtimeSnapshots: runtimeSnapshots)
 
             if let payload, isRealtimeAITool(payload.tool) {
@@ -2782,8 +2883,13 @@ final class AppModel {
                 phase = .idle
             }
 
-            if case .running(let tool) = phase, isRealtimeAITool(tool) {
+            switch phase {
+            case .running(let tool) where isRealtimeAITool(tool):
                 phase = .idle
+            case .waitingInput(let tool) where isRealtimeAITool(tool):
+                phase = .idle
+            default:
+                break
             }
 
             if let payload,
@@ -2792,7 +2898,7 @@ final class AppModel {
                 phase = .idle
             }
 
-            let runtimePhase = runtimeStore.projectPhase(projectID: project.id)
+            let runtimePhase = aiSessionStore.projectPhase(projectID: project.id)
             if runtimePhase != .idle {
                 phase = runtimePhase
             } else if let completion = recentRealtimeCompletion(for: project.id) {
@@ -2806,6 +2912,24 @@ final class AppModel {
                     "activity",
                     "project=\(project.name) phase=\(debugActivityDescription(phase))"
                 )
+            }
+
+            if sendNotifications,
+               case .waitingInput(let tool) = phase,
+               let context = aiSessionStore.waitingInputContext(projectID: project.id) {
+                let token = waitingInputNotificationToken(tool: tool, context: context)
+                if lastWaitingInputTokenByProjectID[project.id] != token {
+                    lastWaitingInputTokenByProjectID[project.id] = token
+                    activityService.notifyNeedsInput(
+                        projectName: project.name,
+                        tool: tool,
+                        notificationType: context.notificationType,
+                        targetToolName: context.targetToolName,
+                        message: context.message
+                    )
+                }
+            } else {
+                lastWaitingInputTokenByProjectID[project.id] = nil
             }
 
             guard sendNotifications,
@@ -2844,6 +2968,8 @@ final class AppModel {
             return "idle"
         case .running(let tool):
             return "running:\(tool)"
+        case .waitingInput(let tool):
+            return "waiting-input:\(tool)"
         case .completed(let tool, _, let exitCode):
             return "completed:\(tool):\(exitCode.map(String.init) ?? "nil")"
         }
@@ -2852,7 +2978,7 @@ final class AppModel {
     private func logActivityPhaseResolution(projectID: UUID, source: String, phase: ProjectActivityPhase) {
         let projectName = projects.first(where: { $0.id == projectID })?.name ?? projectID.uuidString
         let cachedPhase = activityByProjectID[projectID].map(debugActivityDescription) ?? "nil"
-        let runtimeSummary = runtimeStore.debugSummary(projectID: projectID)
+        let runtimeSummary = aiSessionStore.debugSummary(projectID: projectID)
         debugLog.log(
             "activity-phase",
             "project=\(projectName) source=\(source) phase=\(debugActivityDescription(phase)) cached=\(cachedPhase) runtime=\(runtimeSummary)"
@@ -2865,9 +2991,9 @@ final class AppModel {
             return
         }
 
-        let runtimePhase = runtimeStore.projectPhase(projectID: project.id)
+        let runtimePhase = aiSessionStore.projectPhase(projectID: project.id)
         let cachedPhase = activityByProjectID[project.id].map(debugActivityDescription) ?? "nil"
-        let runtimeSummary = runtimeStore.debugSummary(projectID: project.id)
+        let runtimeSummary = aiSessionStore.debugSummary(projectID: project.id)
         debugLog.log(
             "app-activation",
             "project=\(project.name) runtimePhase=\(debugActivityDescription(runtimePhase)) cached=\(cachedPhase) runtime=\(runtimeSummary)"
@@ -2887,10 +3013,10 @@ final class AppModel {
             }
 
             realtimeProjectIDBySessionID[snapshot.sessionID] = project.id
-            let previousState = lastRealtimeResponseBySessionID[snapshot.sessionID] ?? nil
-            let currentState = snapshot.responseState
+            let previousRunning = lastRealtimeRunningBySessionID[snapshot.sessionID] ?? false
+            let currentRunning = snapshot.isRunning
 
-            if previousState == .responding, currentState == .idle, snapshot.status == "running" {
+            if previousRunning, currentRunning == false, snapshot.status == "running" {
                 if snapshot.wasInterrupted || snapshot.hasCompletedTurn == false {
                     realtimeCompletionByProjectID[project.id] = nil
                 } else {
@@ -2900,19 +3026,19 @@ final class AppModel {
                         wasInterrupted: false
                     )
                 }
-            } else if currentState == .responding {
+            } else if currentRunning {
                 realtimeCompletionByProjectID[project.id] = nil
             }
 
-            lastRealtimeResponseBySessionID[snapshot.sessionID] = currentState
+            lastRealtimeRunningBySessionID[snapshot.sessionID] = currentRunning
         }
 
-        for sessionID in Array(lastRealtimeResponseBySessionID.keys) {
+        for sessionID in Array(lastRealtimeRunningBySessionID.keys) {
             guard realtimeProjectIDBySessionID[sessionID] == project.id,
                   !liveSessionIDs.contains(sessionID) else {
                 continue
             }
-            lastRealtimeResponseBySessionID[sessionID] = nil
+            lastRealtimeRunningBySessionID[sessionID] = nil
             realtimeProjectIDBySessionID[sessionID] = nil
         }
 
@@ -2939,6 +3065,8 @@ final class AppModel {
 
     private func clearCompletedActivityIfNeeded(for projectID: UUID) {
         var didClear = false
+
+        lastWaitingInputTokenByProjectID[projectID] = nil
 
         if realtimeCompletionByProjectID[projectID] != nil {
             realtimeCompletionByProjectID[projectID] = nil
@@ -2991,6 +3119,20 @@ final class AppModel {
             )
             refreshProjectActivity(sendNotifications: false)
         }
+    }
+
+    private func waitingInputNotificationToken(
+        tool: String,
+        context: AISessionStore.WaitingInputContext
+    ) -> String {
+        let timestamp = Int(context.updatedAt * 1000)
+        return [
+            tool,
+            String(timestamp),
+            context.notificationType ?? "",
+            context.targetToolName ?? "",
+            context.message ?? ""
+        ].joined(separator: "|")
     }
 
     func updateThemeMode(_ mode: AppThemeMode) {

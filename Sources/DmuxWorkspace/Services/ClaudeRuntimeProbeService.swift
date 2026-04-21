@@ -117,10 +117,30 @@ actor ClaudeRuntimeInterruptWatchCache {
     }
 }
 
-private actor ClaudeRuntimeLogCache {
+actor ClaudeRuntimeLogCache {
     struct CountedUsageKey: Hashable {
         var sessionID: String
         var messageID: String
+    }
+
+    struct UsageTotals: Equatable {
+        var inputTokens: Int
+        var outputTokens: Int
+        var totalTokens: Int
+
+        static let zero = UsageTotals(inputTokens: 0, outputTokens: 0, totalTokens: 0)
+
+        func delta(from previous: UsageTotals) -> UsageTotals {
+            UsageTotals(
+                inputTokens: max(0, inputTokens - previous.inputTokens),
+                outputTokens: max(0, outputTokens - previous.outputTokens),
+                totalTokens: max(0, totalTokens - previous.totalTokens)
+            )
+        }
+
+        var isZero: Bool {
+            inputTokens == 0 && outputTokens == 0 && totalTokens == 0
+        }
     }
 
     struct SessionAggregate {
@@ -138,7 +158,7 @@ private actor ClaudeRuntimeLogCache {
     struct FileState {
         var offset: UInt64
         var sessions: [String: SessionAggregate]
-        var countedUsageKeys: Set<CountedUsageKey>
+        var usageTotalsByKey: [CountedUsageKey: UsageTotals]
     }
 
     static let shared = ClaudeRuntimeLogCache()
@@ -186,12 +206,12 @@ private actor ClaudeRuntimeLogCache {
                     in: fileURL,
                     projectPath: projectPath,
                     startingAt: 0,
-                    existingCountedUsageKeys: []
+                    existingUsageTotalsByKey: [:]
                 )
                 fileStates[path] = FileState(
                     offset: fileSize,
                     sessions: parsed.sessions,
-                    countedUsageKeys: parsed.countedUsageKeys
+                    usageTotalsByKey: parsed.usageTotalsByKey
                 )
                 continue
             }
@@ -208,7 +228,7 @@ private actor ClaudeRuntimeLogCache {
                 in: fileURL,
                 projectPath: projectPath,
                 startingAt: existing.offset,
-                existingCountedUsageKeys: existing.countedUsageKeys
+                existingUsageTotalsByKey: existing.usageTotalsByKey
             )
             var mergedSessions = existing.sessions
             for (sessionID, delta) in parsed.sessions {
@@ -221,7 +241,7 @@ private actor ClaudeRuntimeLogCache {
             fileStates[path] = FileState(
                 offset: fileSize,
                 sessions: mergedSessions,
-                countedUsageKeys: parsed.countedUsageKeys
+                usageTotalsByKey: parsed.usageTotalsByKey
             )
         }
 
@@ -275,10 +295,10 @@ private actor ClaudeRuntimeLogCache {
         in fileURL: URL,
         projectPath: String,
         startingAt offset: UInt64,
-        existingCountedUsageKeys: Set<CountedUsageKey>
-    ) -> (sessions: [String: SessionAggregate], countedUsageKeys: Set<CountedUsageKey>) {
+        existingUsageTotalsByKey: [CountedUsageKey: UsageTotals]
+    ) -> (sessions: [String: SessionAggregate], usageTotalsByKey: [CountedUsageKey: UsageTotals]) {
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
-            return ([:], existingCountedUsageKeys)
+            return ([:], existingUsageTotalsByKey)
         }
         defer {
             try? handle.close()
@@ -287,17 +307,17 @@ private actor ClaudeRuntimeLogCache {
         do {
             try handle.seek(toOffset: offset)
         } catch {
-            return ([:], existingCountedUsageKeys)
+            return ([:], existingUsageTotalsByKey)
         }
 
         let data = handle.readDataToEndOfFile()
         guard !data.isEmpty,
               let text = String(data: data, encoding: .utf8) else {
-            return ([:], existingCountedUsageKeys)
+            return ([:], existingUsageTotalsByKey)
         }
 
         var sessions: [String: SessionAggregate] = [:]
-        var countedUsageKeys = existingCountedUsageKeys
+        var usageTotalsByKey = existingUsageTotalsByKey
         for line in text.split(separator: "\n") {
             guard let lineData = line.data(using: .utf8),
                   let row = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
@@ -344,26 +364,27 @@ private actor ClaudeRuntimeLogCache {
             if let model = message["model"] as? String, !model.isEmpty {
                 aggregate.model = model
             }
-            if let usageKey = usageKey(for: row, message: message, sessionID: sessionID),
-               countedUsageKeys.contains(usageKey) == false {
-                countedUsageKeys.insert(usageKey)
-
+            if let usageKey = usageKey(for: row, message: message, sessionID: sessionID) {
                 let usage = message["usage"] as? [String: Any] ?? [:]
-                let input = (usage["input_tokens"] as? NSNumber)?.intValue ?? 0
-                let output = (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
-                let cacheCreation = (usage["cache_creation_input_tokens"] as? NSNumber)?.intValue ?? 0
-                let cacheRead = (usage["cache_read_input_tokens"] as? NSNumber)?.intValue ?? 0
-                let effectiveInput = input + cacheCreation + cacheRead
-                let total = effectiveInput + output
+                let nextUsageTotals = usageTotals(from: usage)
+                let previousUsageTotals = usageTotalsByKey[usageKey] ?? .zero
+                let usageDelta = nextUsageTotals.delta(from: previousUsageTotals)
+                usageTotalsByKey[usageKey] = UsageTotals(
+                    inputTokens: max(previousUsageTotals.inputTokens, nextUsageTotals.inputTokens),
+                    outputTokens: max(previousUsageTotals.outputTokens, nextUsageTotals.outputTokens),
+                    totalTokens: max(previousUsageTotals.totalTokens, nextUsageTotals.totalTokens)
+                )
 
-                aggregate.inputTokens += effectiveInput
-                aggregate.outputTokens += output
-                aggregate.totalTokens += total
+                if usageDelta.isZero == false {
+                    aggregate.inputTokens += usageDelta.inputTokens
+                    aggregate.outputTokens += usageDelta.outputTokens
+                    aggregate.totalTokens += usageDelta.totalTokens
+                }
             }
             aggregate.updatedAt = max(aggregate.updatedAt, timestamp)
             sessions[sessionID] = aggregate
         }
-        return (sessions, countedUsageKeys)
+        return (sessions, usageTotalsByKey)
     }
 
     private func usageKey(
@@ -410,6 +431,19 @@ private actor ClaudeRuntimeLogCache {
         aggregate.lastInterruptedAt = max(aggregate.lastInterruptedAt, contribution.lastInterruptedAt)
         aggregate.lastCompletedTurnAt = max(aggregate.lastCompletedTurnAt, contribution.lastCompletedTurnAt)
         return aggregate
+    }
+
+    private func usageTotals(from usage: [String: Any]) -> UsageTotals {
+        let input = (usage["input_tokens"] as? NSNumber)?.intValue ?? 0
+        let output = (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
+        let cacheCreation = (usage["cache_creation_input_tokens"] as? NSNumber)?.intValue ?? 0
+        let cacheRead = (usage["cache_read_input_tokens"] as? NSNumber)?.intValue ?? 0
+        let effectiveInput = input + cacheCreation + cacheRead
+        return UsageTotals(
+            inputTokens: effectiveInput,
+            outputTokens: output,
+            totalTokens: effectiveInput + output
+        )
     }
 
     private func isClaudeInterruptedRow(_ row: [String: Any]) -> Bool {
@@ -672,14 +706,4 @@ private func parseClaudeISO8601Date(_ value: String) -> Date? {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime]
     return formatter.date(from: value)
-}
-
-struct ClaudeHookRuntimeEnvelope: Decodable, Sendable {
-    var event: String
-    var tool: String
-    var dmuxSessionId: String
-    var dmuxProjectId: String
-    var dmuxProjectPath: String?
-    var receivedAt: Double
-    var payload: String
 }

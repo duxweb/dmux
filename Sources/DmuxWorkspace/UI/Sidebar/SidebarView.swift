@@ -321,6 +321,13 @@ private struct ActivityBadgeView: View {
                             rotation = 360
                         }
                     }
+            case .waitingInput:
+                Circle()
+                    .fill(AppTheme.warning)
+                    .frame(width: 10, height: 10)
+                    .overlay(
+                        Circle().stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    )
             case .completed:
                 Circle()
                     .fill(Color(hex: 0x31C46B))

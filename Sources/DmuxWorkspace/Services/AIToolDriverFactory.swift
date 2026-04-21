@@ -31,29 +31,13 @@ enum AIToolSessionControlError: LocalizedError {
 protocol AIToolDriver: Sendable {
     var id: String { get }
     var aliases: Set<String> { get }
-    var runtimeRefreshInterval: TimeInterval { get }
     var isRealtimeTool: Bool { get }
-    var prefersHookDrivenResponseState: Bool { get }
-    var freezesDisplayTokensWhileResponding: Bool { get }
-    var seedsObservedBaselineOnFreshLaunch: Bool { get }
-    var allowsRuntimeExternalSessionSwitch: Bool { get }
-    var usesHistoricalExternalSessionHintForRuntimeProbe: Bool { get }
-    var appliesGenericResponsePayloads: Bool { get }
 
     func matches(tool: String) -> Bool
-    func runtimeSourceDescriptors(project: Project, envelope: AIToolUsageEnvelope?) -> [AIToolRuntimeSourceDescriptor]
-    func handleRuntimeIngressEvent(
-        descriptor: AIToolRuntimeSourceDescriptor,
-        projects: [Project],
-        liveEnvelopes: [AIToolUsageEnvelope]
-    ) async -> AIToolRuntimeIngressUpdate?
-    func handleRuntimeSocketEvent(
-        kind: String,
-        payloadData: Data,
-        projects: [Project],
-        liveEnvelopes: [AIToolUsageEnvelope],
-        existingRuntime: [UUID: AIRuntimeContextSnapshot]
-    ) async -> AIToolRuntimeIngressUpdate?
+    func resolveHookEvent(
+        _ event: AIHookEvent,
+        currentSession: AISessionStore.TerminalSessionState?
+    ) async -> AIHookEvent
     func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities
     func resumeCommand(for session: AISessionSummary) -> String?
     func renameSession(_ session: AISessionSummary, to title: String) throws
@@ -61,37 +45,12 @@ protocol AIToolDriver: Sendable {
 }
 
 extension AIToolDriver {
-    var prefersHookDrivenResponseState: Bool { false }
-    var freezesDisplayTokensWhileResponding: Bool { false }
-    var seedsObservedBaselineOnFreshLaunch: Bool { false }
-    var allowsRuntimeExternalSessionSwitch: Bool { false }
-    var usesHistoricalExternalSessionHintForRuntimeProbe: Bool { true }
-    var appliesGenericResponsePayloads: Bool { true }
-
-    func handleRuntimeIngressEvent(
-        descriptor: AIToolRuntimeSourceDescriptor,
-        projects: [Project],
-        liveEnvelopes: [AIToolUsageEnvelope]
-    ) async -> AIToolRuntimeIngressUpdate? {
-        _ = descriptor
-        _ = projects
-        _ = liveEnvelopes
-        return nil
-    }
-
-    func handleRuntimeSocketEvent(
-        kind: String,
-        payloadData: Data,
-        projects: [Project],
-        liveEnvelopes: [AIToolUsageEnvelope],
-        existingRuntime: [UUID: AIRuntimeContextSnapshot]
-    ) async -> AIToolRuntimeIngressUpdate? {
-        _ = kind
-        _ = payloadData
-        _ = projects
-        _ = liveEnvelopes
-        _ = existingRuntime
-        return nil
+    func resolveHookEvent(
+        _ event: AIHookEvent,
+        currentSession: AISessionStore.TerminalSessionState?
+    ) async -> AIHookEvent {
+        _ = currentSession
+        return event
     }
 
     func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities {
@@ -137,53 +96,18 @@ struct AIToolDriverFactory: Sendable {
         driver(for: tool)?.id ?? tool
     }
 
-    func runtimeRefreshInterval(for tool: String) -> TimeInterval {
-        driver(for: tool)?.runtimeRefreshInterval ?? 0.55
-    }
-
     func isRealtimeTool(_ tool: String) -> Bool {
         driver(for: tool)?.isRealtimeTool ?? false
     }
 
-    func prefersHookDrivenResponseState(for tool: String) -> Bool {
-        driver(for: tool)?.prefersHookDrivenResponseState ?? false
-    }
-
-    func freezesDisplayTokensWhileResponding(for tool: String) -> Bool {
-        driver(for: tool)?.freezesDisplayTokensWhileResponding ?? false
-    }
-
-    func seedsObservedBaselineOnFreshLaunch(for tool: String) -> Bool {
-        driver(for: tool)?.seedsObservedBaselineOnFreshLaunch ?? false
-    }
-
-    func allowsRuntimeExternalSessionSwitch(for tool: String) -> Bool {
-        driver(for: tool)?.allowsRuntimeExternalSessionSwitch ?? false
-    }
-
-    func appliesGenericResponsePayloads(for tool: String) -> Bool {
-        driver(for: tool)?.appliesGenericResponsePayloads ?? true
-    }
-
-    func handleRuntimeSocketEvent(
-        kind: String,
-        payloadData: Data,
-        projects: [Project],
-        liveEnvelopes: [AIToolUsageEnvelope],
-        existingRuntime: [UUID: AIRuntimeContextSnapshot]
-    ) async -> AIToolRuntimeIngressUpdate? {
-        for driver in drivers {
-            if let update = await driver.handleRuntimeSocketEvent(
-                kind: kind,
-                payloadData: payloadData,
-                projects: projects,
-                liveEnvelopes: liveEnvelopes,
-                existingRuntime: existingRuntime
-            ) {
-                return update
-            }
+    func resolveHookEvent(
+        _ event: AIHookEvent,
+        currentSession: AISessionStore.TerminalSessionState?
+    ) async -> AIHookEvent {
+        guard let driver = driver(for: event.tool) else {
+            return event
         }
-        return nil
+        return await driver.resolveHookEvent(event, currentSession: currentSession)
     }
 
     func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities {
@@ -206,22 +130,5 @@ struct AIToolDriverFactory: Sendable {
             throw AIToolSessionControlError.unsupportedOperation
         }
         try driver.removeSession(session)
-    }
-}
-
-actor AIToolRuntimeEventDeduper {
-    static let shared = AIToolRuntimeEventDeduper()
-
-    private var lastSeenAtByKey: [String: Date] = [:]
-
-    func shouldAccept(key: String, ttl: TimeInterval) -> Bool {
-        let now = Date()
-        lastSeenAtByKey = lastSeenAtByKey.filter { now.timeIntervalSince($0.value) < max(ttl * 4, 2) }
-        if let previous = lastSeenAtByKey[key],
-           now.timeIntervalSince(previous) < ttl {
-            return false
-        }
-        lastSeenAtByKey[key] = now
-        return true
     }
 }

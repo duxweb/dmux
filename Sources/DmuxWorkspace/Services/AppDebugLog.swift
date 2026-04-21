@@ -193,18 +193,8 @@ private final class AppDebugLogBackend: @unchecked Sendable {
                 return false
             }
             return !message.contains("snapshotTool=nil snapshotModel=nil snapshotTotal=0 summaryTool=nil summaryModel=nil summaryTotal=0")
-        case "codex-hook":
-            return !message.hasPrefix("ingest files=")
-                && !message.hasPrefix("skip file=")
-        case "claude-hook":
-            return !message.hasPrefix("drop duplicate event=")
         case "claude-runtime":
             return !message.hasPrefix("suppress phase ")
-        case "gemini-hook":
-            return !message.hasPrefix("drop duplicate event=")
-        case "opencode-driver":
-            return !message.hasPrefix("drop duplicate kind=")
-                && !message.hasPrefix("miss runtimeSession=")
         case "runtime-refresh":
             return message.hasPrefix("reset session=")
                 || message.hasPrefix("stop session=")
@@ -281,18 +271,10 @@ private final class AppDebugLogBackend: @unchecked Sendable {
 
     private func shouldWriteToLiveLog(category: String) -> Bool {
         switch category {
-        case "runtime-store",
-             "runtime-refresh",
-             "runtime-ingress",
-             "ai-panel-bridge",
-             "codex-hook",
-             "claude-hook",
-             "claude-runtime",
-             "claude-watcher",
-             "gemini-hook",
-             "gemini-runtime",
-             "opencode-global",
-             "opencode-driver":
+        case "runtime-socket",
+             "runtime-interrupt",
+             "ai-session-store",
+             "runtime-ingress":
             return true
         default:
             return false

@@ -59,7 +59,7 @@ struct AITerminalSessionSnapshot: Codable, Equatable, Identifiable, Sendable {
     var tool: String?
     var model: String?
     var status: String
-    var responseState: AIResponseState?
+    var isRunning: Bool
     var startedAt: Date?
     var updatedAt: Date
     var currentInputTokens: Int
@@ -180,18 +180,6 @@ struct AIToolUsageEnvelope: Codable, Sendable {
     var source: AIRuntimeUpdateSource? = nil
 }
 
-struct AIResponseStatePayload: Codable, Equatable, Sendable {
-    var sessionId: String
-    var sessionInstanceId: String?
-    var invocationId: String?
-    var projectId: String
-    var projectPath: String?
-    var tool: String
-    var responseState: AIResponseState
-    var updatedAt: Double
-    var source: AIRuntimeUpdateSource? = nil
-}
-
 struct AIManagedRealtimeSessionRecord: Codable, Equatable, Sendable {
     var recordID: String
     var invocationID: String?
@@ -212,25 +200,6 @@ struct AIManagedRealtimeSessionRecord: Codable, Equatable, Sendable {
     var totalOutputTokens: Int
     var totalTokens: Int
     var maxContextUsagePercent: Double?
-}
-
-enum AIToolRuntimeWatchKind: String, Codable, Equatable, Sendable {
-    case file
-    case directory
-}
-
-struct AIToolRuntimeSourceDescriptor: Hashable, Sendable {
-    var path: String
-    var watchKind: AIToolRuntimeWatchKind
-}
-
-struct AIToolRuntimeIngressUpdate: Sendable {
-    var responsePayloads: [AIResponseStatePayload] = []
-    var runtimeSnapshotsBySessionID: [UUID: AIRuntimeContextSnapshot] = [:]
-
-    var isEmpty: Bool {
-        responsePayloads.isEmpty && runtimeSnapshotsBySessionID.isEmpty
-    }
 }
 
 struct AICodexIncrementalState: Codable, Sendable {

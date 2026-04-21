@@ -81,6 +81,7 @@ struct AIRuntimeBridgeService {
 
     private let fileManager = FileManager.default
     private let debugLog = AppDebugLog.shared
+    private let claudeManagedHookStatusMessage = "dmux claude live"
     private let codexManagedHookStatusMessage = "dmux codex live"
     private let geminiManagedHookStatusMessage = "dmux gemini live"
 
@@ -112,7 +113,6 @@ struct AIRuntimeBridgeService {
         clearJSONFiles(in: rootURL.appendingPathComponent("ai-response-live", isDirectory: true))
         clearJSONFiles(in: rootURL.appendingPathComponent("ai-usage-inbox", isDirectory: true))
         clearJSONFiles(in: rootURL.appendingPathComponent("ai-response-inbox", isDirectory: true))
-        clearJSONFiles(in: rootURL.appendingPathComponent("codex-hook-inbox", isDirectory: true))
     }
 
     func runtimeEventSocketURL() -> URL {
@@ -256,6 +256,10 @@ struct AIRuntimeBridgeService {
             _ = service.claudeSessionMapDirectoryURL()
             service.debugLog.log("runtime-hooks", "bootstrap step=shell-hooks")
             service.ensureShellHooksStaged()
+            service.debugLog.log("runtime-hooks", "bootstrap step=managed-helper")
+            _ = service.managedRuntimeHookHelperURL()
+            service.debugLog.log("runtime-hooks", "bootstrap step=claude-hooks")
+            service.ensureClaudeHooksInstalled()
             service.debugLog.log("runtime-hooks", "bootstrap step=codex-hooks")
             service.ensureCodexHooksInstalled()
             service.debugLog.log("runtime-hooks", "bootstrap step=gemini-hooks")
@@ -272,6 +276,12 @@ struct AIRuntimeBridgeService {
         URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("hooks.json", isDirectory: false)
+    }
+
+    private func claudeSettingsFileURL() -> URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
     }
 
     private func geminiSettingsFileURL() -> URL {
@@ -295,6 +305,18 @@ struct AIRuntimeBridgeService {
     private func shellHookZshScriptURL() -> URL {
         ensureShellHooksStaged()
         return stagedShellHooksRootURL().appendingPathComponent("dmux-ai-hook.zsh", isDirectory: false)
+    }
+
+    private func managedHooksDirectoryURL() -> URL {
+        let url = runtimeSupportRootURL().appendingPathComponent("runtime-hooks", isDirectory: true)
+        try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func managedRuntimeHookHelperURL() -> URL {
+        let destinationURL = managedHooksDirectoryURL().appendingPathComponent("dmux-ai-state.sh", isDirectory: false)
+        stageRuntimeHookResource("scripts/wrappers/dmux-ai-state.sh", to: destinationURL)
+        return destinationURL
     }
 
     private func stagedShellHooksRootURL() -> URL {
@@ -463,17 +485,186 @@ struct AIRuntimeBridgeService {
         installCodexHooks(&rootObject)
     }
 
+    private func ensureClaudeHooksInstalled() {
+        let settingsFileURL = claudeSettingsFileURL()
+        let settingsDirectoryURL = settingsFileURL.deletingLastPathComponent()
+
+        try? fileManager.createDirectory(at: settingsDirectoryURL, withIntermediateDirectories: true)
+
+        var rootObject: [String: Any] = [:]
+        if let existingData = try? Data(contentsOf: settingsFileURL),
+           !existingData.isEmpty {
+            guard let jsonObject = try? JSONSerialization.jsonObject(with: existingData),
+                  let dictionary = jsonObject as? [String: Any] else {
+                let backupURL = backupInvalidJSONFile(at: settingsFileURL)
+                debugLog.log(
+                    "claude-hook-config",
+                    "recovered invalid settings path=\(settingsFileURL.path) backup=\(backupURL?.lastPathComponent ?? "nil")"
+                )
+                rootObject = [:]
+                installClaudeHooks(&rootObject)
+                return
+            }
+            rootObject = dictionary
+        }
+
+        installClaudeHooks(&rootObject)
+    }
+
+    private func installClaudeHooks(_ rootObject: inout [String: Any]) {
+        let settingsFileURL = claudeSettingsFileURL()
+        let helperScriptURL = managedRuntimeHookHelperURL()
+
+        var hooksObject = rootObject["hooks"] as? [String: Any] ?? [:]
+        hooksObject["SessionStart"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["SessionStart"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "session-start"),
+            action: "session-start",
+            helperScriptURL: helperScriptURL,
+            timeout: 10
+        )
+        hooksObject["UserPromptSubmit"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["UserPromptSubmit"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "prompt-submit"),
+            action: "prompt-submit",
+            helperScriptURL: helperScriptURL,
+            timeout: 10
+        )
+        hooksObject["Stop"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["Stop"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "stop"),
+            action: "stop",
+            helperScriptURL: helperScriptURL,
+            timeout: 10
+        )
+        hooksObject["StopFailure"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["StopFailure"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "stop-failure"),
+            action: "stop-failure",
+            helperScriptURL: helperScriptURL,
+            timeout: 10
+        )
+        hooksObject["SessionEnd"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["SessionEnd"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "session-end"),
+            action: "session-end",
+            helperScriptURL: helperScriptURL,
+            timeout: 1
+        )
+        hooksObject["PreToolUse"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["PreToolUse"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "pre-tool-use"),
+            action: "pre-tool-use",
+            helperScriptURL: helperScriptURL,
+            timeout: 5,
+            async: true
+        )
+        hooksObject["PostToolUse"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["PostToolUse"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "post-tool-use"),
+            action: "post-tool-use",
+            helperScriptURL: helperScriptURL,
+            timeout: 5,
+            async: true
+        )
+        hooksObject["PostToolUseFailure"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["PostToolUseFailure"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "post-tool-use-failure"),
+            action: "post-tool-use-failure",
+            helperScriptURL: helperScriptURL,
+            timeout: 5,
+            async: true
+        )
+        hooksObject["PermissionRequest"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["PermissionRequest"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "permission-request"),
+            action: "permission-request",
+            helperScriptURL: helperScriptURL,
+            timeout: 5,
+            async: true
+        )
+        hooksObject["PermissionDenied"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["PermissionDenied"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "permission-denied"),
+            action: "permission-denied",
+            helperScriptURL: helperScriptURL,
+            timeout: 5,
+            async: true
+        )
+        hooksObject["Notification"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["Notification"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "notification"),
+            action: "notification",
+            helperScriptURL: helperScriptURL,
+            timeout: 10
+        )
+        hooksObject["Elicitation"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["Elicitation"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "elicitation"),
+            action: "elicitation",
+            helperScriptURL: helperScriptURL,
+            timeout: 10
+        )
+        hooksObject["ElicitationResult"] = mergedClaudeHookGroups(
+            existingValue: hooksObject["ElicitationResult"],
+            command: claudeHookCommand(helperScriptURL: helperScriptURL, action: "elicitation-result"),
+            action: "elicitation-result",
+            helperScriptURL: helperScriptURL,
+            timeout: 10
+        )
+        rootObject["hooks"] = hooksObject
+
+        guard JSONSerialization.isValidJSONObject(rootObject),
+              let data = try? JSONSerialization.data(withJSONObject: rootObject, options: [.prettyPrinted, .sortedKeys]) else {
+            debugLog.log("claude-hook-config", "failed to encode settings path=\(settingsFileURL.path)")
+            return
+        }
+
+        if let existingData = try? Data(contentsOf: settingsFileURL),
+           existingData == data {
+            return
+        }
+
+        do {
+            try data.write(to: settingsFileURL, options: .atomic)
+            debugLog.log("claude-hook-config", "installed hooks path=\(settingsFileURL.path)")
+        } catch {
+            debugLog.log("claude-hook-config", "write failed path=\(settingsFileURL.path) error=\(error.localizedDescription)")
+        }
+    }
+
     private func installCodexHooks(_ rootObject: inout [String: Any]) {
         let hooksFileURL = codexHooksFileURL()
-        let helperScriptURL = WorkspacePaths.repositoryResourceURL("scripts/wrappers/dmux-ai-state.sh")
+        let helperScriptURL = managedRuntimeHookHelperURL()
+        let sessionStartCommand = codexHookCommand(helperScriptURL: helperScriptURL, action: "codex-session-start")
         let promptSubmitCommand = codexHookCommand(helperScriptURL: helperScriptURL, action: "codex-prompt-submit")
+        let preToolUseCommand = codexHookCommand(helperScriptURL: helperScriptURL, action: "codex-pre-tool-use")
+        let postToolUseCommand = codexHookCommand(helperScriptURL: helperScriptURL, action: "codex-post-tool-use")
         let stopCommand = codexHookCommand(helperScriptURL: helperScriptURL, action: "codex-stop")
 
         var hooksObject = rootObject["hooks"] as? [String: Any] ?? [:]
+        hooksObject["SessionStart"] = mergedCodexHookGroups(
+            existingValue: hooksObject["SessionStart"],
+            command: sessionStartCommand,
+            action: "codex-session-start",
+            helperScriptURL: helperScriptURL
+        )
         hooksObject["UserPromptSubmit"] = mergedCodexHookGroups(
             existingValue: hooksObject["UserPromptSubmit"],
             command: promptSubmitCommand,
             action: "codex-prompt-submit",
+            helperScriptURL: helperScriptURL
+        )
+        hooksObject["PreToolUse"] = mergedCodexHookGroups(
+            existingValue: hooksObject["PreToolUse"],
+            command: preToolUseCommand,
+            action: "codex-pre-tool-use",
+            helperScriptURL: helperScriptURL
+        )
+        hooksObject["PostToolUse"] = mergedCodexHookGroups(
+            existingValue: hooksObject["PostToolUse"],
+            command: postToolUseCommand,
+            action: "codex-post-tool-use",
             helperScriptURL: helperScriptURL
         )
         hooksObject["Stop"] = mergedCodexHookGroups(
@@ -531,10 +722,11 @@ struct AIRuntimeBridgeService {
 
     private func installGeminiHooks(_ rootObject: inout [String: Any]) {
         let settingsFileURL = geminiSettingsFileURL()
-        let helperScriptURL = WorkspacePaths.repositoryResourceURL("scripts/wrappers/dmux-ai-state.sh")
+        let helperScriptURL = managedRuntimeHookHelperURL()
         let sessionStartCommand = geminiHookCommand(helperScriptURL: helperScriptURL, action: "session-start")
         let beforeAgentCommand = geminiHookCommand(helperScriptURL: helperScriptURL, action: "before-agent")
         let afterAgentCommand = geminiHookCommand(helperScriptURL: helperScriptURL, action: "after-agent")
+        let notificationCommand = geminiHookCommand(helperScriptURL: helperScriptURL, action: "notification")
         let sessionEndCommand = geminiHookCommand(helperScriptURL: helperScriptURL, action: "session-end")
 
         var hooksObject = rootObject["hooks"] as? [String: Any] ?? [:]
@@ -554,6 +746,12 @@ struct AIRuntimeBridgeService {
             existingValue: hooksObject["AfterAgent"],
             command: afterAgentCommand,
             action: "after-agent",
+            helperScriptURL: helperScriptURL
+        )
+        hooksObject["Notification"] = mergedGeminiHookGroups(
+            existingValue: hooksObject["Notification"],
+            command: notificationCommand,
+            action: "notification",
             helperScriptURL: helperScriptURL
         )
         hooksObject["SessionEnd"] = mergedGeminiHookGroups(
@@ -616,7 +814,7 @@ struct AIRuntimeBridgeService {
             "hooks": [[
                 "type": "command",
                 "command": command,
-                "timeout": 5000,
+                "timeout": 1000,
                 "statusMessage": codexManagedHookStatusMessage,
             ]],
         ])
@@ -631,6 +829,73 @@ struct AIRuntimeBridgeService {
     ) -> Bool {
         if let statusMessage = hook["statusMessage"] as? String,
            statusMessage == codexManagedHookStatusMessage {
+            return true
+        }
+
+        guard let type = hook["type"] as? String,
+              type == "command",
+              let command = hook["command"] as? String else {
+            return false
+        }
+
+        return command.contains(helperScriptURL.path) && command.contains(action)
+    }
+
+    private func mergedClaudeHookGroups(
+        existingValue: Any?,
+        command: String,
+        action: String,
+        helperScriptURL: URL,
+        timeout: Int,
+        async: Bool = false
+    ) -> [[String: Any]] {
+        let existingGroups = existingValue as? [[String: Any]] ?? []
+        var nextGroups: [[String: Any]] = []
+
+        for group in existingGroups {
+            var nextGroup = group
+            let hooks = group["hooks"] as? [[String: Any]] ?? []
+            let filteredHooks = hooks.filter { hook in
+                !isManagedClaudeHook(
+                    hook,
+                    action: action,
+                    helperScriptURL: helperScriptURL
+                )
+            }
+
+            guard !filteredHooks.isEmpty else {
+                continue
+            }
+
+            nextGroup["hooks"] = filteredHooks
+            nextGroups.append(nextGroup)
+        }
+
+        var hook: [String: Any] = [
+            "type": "command",
+            "command": command,
+            "timeout": timeout,
+            "statusMessage": claudeManagedHookStatusMessage,
+        ]
+        if async {
+            hook["async"] = true
+        }
+
+        nextGroups.append([
+            "matcher": "",
+            "hooks": [hook],
+        ])
+
+        return nextGroups
+    }
+
+    private func isManagedClaudeHook(
+        _ hook: [String: Any],
+        action: String,
+        helperScriptURL: URL
+    ) -> Bool {
+        if let statusMessage = hook["statusMessage"] as? String,
+           statusMessage == claudeManagedHookStatusMessage {
             return true
         }
 
@@ -719,6 +984,14 @@ struct AIRuntimeBridgeService {
         ].joined(separator: " ")
     }
 
+    private func claudeHookCommand(helperScriptURL: URL, action: String) -> String {
+        [
+            shellQuoted(helperScriptURL.path),
+            shellQuoted(action),
+            shellQuoted("claude"),
+        ].joined(separator: " ")
+    }
+
     private func shellQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
@@ -738,6 +1011,27 @@ struct AIRuntimeBridgeService {
         try? fileManager.removeItem(at: destinationURL)
         try? contentData.write(to: destinationURL, options: .atomic)
         debugLog.log("runtime-hooks", "stage-shell-hook wrote source=\(relativePath)")
+    }
+
+    private func stageRuntimeHookResource(_ relativePath: String, to destinationURL: URL) {
+        let sourceURL = WorkspacePaths.repositoryResourceURL(relativePath)
+        debugLog.log("runtime-hooks", "stage-runtime-hook source=\(relativePath)")
+        guard let contentData = try? Data(contentsOf: sourceURL) else {
+            debugLog.log("runtime-hooks", "stage-runtime-hook missing source=\(relativePath)")
+            return
+        }
+        if let existingData = try? Data(contentsOf: destinationURL),
+           existingData == contentData {
+            if fileManager.isExecutableFile(atPath: destinationURL.path) == false {
+                try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationURL.path)
+            }
+            debugLog.log("runtime-hooks", "stage-runtime-hook unchanged source=\(relativePath)")
+            return
+        }
+        try? fileManager.removeItem(at: destinationURL)
+        try? contentData.write(to: destinationURL, options: .atomic)
+        try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationURL.path)
+        debugLog.log("runtime-hooks", "stage-runtime-hook wrote source=\(relativePath)")
     }
 
     private func clearJSONFiles(in directory: URL) {

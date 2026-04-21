@@ -39,8 +39,8 @@ Use this skill before making non-trivial dmux changes that cross subsystem bound
   Main app coordinator. Owns project/workspace selection, settings mutation, panel toggles, terminal actions, Git actions, updater flow, runtime refresh orchestration.
 - `AIStatsStore`
   AI panel state, timers, cached/indexed snapshots, live overlay merging.
-- `AIRuntimeStateStore`
-  In-memory live runtime/session binding model for AI tools.
+- `AISessionStore`
+  In-memory hook-driven live runtime/session binding model for AI tools.
 - `GitStore`
   Git panel state and refresh/remote action orchestration.
 - `PetStore`

@@ -333,6 +333,7 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
             showsInactiveOverlay: showsInactiveOverlay,
             onSelect: { self.model.selectSession(sessionID) },
             onClose: { self.model.closeSession(sessionID) },
+            onDetach: { self.model.detachSession(sessionID) },
             showsCloseButton: true
         )
     }
@@ -469,8 +470,9 @@ private struct BottomTabbedPaneView: View {
                         isVisible: true,
                         showsInactiveOverlay: showsInactiveOverlay,
                         onSelect: { model.selectBottomTabSession(selectedBottomSessionID) },
-                        onClose: {},
-                        showsCloseButton: false
+                        onClose: { model.closeSession(selectedBottomSessionID) },
+                        onDetach: { model.detachSession(selectedBottomSessionID) },
+                        showsCloseButton: true
                     )
                 }
             }
@@ -715,7 +717,7 @@ private struct TabChip: View {
     }
 }
 
-private struct TerminalPaneView: View {
+struct TerminalPaneView: View {
     let model: AppModel
     let session: TerminalSession
     let terminalBackgroundPreset: AppTerminalBackgroundPreset
@@ -724,13 +726,13 @@ private struct TerminalPaneView: View {
     let showsInactiveOverlay: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
+    let onDetach: (() -> Void)?
     let showsCloseButton: Bool
 
     @State private var isHovered = false
     @State private var hasLoggedMount = false
 
     private let terminalEnvironmentService = AIRuntimeBridgeService()
-    private let terminalInsets = EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
     private var recoveryIssue: AppModel.TerminalRecoveryIssue? {
         model.terminalRecoveryIssue(for: session.id)
     }
@@ -740,6 +742,18 @@ private struct TerminalPaneView: View {
             return Color(nsColor: terminalBackgroundPreset.inactiveBackgroundColor)
         }
         return model.terminalChromeColor
+    }
+
+    private var hasPaneControls: Bool {
+        showsCloseButton || onDetach != nil
+    }
+
+    private var terminalInsets: EdgeInsets {
+        let base = CGFloat(10)
+        guard hasPaneControls else {
+            return EdgeInsets(top: base, leading: base, bottom: base, trailing: base)
+        }
+        return EdgeInsets(top: base, leading: base, bottom: base, trailing: 56)
     }
 
     var body: some View {
@@ -762,26 +776,44 @@ private struct TerminalPaneView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(terminalInsets)
 
-            if showsCloseButton && (isHovered || isFocused) {
+            if showsCloseButton || onDetach != nil {
                 VStack {
                     HStack {
                         Spacer()
 
-                        Button(action: onClose) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(model.terminalMutedTextColor)
-                                .frame(width: 20, height: 20)
-                                .background(model.terminalChromeColor.opacity(0.96))
-                                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        HStack(spacing: 6) {
+                            if let onDetach {
+                                Button(action: onDetach) {
+                                    Image(systemName: "square.on.square")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(model.terminalMutedTextColor)
+                                        .frame(width: 20, height: 20)
+                                        .background(model.terminalChromeColor.opacity(0.96))
+                                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                                .appCursor(.pointingHand)
+                            }
+
+                            if showsCloseButton {
+                                Button(action: onClose) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(model.terminalMutedTextColor)
+                                        .frame(width: 20, height: 20)
+                                        .background(model.terminalChromeColor.opacity(0.96))
+                                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                                .appCursor(.pointingHand)
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .appCursor(.pointingHand)
                     }
 
                     Spacer()
                 }
                 .padding(10)
+                .opacity(isHovered || isFocused ? 1 : 0.82)
             }
         }
         .contentShape(Rectangle())
@@ -835,6 +867,137 @@ private struct TerminalPaneView: View {
             )
         }
         return resolution.pairs
+    }
+}
+
+@MainActor
+enum DetachedTerminalWindowPresenter {
+    private static var controllers: [UUID: NSWindowController] = [:]
+    private static var delegates: [UUID: DetachedTerminalWindowDelegate] = [:]
+
+    static func show(model: AppModel, sessionID: UUID) {
+        guard model.isDetachedTerminal(sessionID),
+              let session = model.terminalSession(for: sessionID) else {
+            return
+        }
+
+        if let controller = controllers[sessionID],
+           let window = controller.window,
+           let hosting = controller.contentViewController as? NSHostingController<AnyView> {
+            hosting.rootView = AnyView(DetachedTerminalWindowView(model: model, session: session))
+            window.title = detachedWindowTitle(for: session)
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 980, height: 700),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = AppWindowIdentifier.detachedTerminal(sessionID)
+        applyStandardWindowChrome(window, title: detachedWindowTitle(for: session))
+        window.minSize = NSSize(width: 540, height: 320)
+        window.isReleasedWhenClosed = false
+
+        let hosting = NSHostingController(
+            rootView: AnyView(
+                DetachedTerminalWindowView(model: model, session: session)
+            )
+        )
+        window.contentViewController = hosting
+
+        let delegate = DetachedTerminalWindowDelegate(model: model, sessionID: sessionID)
+        window.delegate = delegate
+
+        let controller = NSWindowController(window: window)
+        delegates[sessionID] = delegate
+        controllers[sessionID] = controller
+
+        if let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow {
+            let origin = NSPoint(x: parentWindow.frame.minX + 36, y: parentWindow.frame.minY - 36)
+            window.setFrameOrigin(origin)
+        } else {
+            window.center()
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        model.requestTerminalFocus(sessionID)
+    }
+
+    static func dismiss(sessionID: UUID, restoreOnClose: Bool) {
+        guard let controller = controllers[sessionID],
+              let delegate = delegates[sessionID] else {
+            return
+        }
+
+        delegate.shouldRestoreOnClose = restoreOnClose
+        controller.window?.close()
+        controllers[sessionID] = nil
+        delegates[sessionID] = nil
+    }
+
+    static func clear(sessionID: UUID) {
+        controllers[sessionID] = nil
+        delegates[sessionID] = nil
+    }
+
+    private static func detachedWindowTitle(for session: TerminalSession) -> String {
+        if session.title.isEmpty {
+            return session.projectName
+        }
+        return "\(session.projectName) - \(session.title)"
+    }
+}
+
+@MainActor
+private final class DetachedTerminalWindowDelegate: NSObject, NSWindowDelegate {
+    weak var model: AppModel?
+    let sessionID: UUID
+    var shouldRestoreOnClose = true
+
+    init(model: AppModel, sessionID: UUID) {
+        self.model = model
+        self.sessionID = sessionID
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        model?.requestTerminalFocus(sessionID)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        DetachedTerminalWindowPresenter.clear(sessionID: sessionID)
+        guard shouldRestoreOnClose else {
+            return
+        }
+        model?.restoreDetachedSession(sessionID)
+    }
+}
+
+private struct DetachedTerminalWindowView: View {
+    let model: AppModel
+    let session: TerminalSession
+
+    var body: some View {
+        TerminalPaneView(
+            model: model,
+            session: session,
+            terminalBackgroundPreset: model.terminalBackgroundPreset,
+            isFocused: true,
+            isVisible: true,
+            showsInactiveOverlay: false,
+            onSelect: { model.requestTerminalFocus(session.id) },
+            onClose: {},
+            onDetach: nil,
+            showsCloseButton: false
+        )
+        .background(model.terminalChromeColor)
+        .onAppear {
+            model.requestTerminalFocus(session.id)
+        }
     }
 }
 

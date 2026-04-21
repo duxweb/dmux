@@ -21,9 +21,9 @@ Do not patch shared upper layers just to make one tool work.
 ## Shared layers you should preserve
 
 - `Sources/DmuxWorkspace/Services/AIRuntimeIngressService.swift`
-  Purpose: runtime socket listener, file watcher ingress, event dispatch, generic transport.
-- `Sources/DmuxWorkspace/App/AIRuntimeStateStore.swift`
-  Purpose: shared in-memory session/logical-session/terminal binding model and generic live token math.
+  Purpose: runtime socket ingress, hook event decode/dedupe, generic transport.
+- `Sources/DmuxWorkspace/App/AISessionStore.swift`
+  Purpose: shared in-memory hook-driven session/logical-session/terminal binding model and live token math.
 - `Sources/DmuxWorkspace/App/AIStatsStore.swift`
   Purpose: panel assembly, refresh scheduling, current snapshot selection, UI-facing aggregation.
 
@@ -34,7 +34,7 @@ These files may change only for genuinely shared bugs or contract changes that a
 - `Sources/DmuxWorkspace/Services/AIToolDriverFactory.swift`
   Tool registration, capabilities, and driver-owned socket/file event handling.
 - `Sources/DmuxWorkspace/Services/*RuntimeProbeService.swift`
-  Tool-specific total/model/response-state snapshots.
+  Tool-specific transcript/log snapshot and backfill parsing when hooks omit model or token totals.
 - `scripts/wrappers/tool-wrapper.sh`
   Generic launcher envelope only.
 - `scripts/wrappers/<tool>-config/...`
@@ -66,10 +66,35 @@ These files may change only for genuinely shared bugs or contract changes that a
 Before and after changing runtime behavior, run:
 
 - `swift test --filter RuntimeDriverTests`
-- `swift test --filter RuntimeLifecycleScenarioTests`
-- `./scripts/dev/runtime-regression.sh`
+- `swift test --filter AIRuntimeIngressHookEventTests`
+- `swift test --filter AIRuntimeIngressSocketTests`
+- `swift test --filter AISessionStoreTests`
+- `python3 scripts/dev/runtime-hook-smoke.py --tool claude`
+- `python3 scripts/dev/runtime-hook-smoke.py --tool codex`
 
-For the detailed runner matrix, model defaults, and scenario checklist, read:
+## Manual hook commands
+
+When you need to manually drive the app's hook pipeline from an in-app terminal, use the built-in zsh functions from `scripts/shell-hooks/dmux-ai-hook.zsh`.
+
+If the terminal was already open before the latest hook script change, reload it first:
+
+- `source "$DMUX_ZSH_HOOK_SCRIPT"`
+
+Use these commands to test the dmux app hook chain:
+
+- `codex.notice.test`
+- `codex.notice.test type=idle_prompt "Task finished"`
+
+They exercise:
+- terminal command
+- runtime socket
+- `AIRuntimeIngressService`
+- `AISessionStore`
+- UI activity / live state
+
+They do not try to reproduce vendor raw hook payloads. The only built-in manual trigger kept here is the unified Codex notification test path.
+
+For the current manual test note, read:
 
 - `references/runtime-regression.md`
 

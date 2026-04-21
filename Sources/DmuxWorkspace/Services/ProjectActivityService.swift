@@ -4,6 +4,7 @@ import UserNotifications
 enum ProjectActivityPhase: Equatable {
     case idle
     case running(tool: String)
+    case waitingInput(tool: String)
     case completed(tool: String, finishedAt: Date, exitCode: Int?)
 }
 
@@ -130,6 +131,58 @@ struct ProjectActivityService: @unchecked Sendable {
         }
     }
 
+    func notifyNeedsInput(
+        projectName: String,
+        tool: String,
+        notificationType: String?,
+        targetToolName: String?,
+        message: String?
+    ) {
+        guard supportsSystemNotifications else {
+            return
+        }
+
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            AppDebugLog.shared.log(
+                "notifications",
+                "enqueue waiting-input project=\(projectName) tool=\(tool) status=\(settings.authorizationStatus.rawValue)"
+            )
+
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                enqueueNeedsInputNotification(
+                    projectName: projectName,
+                    tool: tool,
+                    notificationType: notificationType,
+                    targetToolName: targetToolName,
+                    message: message
+                )
+            case .notDetermined:
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+                    if let error {
+                        AppDebugLog.shared.log("notifications", "waiting-input authorization error=\(error.localizedDescription)")
+                        return
+                    }
+                    guard granted else {
+                        AppDebugLog.shared.log("notifications", "waiting-input authorization denied")
+                        return
+                    }
+                    enqueueNeedsInputNotification(
+                        projectName: projectName,
+                        tool: tool,
+                        notificationType: notificationType,
+                        targetToolName: targetToolName,
+                        message: message
+                    )
+                }
+            case .denied:
+                AppDebugLog.shared.log("notifications", "waiting-input skipped status=denied")
+            @unknown default:
+                AppDebugLog.shared.log("notifications", "waiting-input skipped status=unknown")
+            }
+        }
+    }
+
     func notifyTest(projectName: String, tool: String, exitCode: Int?, settings: AppNotificationSettings) {
         Task.detached(priority: .utility) {
             await externalNotificationService.sendCompletion(
@@ -165,6 +218,75 @@ struct ProjectActivityService: @unchecked Sendable {
             }
         }
     }
+
+    private func enqueueNeedsInputNotification(
+        projectName: String,
+        tool: String,
+        notificationType: String?,
+        targetToolName: String?,
+        message: String?
+    ) {
+        let content = UNMutableNotificationContent()
+        content.title = String(
+            localized: "project.activity.input_required",
+            defaultValue: "Action required",
+            bundle: .module
+        )
+
+        let body: String
+        if let message, !message.isEmpty {
+            body = message
+        } else if let targetToolName, !targetToolName.isEmpty {
+            body = String(
+                format: String(
+                    localized: "project.activity.permission_request_format",
+                    defaultValue: "%@ needs confirmation for %@ in %@",
+                    bundle: .module
+                ),
+                tool,
+                targetToolName,
+                projectName
+            )
+        } else if let notificationType, !notificationType.isEmpty {
+            body = String(
+                format: String(
+                    localized: "project.activity.notification_request_format",
+                    defaultValue: "%@ is waiting for %@ in %@",
+                    bundle: .module
+                ),
+                tool,
+                notificationType,
+                projectName
+            )
+        } else {
+            body = String(
+                format: String(
+                    localized: "project.activity.generic_input_request_format",
+                    defaultValue: "%@ is waiting for your input in %@",
+                    bundle: .module
+                ),
+                tool,
+                projectName
+            )
+        }
+
+        content.body = body
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "project-activity-waiting-\(projectName)-\(tool)-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                AppDebugLog.shared.log("notifications", "waiting-input enqueue failed error=\(error.localizedDescription)")
+            } else {
+                AppDebugLog.shared.log("notifications", "waiting-input enqueue success project=\(projectName) tool=\(tool)")
+            }
+        }
+    }
+
     func writeTestStatus(project: Project, tool: String, phase: String, exitCode: Int? = nil) {
         let fileURL = statusDirectoryURL().appendingPathComponent("\(project.id.uuidString).json")
         let now = Date().timeIntervalSince1970

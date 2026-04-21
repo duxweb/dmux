@@ -269,7 +269,7 @@ private struct AIStatsLiveSessionsCard: View {
                         Spacer(minLength: 8)
 
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(formatLiveTokenValue(max(0, snapshot.currentTotalTokens)))
+                            Text(formatLiveTokenValue(displayTokens(for: snapshot)))
                                 .font(.system(size: 16, weight: .bold, design: .rounded))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
@@ -288,6 +288,14 @@ private struct AIStatsLiveSessionsCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func displayTokens(for snapshot: AITerminalSessionSnapshot) -> Int {
+        let delta = max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens)
+        if delta > 0 {
+            return delta
+        }
+        return max(0, snapshot.currentTotalTokens)
     }
 }
 

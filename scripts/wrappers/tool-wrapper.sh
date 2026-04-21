@@ -342,6 +342,26 @@ extract_resume_target() {
   return 1
 }
 
+extract_model_target() {
+  local previous=""
+  for arg in "$@"; do
+    case "${previous}" in
+      --model|-m)
+        [[ -n "$arg" && "$arg" != -* ]] && print -r -- "$arg"
+        return 0
+        ;;
+    esac
+    case "$arg" in
+      --model=*)
+        print -r -- "${arg#--model=}"
+        return 0
+        ;;
+    esac
+    previous="$arg"
+  done
+  return 1
+}
+
 write_claude_session_map() {
   [[ -n "${DMUX_CLAUDE_SESSION_MAP_DIR:-}" && -n "${DMUX_SESSION_ID:-}" && -n "${1:-}" ]] || return 0
   local external_session_id="$1"
@@ -358,7 +378,7 @@ write_claude_session_map() {
   /bin/mv -f -- "${tmp}" "${path}"
 }
 
-if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
+  if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
   helper_script="${wrapper_dir}/dmux-ai-state.sh"
   if [[ -x "$helper_script" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_SOCKET:-}" ]]; then
     local_permission_mode="$(configured_permission_mode || true)"
@@ -374,6 +394,7 @@ if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
       launch_args=(--dangerously-skip-permissions "${launch_args[@]}")
     fi
     skip_session_id=false
+    launch_model="$(extract_model_target "${launch_args[@]}" || true)"
     for arg in "${launch_args[@]}"; do
       case "$arg" in
         --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
@@ -383,31 +404,15 @@ if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
       esac
     done
 
-    helper_script_json="$(json_escape "${helper_script}")"
-    session_start_command="\\\"${helper_script_json}\\\" session-start claude"
-    stop_command="\\\"${helper_script_json}\\\" stop claude"
-    stop_failure_command="\\\"${helper_script_json}\\\" stop-failure claude"
-    session_end_command="\\\"${helper_script_json}\\\" session-end claude"
-    prompt_submit_command="\\\"${helper_script_json}\\\" prompt-submit claude"
-    pre_tool_use_command="\\\"${helper_script_json}\\\" pre-tool-use claude"
-    post_tool_use_command="\\\"${helper_script_json}\\\" post-tool-use claude"
-    permission_request_command="\\\"${helper_script_json}\\\" permission-request claude"
-    notification_command="\\\"${helper_script_json}\\\" notification claude"
-    hooks_json='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_start_command}"'","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_command}"'","timeout":10}]}],"StopFailure":[{"matcher":"","hooks":[{"type":"command","command":"'"${stop_failure_command}"'","timeout":10}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"'"${session_end_command}"'","timeout":1}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"'"${prompt_submit_command}"'","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'"${pre_tool_use_command}"'","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"","hooks":[{"type":"command","command":"'"${post_tool_use_command}"'","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"'"${permission_request_command}"'","timeout":5,"async":true}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"'"${notification_command}"'","timeout":10}]}]}}'
-
     if [[ "$skip_session_id" == true ]]; then
       resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
-      if [[ -n "${resume_target}" ]]; then
-        send_usage_runtime_event running "${resume_target}"
-      fi
-      run_wrapped_command "${resume_target}" "" env PATH="$claude_launch_path" "$real_bin" --settings "$hooks_json" "${launch_args[@]}"
+      run_wrapped_command "${resume_target}" "${launch_model}" env PATH="$claude_launch_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
       exit $?
     else
       claude_external_session_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
       write_claude_session_map "${claude_external_session_id}"
-      send_usage_runtime_event running "${claude_external_session_id}"
       log_line "launch claude session=${DMUX_SESSION_ID} externalSession=${claude_external_session_id}"
-      run_wrapped_command "${claude_external_session_id}" "" env PATH="$claude_launch_path" DMUX_EXTERNAL_SESSION_ID="${claude_external_session_id}" "$real_bin" --session-id "${claude_external_session_id}" --settings "$hooks_json" "${launch_args[@]}"
+      run_wrapped_command "${claude_external_session_id}" "${launch_model}" env PATH="$claude_launch_path" DMUX_EXTERNAL_SESSION_ID="${claude_external_session_id}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --session-id "${claude_external_session_id}" "${launch_args[@]}"
       exit $?
     fi
   fi
@@ -429,8 +434,9 @@ if [[ "$tool_name" == "codex" ]]; then
       && ! has_exact_arg "-a" "${launch_args[@]}"; then
       launch_args=(--dangerously-bypass-approvals-and-sandbox "${launch_args[@]}")
     fi
+    launch_model="$(extract_model_target "${launch_args[@]}" || true)"
     log_line "launch codex managed session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} binary=${real_bin} hooks=enabled"
-    run_wrapped_command "" "" env PATH="$search_path" "$real_bin" --enable codex_hooks "${launch_args[@]}"
+    run_wrapped_command "" "${launch_model}" env PATH="$search_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --enable codex_hooks "${launch_args[@]}"
     exit $?
   fi
 fi
@@ -445,13 +451,11 @@ if [[ "$tool_name" == "gemini" ]]; then
     && ! has_exact_arg "-y" "${launch_args[@]}"; then
     launch_args=(--approval-mode yolo "${launch_args[@]}")
   fi
+  launch_model="$(extract_model_target "${launch_args[@]}" || true)"
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
-  if [[ -n "${resume_target}" ]]; then
-    send_usage_runtime_event running "${resume_target}"
-  fi
   log_line "launch managed tool=${tool_name} session=${DMUX_SESSION_ID:-nil} project=${DMUX_PROJECT_ID:-nil} binary=${real_bin} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil} resume=${resume_target:-nil}"
-  run_wrapped_command "${resume_target}" "" env PATH="$search_path" "$real_bin" "${launch_args[@]}"
+  run_wrapped_command "${resume_target}" "${launch_model}" env PATH="$search_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
   exit $?
 fi
 
@@ -460,9 +464,6 @@ if [[ "$tool_name" == "opencode" ]]; then
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
   opencode_config_dir="${wrapper_dir}/opencode-config"
-  if [[ -n "${resume_target}" ]]; then
-    send_usage_runtime_event running "${resume_target}"
-  fi
   log_line "launch managed tool=${tool_name} session=${DMUX_SESSION_ID:-nil} project=${DMUX_PROJECT_ID:-nil} binary=${real_bin} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil} resume=${resume_target:-nil} configDir=${opencode_config_dir}"
   run_wrapped_command "${resume_target}" "" env PATH="$search_path" OPENCODE_CONFIG_DIR="${opencode_config_dir}" DMUX_EXTERNAL_SESSION_ID="${resume_target}" "$real_bin" "${launch_args[@]}"
   exit $?

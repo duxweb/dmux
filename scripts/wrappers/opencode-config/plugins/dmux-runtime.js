@@ -83,6 +83,30 @@ function sendRuntimePayload(payload) {
   })
 }
 
+function sendAIHookPayload(payload) {
+  if (!socketPath) return
+  const message = JSON.stringify({ kind: "ai-hook", payload })
+  const result = spawnSync("/usr/bin/nc", ["-U", "-w", "1", socketPath], {
+    input: `${message}\n`,
+    encoding: "utf8",
+    stdio: ["pipe", "ignore", "pipe"],
+    timeout: 1000,
+  })
+  if (result.error) {
+    log("ai-hook-socket-error", { message: result.error.message, socketPath })
+    return
+  }
+  if (result.status === 0) {
+    return
+  }
+  log("ai-hook-socket-close-error", {
+    code: result.status,
+    stderr: result.stderr?.trim() || null,
+    signal: result.signal ?? null,
+    socketPath,
+  })
+}
+
 function basePayload({ externalSessionID, responseState, model }) {
   const phase = "running"
   const currentTime = nowSeconds()
@@ -155,6 +179,14 @@ function commandNameFrom(properties) {
   return pickFirstString(properties, ["command", "name"])
 }
 
+function messageFrom(properties) {
+  return pickFirstString(properties, ["message", "prompt", "description"])
+}
+
+function toolNameFrom(properties) {
+  return pickFirstString(properties, ["toolName", "tool", "name"])
+}
+
 let currentSessionID = readString(process.env.DMUX_EXTERNAL_SESSION_ID)
 let currentModel = null
 let lastUserMessageID = null
@@ -182,6 +214,42 @@ function dispatchUpdate({ externalSessionID, responseState, model, reason }) {
     }),
   )
   log("dispatch", { reason, externalSessionID: nextExternalSessionID, responseState: responseState ?? null, model: currentModel })
+}
+
+function dispatchAIHook({
+  kind,
+  externalSessionID,
+  model,
+  totalTokens,
+  notificationType,
+  reason,
+  targetToolName,
+  message,
+}) {
+  const nextExternalSessionID = readString(externalSessionID) ?? currentSessionID
+  const nextModel = readString(model) ?? currentModel
+  sendAIHookPayload({
+    kind,
+    terminalID: process.env.DMUX_SESSION_ID,
+    terminalInstanceID: process.env.DMUX_SESSION_INSTANCE_ID ?? null,
+    projectID: process.env.DMUX_PROJECT_ID,
+    projectName: process.env.DMUX_PROJECT_NAME ?? "Workspace",
+    projectPath: process.env.DMUX_PROJECT_PATH ?? "",
+    sessionTitle: process.env.DMUX_SESSION_TITLE ?? "Terminal",
+    tool: "opencode",
+    aiSessionID: nextExternalSessionID ?? null,
+    model: nextModel ?? null,
+    totalTokens: Number.isInteger(totalTokens) ? totalTokens : null,
+    updatedAt: nowSeconds(),
+    metadata: {
+      transcriptPath: null,
+      notificationType: notificationType ?? null,
+      source: null,
+      reason: reason ?? null,
+      targetToolName: targetToolName ?? null,
+      message: message ?? null,
+    },
+  })
 }
 
 export const DmuxRuntimePlugin = async ({ client }) => {
@@ -214,6 +282,13 @@ export const DmuxRuntimePlugin = async ({ client }) => {
       switch (type) {
         case "session.created":
         case "session.updated": {
+          dispatchAIHook({
+            kind: "sessionStarted",
+            externalSessionID: sessionIDFrom(properties),
+            model: modelFrom(properties),
+            totalTokens: null,
+            reason: type,
+          })
           dispatchUpdate({
             externalSessionID: sessionIDFrom(properties),
             responseState: null,
@@ -255,6 +330,13 @@ export const DmuxRuntimePlugin = async ({ client }) => {
           return
         }
         case "session.deleted": {
+          dispatchAIHook({
+            kind: "sessionEnded",
+            externalSessionID: sessionIDFrom(properties),
+            model: modelFrom(properties),
+            totalTokens: null,
+            reason: type,
+          })
           clearSessionMap(sessionIDFrom(properties))
           return
         }
@@ -272,6 +354,13 @@ export const DmuxRuntimePlugin = async ({ client }) => {
               model,
               reason: "message:user",
             })
+            dispatchAIHook({
+              kind: "promptSubmitted",
+              externalSessionID: sessionID,
+              model,
+              totalTokens: null,
+              reason: "message:user",
+            })
             return
           }
           if (model) {
@@ -282,6 +371,13 @@ export const DmuxRuntimePlugin = async ({ client }) => {
         case "tui.command.execute": {
           const commandName = commandNameFrom(properties)
           if (commandName === "sessions" || commandName === "resume" || commandName === "continue") {
+            dispatchAIHook({
+              kind: "sessionStarted",
+              externalSessionID: sessionIDFrom(properties),
+              model: modelFrom(properties),
+              totalTokens: null,
+              reason: `command:${commandName}`,
+            })
             dispatchUpdate({
               externalSessionID: sessionIDFrom(properties),
               responseState: null,
@@ -289,6 +385,29 @@ export const DmuxRuntimePlugin = async ({ client }) => {
               reason: `command:${commandName}`,
             })
           }
+          return
+        }
+        case "permission.asked": {
+          dispatchAIHook({
+            kind: "needsInput",
+            externalSessionID: sessionIDFrom(properties),
+            model: modelFrom(properties),
+            totalTokens: null,
+            notificationType: "permission-request",
+            reason: type,
+            targetToolName: toolNameFrom(properties),
+            message: messageFrom(properties),
+          })
+          return
+        }
+        case "permission.replied": {
+          dispatchAIHook({
+            kind: "promptSubmitted",
+            externalSessionID: sessionIDFrom(properties),
+            model: modelFrom(properties),
+            totalTokens: null,
+            reason: type,
+          })
           return
         }
         default:
