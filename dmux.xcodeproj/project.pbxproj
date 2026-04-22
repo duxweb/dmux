@@ -79,6 +79,9 @@
 		B10000000000000000000010 /* AppShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000010 /* AppShortcutSettings.swift */; };
 		B10000000000000000000011 /* AppModel+Projects.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000011 /* AppModel+Projects.swift */; };
 		B10000000000000000000012 /* AppModel+Terminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000012 /* AppModel+Terminal.swift */; };
+		B10000000000000000000013 /* AppModel+Git.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000013 /* AppModel+Git.swift */; };
+		B10000000000000000000014 /* AppModel+Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000014 /* AppModel+Settings.swift */; };
+		B10000000000000000000015 /* AppModel+Activity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000015 /* AppModel+Activity.swift */; };
 		A458177F176213CEE32928D8 /* AIUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0598FB11F350F43D5A39628A /* AIUsageService.swift */; };
 		A8B33C70370354EC1B39A24A /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6BB59CA2E305DD7DBA2C167 /* main.swift */; };
 		A9D536707C6623508B39B82C /* WorkspacePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E565A0971373275B0012B0 /* WorkspacePaths.swift */; };
@@ -165,6 +168,9 @@
 		C10000000000000000000010 /* AppShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShortcutSettings.swift; sourceTree = "<group>"; };
 		C10000000000000000000011 /* AppModel+Projects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Projects.swift"; sourceTree = "<group>"; };
 		C10000000000000000000012 /* AppModel+Terminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Terminal.swift"; sourceTree = "<group>"; };
+		C10000000000000000000013 /* AppModel+Git.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Git.swift"; sourceTree = "<group>"; };
+		C10000000000000000000014 /* AppModel+Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Settings.swift"; sourceTree = "<group>"; };
+		C10000000000000000000015 /* AppModel+Activity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Activity.swift"; sourceTree = "<group>"; };
 		8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiRuntimeProbeService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeProbeService.swift; sourceTree = "<group>"; };
 		A2EEF0E8297855B7EA05302D /* GitStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStore.swift; sourceTree = "<group>"; };
@@ -394,6 +400,9 @@
 				B57CE529E3ABCD870DDA44AA /* AppModel.swift */,
 				C10000000000000000000011 /* AppModel+Projects.swift */,
 				C10000000000000000000012 /* AppModel+Terminal.swift */,
+				C10000000000000000000013 /* AppModel+Git.swift */,
+				C10000000000000000000014 /* AppModel+Settings.swift */,
+				C10000000000000000000015 /* AppModel+Activity.swift */,
 				1E6B5C4D3A2F1E0D9C8B7A6E /* AppPerformanceMonitorStore.swift */,
 				BBDDBF2B08A1049FDB3CF220 /* AppSettings.swift */,
 				C10000000000000000000008 /* AppSettingsSupport.swift */,
@@ -593,6 +602,9 @@
 				7CCD1507CB75EB49877C6C30 /* AppModel.swift in Sources */,
 				B10000000000000000000011 /* AppModel+Projects.swift in Sources */,
 				B10000000000000000000012 /* AppModel+Terminal.swift in Sources */,
+				B10000000000000000000013 /* AppModel+Git.swift in Sources */,
+				B10000000000000000000014 /* AppModel+Settings.swift in Sources */,
+				B10000000000000000000015 /* AppModel+Activity.swift in Sources */,
 				1E6B5C4D3A2F1E0D9C8B7A6F /* AppPerformanceMonitorStore.swift in Sources */,
 				CF756E0559A097A4F15FF4E4 /* AppModels.swift in Sources */,
 				0677DA593A0554DAC639D0A3 /* AppReleaseService.swift in Sources */,
