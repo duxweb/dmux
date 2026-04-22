@@ -38,6 +38,30 @@ When the task touches release packaging, tags, appcast generation, or release no
 
 - `references/release-workflow.md`
 
+## Local package workflow
+
+`libghostty-spm` is maintained in-repo at:
+
+- `Vendor/libghostty-spm`
+
+When a task needs Ghostty package changes, use this flow:
+
+1. Make and validate code changes in `Vendor/libghostty-spm`.
+2. Commit and push the package repo first.
+3. Update dmux package references to the pushed revision, not just a branch head:
+   - `Package.swift`
+   - `dmux.xcodeproj/project.pbxproj`
+4. Re-resolve packages and ensure both lockfiles point at the same revision:
+   - `Package.resolved`
+   - `dmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`
+5. Then rebuild and verify `./dev.sh`.
+
+Rules:
+
+- Do not treat `.xcode-dev/SourcePackages/checkouts/libghostty-spm` as the source of truth.
+- Do not leave the main project pinned only to a floating branch if a specific package fix is required for the current change.
+- Temporary direct edits in derived package checkouts are acceptable only for short-lived diagnosis, and must be replaced by a real package commit plus revision pin before finishing.
+
 ## UI copy discipline
 
 - Prefer short section titles and keep long explanation text in secondary helper copy.
