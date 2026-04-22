@@ -114,6 +114,7 @@
 		B10000000000000000000045 /* AIProjectHistoryService+Sources.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000045 /* AIProjectHistoryService+Sources.swift */; };
 		B10000000000000000000046 /* PetProgression.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000046 /* PetProgression.swift */; };
 		B10000000000000000000047 /* PetPopoverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000047 /* PetPopoverViews.swift */; };
+		B10000000000000000000048 /* ProjectActivityNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000048 /* ProjectActivityNotifications.swift */; };
 		A458177F176213CEE32928D8 /* AIUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0598FB11F350F43D5A39628A /* AIUsageService.swift */; };
 		A8B33C70370354EC1B39A24A /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6BB59CA2E305DD7DBA2C167 /* main.swift */; };
 		A9D536707C6623508B39B82C /* WorkspacePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E565A0971373275B0012B0 /* WorkspacePaths.swift */; };
@@ -235,6 +236,7 @@
 		C10000000000000000000045 /* AIProjectHistoryService+Sources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIProjectHistoryService+Sources.swift"; sourceTree = "<group>"; };
 		C10000000000000000000046 /* PetProgression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetProgression.swift; sourceTree = "<group>"; };
 		C10000000000000000000047 /* PetPopoverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetPopoverViews.swift; sourceTree = "<group>"; };
+		C10000000000000000000048 /* ProjectActivityNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectActivityNotifications.swift; sourceTree = "<group>"; };
 		8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiRuntimeProbeService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeProbeService.swift; sourceTree = "<group>"; };
 		A2EEF0E8297855B7EA05302D /* GitStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStore.swift; sourceTree = "<group>"; };
@@ -550,6 +552,7 @@
 				4BF246B9127D41605A990516 /* GitService.swift */,
 				812A0EDEE4527FA414569297 /* PersistenceService.swift */,
 				4202849CEE1FF3E6646D87DD /* ProjectActivityService.swift */,
+				C10000000000000000000048 /* ProjectActivityNotifications.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -743,8 +746,9 @@
 				B10000000000000000000022 /* GitStore+Selection.swift in Sources */,
 				B10000000000000000000023 /* GitStore+Operations.swift in Sources */,
 				B10000000000000000000024 /* GitStore+Remote.swift in Sources */,
-				BCB26675EA2CC890F29674A0 /* PersistenceService.swift in Sources */,
-				151B69EF643EA9CF5E6975C2 /* ProjectActivityService.swift in Sources */,
+					BCB26675EA2CC890F29674A0 /* PersistenceService.swift in Sources */,
+					151B69EF643EA9CF5E6975C2 /* ProjectActivityService.swift in Sources */,
+					B10000000000000000000048 /* ProjectActivityNotifications.swift in Sources */,
 					3BE284778A63A397792D1E4E /* ProjectEditorDialog.swift in Sources */,
 					5F0A9C1D7E2B4A5C8D9E0F11 /* PetPanelView.swift in Sources */,
 					B10000000000000000000046 /* PetProgression.swift in Sources */,
