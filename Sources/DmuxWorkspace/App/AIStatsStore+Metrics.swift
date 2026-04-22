@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 extension AIStatsStore {
     func titlebarTodayLevelTokensAcrossProjects(_ projects: [Project]) -> Int {
-        totalTodayNormalizedTokensAcrossProjects(projects)
+        totalTodayDisplayedTokensAcrossProjects(projects)
     }
 
     func petExperienceTokensAcrossProjects(_ projects: [Project]) -> Int {
@@ -30,12 +30,48 @@ extension AIStatsStore {
         }
     }
 
+    func totalTodayDisplayedTokensAcrossProjects(_ projects: [Project]) -> Int {
+        projects.reduce(0) { partial, project in
+            let liveOrCached = cachedState(for: project.id)
+            if let liveOrCached {
+                return partial + resolvedDisplayedTodayTotalTokens(for: liveOrCached)
+            }
+
+            if let indexed = aiUsageStore.indexedProjectSnapshot(projectID: project.id) {
+                return partial + resolvedDisplayedTodayTotalTokens(
+                    summary: indexed.projectSummary.todayTotalTokens,
+                    summaryCached: indexed.projectSummary.todayCachedInputTokens,
+                    timeBuckets: indexed.todayTimeBuckets,
+                    heatmap: indexed.heatmap
+                )
+            }
+
+            return partial
+        }
+    }
+
     func totalAllTimeNormalizedTokensAcrossProjects(_ projects: [Project]) -> Int {
         projects.reduce(0) { partial, project in
-            if let indexed = aiUsageStore.indexedProjectSnapshot(projectID: project.id) {
-                return partial + indexed.heatmap.reduce(0) { $0 + $1.totalTokens }
+            let liveOverlayTokens = liveOverlayTotalTokens(projectID: project.id)
+            if let liveOrCached = cachedState(for: project.id),
+               let projectTotalTokens = liveOrCached.projectSummary?.projectTotalTokens {
+                return partial + max(0, projectTotalTokens) + liveOverlayTokens
             }
-            return partial
+
+            if let indexed = aiUsageStore.indexedProjectSnapshot(projectID: project.id) {
+                let indexedTotal = max(
+                    indexed.projectSummary.projectTotalTokens,
+                    indexed.heatmap.reduce(0) { $0 + $1.totalTokens }
+                )
+                return partial + indexedTotal + liveOverlayTokens
+            }
+            return partial + liveOverlayTokens
+        }
+    }
+
+    private func liveOverlayTotalTokens(projectID: UUID) -> Int {
+        aiSessionStore.liveAggregationSnapshots(projectID: projectID).reduce(0) { partial, snapshot in
+            partial + max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens)
         }
     }
 

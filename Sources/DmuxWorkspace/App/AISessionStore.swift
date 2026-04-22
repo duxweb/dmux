@@ -148,7 +148,12 @@ final class AISessionStore {
     private(set) var terminalSessionsByID: [UUID: TerminalSessionState] = [:]
     private(set) var logicalSessionsByKey: [LogicalSessionKey: LogicalSessionState] = [:]
     private var expectedLogicalSessionsByTerminalID: [UUID: ExpectedLogicalSession] = [:]
-    var renderVersion: UInt64 = 0
+    var renderVersion: UInt64 = 0 {
+        didSet {
+            onRenderVersionChange?()
+        }
+    }
+    var onRenderVersionChange: (@MainActor () -> Void)?
 
     private init() {}
 

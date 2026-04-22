@@ -134,6 +134,28 @@ struct TerminalPaneView: View {
 }
 
 @MainActor
+private final class DetachedTerminalWindow: NSWindow {
+    override func sendEvent(_ event: NSEvent) {
+        guard event.type == .scrollWheel else {
+            super.sendEvent(event)
+            return
+        }
+
+        let responder = firstResponder
+        guard responder == nil || DmuxTerminalBackend.shared.registry.ownsResponder(responder) else {
+            super.sendEvent(event)
+            return
+        }
+
+        if DmuxTerminalBackend.shared.registry.forwardScrollWheel(event, responder: responder) {
+            return
+        }
+
+        super.sendEvent(event)
+    }
+}
+
+@MainActor
 enum DetachedTerminalWindowPresenter {
     private static var controllers: [UUID: NSWindowController] = [:]
     private static var delegates: [UUID: DetachedTerminalWindowDelegate] = [:]
@@ -145,34 +167,37 @@ enum DetachedTerminalWindowPresenter {
         }
 
         if let controller = controllers[sessionID],
-           let window = controller.window,
-           let hosting = controller.contentViewController as? NSHostingController<AnyView> {
-            hosting.rootView = AnyView(DetachedTerminalWindowView(model: model, session: session))
-            window.title = detachedWindowTitle(for: session)
+           let window = controller.window {
+            configureWindow(window, model: model, session: session)
+            window.contentMinSize = NSSize(width: 640, height: 360)
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            DispatchQueue.main.async {
+                model.requestTerminalFocus(sessionID)
+            }
             return
         }
 
-        let window = NSWindow(
+        let window = DetachedTerminalWindow(
             contentRect: NSRect(x: 0, y: 0, width: 980, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.identifier = AppWindowIdentifier.detachedTerminal(sessionID)
-        applyStandardWindowChrome(window, title: detachedWindowTitle(for: session))
-        window.minSize = NSSize(width: 540, height: 320)
+        configureWindow(window, model: model, session: session)
+        window.contentMinSize = NSSize(width: 640, height: 360)
         window.isReleasedWhenClosed = false
 
         let hosting = NSHostingController(
             rootView: AnyView(
-                DetachedTerminalWindowView(model: model, session: session)
+                DetachedTerminalWindowView(model: model, sessionID: sessionID)
             )
         )
         window.contentViewController = hosting
+        GhosttyPortalHostRegistry.register(hostView: hosting.view, for: window)
 
-        let delegate = DetachedTerminalWindowDelegate(model: model, sessionID: sessionID)
+        let delegate = DetachedTerminalWindowDelegate(model: model, sessionID: sessionID, hostView: hosting.view)
         window.delegate = delegate
 
         let controller = NSWindowController(window: window)
@@ -188,7 +213,9 @@ enum DetachedTerminalWindowPresenter {
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        model.requestTerminalFocus(sessionID)
+        DispatchQueue.main.async {
+            model.requestTerminalFocus(sessionID)
+        }
     }
 
     static func dismiss(sessionID: UUID, restoreOnClose: Bool) {
@@ -214,22 +241,35 @@ enum DetachedTerminalWindowPresenter {
         }
         return "\(session.projectName) - \(session.title)"
     }
+
+    private static func configureWindow(_ window: NSWindow, model: AppModel, session: TerminalSession) {
+        applyStandardWindowChrome(
+            window,
+            title: detachedWindowTitle(for: session),
+            backgroundColor: model.terminalAppearance.backgroundColor
+        )
+    }
 }
 
 @MainActor
 private final class DetachedTerminalWindowDelegate: NSObject, NSWindowDelegate {
     weak var model: AppModel?
     let sessionID: UUID
+    weak var hostView: NSView?
     var shouldRestoreOnClose = true
     private var hasScheduledRestore = false
 
-    init(model: AppModel, sessionID: UUID) {
+    init(model: AppModel, sessionID: UUID, hostView: NSView?) {
         self.model = model
         self.sessionID = sessionID
+        self.hostView = hostView
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        model?.requestTerminalFocus(sessionID)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.model?.requestTerminalFocus(self.sessionID)
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -240,6 +280,9 @@ private final class DetachedTerminalWindowDelegate: NSObject, NSWindowDelegate {
         let model = self.model
         let sessionID = self.sessionID
         let shouldRestoreOnClose = self.shouldRestoreOnClose
+        if let window = notification.object as? NSWindow, let hostView {
+            GhosttyPortalHostRegistry.unregister(hostView: hostView, for: window)
+        }
         DetachedTerminalWindowPresenter.clear(sessionID: sessionID)
         guard shouldRestoreOnClose else {
             return
@@ -252,26 +295,30 @@ private final class DetachedTerminalWindowDelegate: NSObject, NSWindowDelegate {
 
 private struct DetachedTerminalWindowView: View {
     let model: AppModel
-    let session: TerminalSession
+    let sessionID: UUID
 
     var body: some View {
-        TerminalPaneView(
-            model: model,
-            session: session,
-            terminalBackgroundPreset: model.terminalBackgroundPreset,
-            backgroundColorPreset: model.backgroundColorPreset,
-            isFocused: true,
-            isVisible: true,
-            showsInactiveOverlay: false,
-            onSelect: { model.requestTerminalFocus(session.id) },
-            onClose: {},
-            onDetach: nil,
-            showsCloseButton: false
-        )
-        .background(model.terminalChromeColor)
-        .onAppear {
-            model.requestTerminalFocus(session.id)
+        Group {
+            if let session = model.terminalSession(for: sessionID) {
+                TerminalPaneView(
+                    model: model,
+                    session: session,
+                    terminalBackgroundPreset: model.terminalBackgroundPreset,
+                    backgroundColorPreset: model.backgroundColorPreset,
+                    isFocused: true,
+                    isVisible: true,
+                    showsInactiveOverlay: false,
+                    onSelect: { model.requestTerminalFocus(session.id) },
+                    onClose: {},
+                    onDetach: nil,
+                    showsCloseButton: false
+                )
+            } else {
+                Rectangle()
+                    .fill(model.terminalChromeColor)
+            }
         }
+        .background(model.terminalChromeColor)
     }
 }
 

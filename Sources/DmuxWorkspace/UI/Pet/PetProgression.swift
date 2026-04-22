@@ -10,20 +10,21 @@ struct PetProgressInfo {
     let hatchTokens: Int
     let stage: PetStage
 
-    static let hatchThreshold = 200_000_000
-    static let xpBase = 7_500_000
-    // Raised from 180_000 → 750_000 so the curve grows ~11x from Lv1 to Lv100
-    // (was ~3.4x — almost flat, causing rapid level-ups at all stages).
-    // Full run Lv1→100 now requires ~4.4B XP vs the old 1.6B.
-    static let xpIncrement = 750_000
+    static let hatchThreshold = 50_000_000
+    static let dailyTargetXP = 40_000_000
     static let maxLevel = 100
-    static let postCapXP = xpBase + (maxLevel - 1) * xpIncrement
+    static let targetXPToReachLevel100 = dailyTargetXP * 30
+    static let minXPPerLevel = 2_000_000
+    static let maxXPPerLevel = 22_000_000
     static let infantRange = 1 ... 15
     static let childRange = 16 ... 35
     static let adultRange = 36 ... 60
     static let evoRange = 61 ... 85
     static let megaStartLevel = 86
     static let evoUnlockLevel = evoRange.lowerBound
+    private static let levelXPRequirements = buildLevelXPRequirements()
+    static let postCapXP = levelXPRequirements.last ?? maxXPPerLevel
+    private static let levelXPPrefixSums = buildLevelXPPrefixSums()
 
     init(totalXP: Int, hatchTokens: Int, evoPath: PetEvoPath) {
         let growthXP = max(0, totalXP)
@@ -57,6 +58,14 @@ struct PetProgressInfo {
         min(1.0, Double(hatchTokens) / Double(Self.hatchThreshold))
     }
 
+    var hatchPercentText: String {
+        let percent = hatchProgress * 100
+        if hatchTokens > 0, percent < 0.01 {
+            return "0.01"
+        }
+        return String(format: "%.2f", percent)
+    }
+
     var isHatching: Bool { stage == .egg }
 
     var hasUnlockedInheritance: Bool { level >= Self.maxLevel }
@@ -65,7 +74,11 @@ struct PetProgressInfo {
         if level >= maxLevel {
             return postCapXP
         }
-        return xpBase + max(0, level - 1) * xpIncrement
+        let index = max(0, level - 1)
+        guard index < levelXPRequirements.count else {
+            return postCapXP
+        }
+        return levelXPRequirements[index]
     }
 
     static func totalXPRequired(toReach level: Int) -> Int {
@@ -74,10 +87,8 @@ struct PetProgressInfo {
         }
 
         let cappedLevel = min(level, maxLevel)
-        var total = 0
-        for current in 1 ..< cappedLevel {
-            total += xpBase + (current - 1) * xpIncrement
-        }
+        let cappedIndex = max(0, cappedLevel - 2)
+        var total = levelXPPrefixSums[cappedIndex]
         if level > maxLevel {
             total += (level - maxLevel) * postCapXP
         }
@@ -101,6 +112,46 @@ struct PetProgressInfo {
         return level
     }
 
+    private static func buildLevelXPRequirements() -> [Int] {
+        let count = maxLevel - 1
+        guard count > 0 else { return [] }
+
+        let weights = (0 ..< count).map { index -> Double in
+            let progress = count == 1 ? 0 : Double(index) / Double(count - 1)
+            return Double(minXPPerLevel) + Double(maxXPPerLevel - minXPPerLevel) * progress
+        }
+        let weightTotal = weights.reduce(0, +)
+        guard weightTotal > 0 else {
+            return Array(repeating: dailyTargetXP, count: count)
+        }
+
+        let scaled = weights.map { $0 / weightTotal * Double(targetXPToReachLevel100) }
+        var requirements = scaled.map { Int($0.rounded(.down)) }
+        let remainder = targetXPToReachLevel100 - requirements.reduce(0, +)
+        if remainder > 0 {
+            let fractions = scaled.enumerated()
+                .map { ($0.offset, $0.element - Double(requirements[$0.offset])) }
+                .sorted { lhs, rhs in
+                    if lhs.1 == rhs.1 {
+                        return lhs.0 < rhs.0
+                    }
+                    return lhs.1 > rhs.1
+                }
+            for offset in 0 ..< min(remainder, fractions.count) {
+                requirements[fractions[offset].0] += 1
+            }
+        }
+        return requirements
+    }
+
+    private static func buildLevelXPPrefixSums() -> [Int] {
+        var running = 0
+        return levelXPRequirements.map {
+            running += $0
+            return running
+        }
+    }
+
     // MARK: - Daily pace limiter
 
     /// Number of calendar days from `hatchDate` to `now` (0-based: hatch day itself = 0).
@@ -111,11 +162,9 @@ struct PetProgressInfo {
         return max(0, calendar.dateComponents([.day], from: start, to: today).day ?? 0)
     }
 
-    /// Expected level on day `dayIndex` based on a 30-day-to-level-100 pace.
+    /// Expected level on day `dayIndex` based on a sustained daily XP target.
     static func expectedLevel(forDayIndex dayIndex: Int) -> Int {
-        let totalXPForCap = totalXPRequired(toReach: maxLevel + 1)
-        let dailyBudget = Double(totalXPForCap) / 30.0
-        let expectedXP = Int(Double(max(0, dayIndex)) * dailyBudget)
+        let expectedXP = max(0, dayIndex) * dailyTargetXP
         return levelFromXP(expectedXP)
     }
 
@@ -123,7 +172,7 @@ struct PetProgressInfo {
     /// Returns 1.0 if the pet is at or below the daily pace.
     /// Rate curve: on-pace = 100%, +1 level ahead = 50%, each further level
     /// -10 pp (min 5%). This gives an immediate meaningful brake the moment
-    /// the pet outpaces the 30-day schedule, without a harsh cliff.
+    /// the pet outpaces the daily target pace, without a harsh cliff.
     static func dailyXPRate(currentLevel: Int, dayIndex: Int) -> Double {
         let expected = expectedLevel(forDayIndex: dayIndex)
         let levelsAhead = max(0, currentLevel - expected)

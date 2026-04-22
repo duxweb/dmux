@@ -181,6 +181,20 @@ final class GhosttyTerminalRegistry {
         return false
     }
 
+    func forwardScrollWheel(_ event: NSEvent, responder: NSResponder?) -> Bool {
+        if let responder,
+           let container = containers.values.first(where: { $0.ownsResponder(responder) }) {
+            container.forwardScrollWheel(event)
+            return true
+        }
+        if let sessionID = focusedSessionID(),
+           let container = containers[sessionID] {
+            container.forwardScrollWheel(event)
+            return true
+        }
+        return false
+    }
+
     func focusedSessionID() -> UUID? {
         if let explicitFocusedSessionID, containers[explicitFocusedSessionID] != nil {
             return explicitFocusedSessionID

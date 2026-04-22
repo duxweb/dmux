@@ -105,7 +105,7 @@ struct PetSpriteView: View {
 
 struct TitlebarPetButton: View {
     let model: AppModel
-    let allTimeTokens: Int
+    let allTimeTokensProvider: () -> Int
     @Binding var isShowingPopover: Bool
     @AppStorage("pet.last_level") private var lastLevel: Int = 0
     @AppStorage("pet.did_first_open_bubble") private var didFirstOpenBubble: Bool = false
@@ -132,9 +132,7 @@ struct TitlebarPetButton: View {
     private var hatchTokens: Int { petStore.currentHatchTokens }
     private var info: PetProgressInfo { PetProgressInfo(totalXP: currentXP, hatchTokens: hatchTokens, evoPath: evoPath) }
     private var petStats: PetStats { petStore.currentStats }
-    private var liveComputedStats: PetStats {
-        model.aiStatsStore.petStatsAcrossProjects(model.projects, claimedAt: petStore.claimedAt)
-    }
+    private var allTimeTokens: Int { max(0, allTimeTokensProvider()) }
     private var displayName: String {
         petStore.customName.isEmpty ? info.stage.speciesName(for: species, evoPath: evoPath) : petStore.customName
     }
@@ -354,7 +352,6 @@ struct TitlebarPetButton: View {
                 didFirstOpenBubble = true
                 triggerBubble("firstOpen", cooldown: 86_400)
             }
-            petStore.refreshDerivedState(currentAllTimeTokens: allTimeTokens, computedStats: liveComputedStats)
             if petStore.isClaimed, info.level > 0, lastLevel == 0 {
                 lastLevel = info.level
             }
@@ -384,18 +381,12 @@ struct TitlebarPetButton: View {
             syncRunningBaselines()
         }
         .onChange(of: model.activityRenderVersion) { _, _ in
-            petStore.refreshDerivedState(currentAllTimeTokens: allTimeTokens, computedStats: liveComputedStats)
             syncRunningBaselines()
             if hasAnyRunningActivity {
                 recentActivityTick = Date()
             }
         }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now in
-            petStore.refreshDerivedState(
-                currentAllTimeTokens: allTimeTokens,
-                computedStats: liveComputedStats,
-                now: now
-            )
             syncRunningBaselines(now: now)
             if hasAnyRunningActivity {
                 recentActivityTick = now
@@ -458,7 +449,7 @@ struct TitlebarPetButton: View {
     private var titleText: String {
         petStore.isClaimed
             ? (info.isHatching
-                ? String(format: petL("pet.title.hatching_percent", "Hatching %@%%"), "\(Int((info.hatchProgress * 100).rounded()))")
+                ? String(format: petL("pet.title.hatching_percent", "Hatching %@%%"), info.hatchPercentText)
                 : "Lv.\(info.level)")
             : petL("pet.title.claim", "Claim")
     }
@@ -519,10 +510,7 @@ struct TitlebarPetButton: View {
                 customName: result.customName,
                 hiddenSpeciesChance: hiddenSpeciesChance
             )
-            petStore.refreshDerivedState(
-                currentAllTimeTokens: allTimeTokens,
-                computedStats: liveComputedStats
-            )
+            model.petRefreshCoordinator.refreshNow(reason: .claim)
         }
     }
 }

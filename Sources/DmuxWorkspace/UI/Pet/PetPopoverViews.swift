@@ -62,23 +62,23 @@ struct PetPopoverView: View {
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
                                 .background(Capsule().fill(info.stage.accentColor.opacity(0.14)))
-                            Text(petL("pet.hatch.description", "Hatches after reaching the token threshold"))
-                                .font(.system(size: 12))
-                                .foregroundStyle(.tertiary)
                         }
 
                         Spacer(minLength: 0)
 
                         VStack(spacing: 2) {
-                            Text("\(Int((info.hatchProgress * 100).rounded()))%")
+                            Text("\(info.hatchPercentText)%")
                                 .font(.system(size: 26, weight: .black, design: .rounded))
+                                .monospacedDigit()
                                 .foregroundStyle(.primary)
                                 .contentTransition(.numericText())
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                             Text(petL("pet.hatch.progress.short", "Hatch"))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.tertiary)
                         }
-                        .frame(minWidth: 64, alignment: .center)
+                        .frame(minWidth: 88, alignment: .trailing)
                     }
                     .padding(14)
 

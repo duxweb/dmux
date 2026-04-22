@@ -45,6 +45,7 @@ protocol DmuxTerminalBackendRegistry: AnyObject {
     func sendEditingShortcut(_ shortcut: TerminalEditingShortcut, responder: NSResponder?) -> Bool
     func sendNativeCommandArrow(keyCode: UInt16, responder: NSResponder?) -> Bool
     func forwardKeyDown(_ event: NSEvent, responder: NSResponder?) -> Bool
+    func forwardScrollWheel(_ event: NSEvent, responder: NSResponder?) -> Bool
     func focusedSessionID() -> UUID?
     func ownsResponder(_ responder: NSResponder?) -> Bool
     func debugSnapshot() -> String

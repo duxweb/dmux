@@ -259,7 +259,7 @@ final class AIRuntimeIngressService {
             for: resolvedEvent.terminalID,
             reason: resolvedEvent.kind.rawValue
         )
-        postRuntimeBridgeDidChange(kind: "ai-hook")
+        postRuntimeBridgeDidChange(kind: "ai-hook", asynchronously: true)
     }
 
     private func processOpencodeRuntimeEnvelope(_ envelope: AIToolUsageEnvelope) {
@@ -274,7 +274,7 @@ final class AIRuntimeIngressService {
                 reason: "opencode-runtime"
             )
         }
-        postRuntimeBridgeDidChange(kind: "opencode-runtime")
+        postRuntimeBridgeDidChange(kind: "opencode-runtime", asynchronously: true)
     }
 
     private func processManualInterruptEvent(_ event: AIManualInterruptEvent) {
@@ -294,16 +294,26 @@ final class AIRuntimeIngressService {
             "applied manual-interrupt terminal=\(event.terminalID.uuidString) prev=\(previousState?.state.rawValue ?? "nil") next=\(nextState?.state.rawValue ?? "nil") interrupted=\(nextState?.wasInterrupted == true)"
         )
 
-        postRuntimeBridgeDidChange(kind: "manual-interrupt")
+        postRuntimeBridgeDidChange(kind: "manual-interrupt", asynchronously: true)
     }
 
-    private func postRuntimeBridgeDidChange(kind: String) {
-        NotificationCenter.default.post(name: .dmuxAIRuntimeActivityPulse, object: nil)
-        NotificationCenter.default.post(
-            name: .dmuxAIRuntimeBridgeDidChange,
-            object: nil,
-            userInfo: ["kind": kind]
-        )
+    private func postRuntimeBridgeDidChange(kind: String, asynchronously: Bool = false) {
+        let deliver = {
+            NotificationCenter.default.post(name: .dmuxAIRuntimeActivityPulse, object: nil)
+            NotificationCenter.default.post(
+                name: .dmuxAIRuntimeBridgeDidChange,
+                object: nil,
+                userInfo: ["kind": kind]
+            )
+        }
+
+        if asynchronously {
+            Task { @MainActor in
+                deliver()
+            }
+        } else {
+            deliver()
+        }
     }
 
     private func shouldAcceptRuntimeEvent(key: String, ttl: TimeInterval) -> Bool {

@@ -277,6 +277,10 @@ private final class GhosttyTerminalPortalMountedView: NSView {
         hostedView.forwardOtherMouseDown(event)
     }
 
+    override func scrollWheel(with event: NSEvent) {
+        hostedView.forwardScrollWheel(event)
+    }
+
     override func layout() {
         super.layout()
         if hostedView.superview !== self {
@@ -285,6 +289,7 @@ private final class GhosttyTerminalPortalMountedView: NSView {
         if hostedView.frame != bounds {
             hostedView.frame = bounds
         }
+        hostedView.portalDidUpdateFrame()
     }
 }
 
@@ -485,6 +490,8 @@ private final class GhosttyWindowPortal {
         entry.hostedView.isHidden = false
 
         CATransaction.commit()
+
+        entry.hostedView.portalDidUpdateFrame()
 
         if previousFrame != frameInHost {
             hostView.setNeedsDisplay(previousFrame.union(frameInHost))

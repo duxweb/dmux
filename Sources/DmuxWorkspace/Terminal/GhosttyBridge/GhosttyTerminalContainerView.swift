@@ -49,6 +49,8 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     private var lastAppliedFocusedState: Bool?
     private var lastAppliedVisibleState: Bool?
     private var lastShowsInactiveOverlay = false
+    private var viewportRefreshScheduled = false
+    private var lastViewportRefreshSignature = ""
     private let startupDelay: TimeInterval = 0.18
     private let startupWatchdogDelay: TimeInterval = 3.5
     private let logger = AppDebugLog.shared
@@ -144,6 +146,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             pendingFocusRequest = false
             lastAppliedFocusedState = nil
             lastAppliedVisibleState = nil
+            lastViewportRefreshSignature = ""
             updateLoadingShieldVisibility()
             terminalView.configuration = surfaceOptions()
         } else {
@@ -160,6 +163,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
 
         if isVisible {
             scheduleProcessStartIfPossible(reason: isFocused ? "update-focused" : "update-visible")
+            scheduleViewportRefresh(reason: "update-session")
         }
 
         let showsDimOverlay = showsInactiveOverlay && isVisible && !isFocused
@@ -268,16 +272,19 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         if hasStartedProcess == false {
             scheduleProcessStartIfPossible(reason: "layout")
         }
+        scheduleViewportRefresh(reason: "layout")
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
             cancelDeferredLifecycleWork()
+            lastViewportRefreshSignature = ""
             finalizePermanentTearDownWhenDetached()
             return
         }
         scheduleProcessStartIfPossible(reason: "window-attached")
+        scheduleViewportRefresh(reason: "window-attached")
     }
 
     func sendText(_ text: String) {
@@ -341,6 +348,23 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         }
         prepareForPointerInteraction()
         terminalView.otherMouseDown(with: event)
+    }
+
+    func forwardScrollWheel(_ event: NSEvent) {
+        guard isReadyForInteraction else {
+            pendingFocusRequest = true
+            return
+        }
+        prepareForPointerInteraction()
+        terminalView.scrollWheel(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        forwardScrollWheel(event)
+    }
+
+    func portalDidUpdateFrame() {
+        scheduleViewportRefresh(reason: "portal-frame")
     }
 
     func ownsResponder(_ responder: NSResponder?) -> Bool {
@@ -527,6 +551,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             "ghostty-process",
             "ready session=\(configuredSession.id.uuidString) reason=\(reason)"
         )
+        scheduleViewportRefresh(reason: "terminal-ready")
         onStartupSucceeded?()
         if pendingFocusRequest {
             pendingFocusRequest = false
@@ -571,6 +596,50 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
 
     private func notifyInteraction() {
         onInteraction?()
+    }
+
+    private func scheduleViewportRefresh(reason: String) {
+        guard window != nil, bounds.width > 1, bounds.height > 1 else {
+            return
+        }
+        guard viewportRefreshScheduled == false else {
+            return
+        }
+
+        viewportRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            self.viewportRefreshScheduled = false
+            self.performViewportRefreshIfNeeded(reason: reason)
+        }
+    }
+
+    private func performViewportRefreshIfNeeded(reason: String) {
+        guard window != nil, bounds.width > 1, bounds.height > 1 else {
+            lastViewportRefreshSignature = ""
+            return
+        }
+
+        let signature = "\(window?.windowNumber ?? -1)|\(Int(bounds.width.rounded(.down)))x\(Int(bounds.height.rounded(.down)))|started=\(hasStartedProcess)|ready=\(hasReceivedInitialOutput)"
+        guard signature != lastViewportRefreshSignature else {
+            return
+        }
+        lastViewportRefreshSignature = signature
+
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        if terminalView.frame.size != bounds.size {
+            terminalView.frame = bounds
+        }
+        terminalView.needsLayout = true
+        terminalView.layoutSubtreeIfNeeded()
+
+        logger.log(
+            "ghostty-metrics",
+            "viewport-refresh session=\(configuredSession.id.uuidString) reason=\(reason) size=\(Int(bounds.width.rounded(.down)))x\(Int(bounds.height.rounded(.down))) window=\(window?.windowNumber ?? -1)"
+        )
     }
 
     private func tearDownTerminalView() {

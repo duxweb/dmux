@@ -126,6 +126,16 @@ struct RecentProjectCache<Value> {
         Array(storage.keys)
     }
 
+    func peekValue(for projectID: UUID, now: Date = Date()) -> Value? {
+        guard let entry = storage[projectID] else {
+            return nil
+        }
+        guard now.timeIntervalSince(entry.updatedAt) <= ttl else {
+            return nil
+        }
+        return entry.value
+    }
+
     mutating func set(_ value: Value, for projectID: UUID) {
         storage[projectID] = Entry(value: value, updatedAt: Date())
         order.removeAll { $0 == projectID }

@@ -5,6 +5,8 @@ import CryptoKit
 @MainActor
 @Observable
 final class PetStore {
+    private static let progressionStateVersion = 2
+    private static let dailyPaceStateVersion = 3
     private static let statsRefreshInterval: TimeInterval = 3600
 
     // Captures the XP state at the start of each calendar day so the
@@ -69,6 +71,8 @@ final class PetStore {
     private let fileManager = FileManager.default
     private let debugLog = AppDebugLog.shared
     private let storage: Storage
+    private var needsProgressionBaselineRebase = false
+    private var needsDailyPaceReset = false
 
     private init() {
         storage = .live
@@ -93,6 +97,8 @@ final class PetStore {
         baselineAllTimeTokens = max(0, totalTokens)
         growthBaselineAllTimeTokens = nil
         dailyXPCapture = nil
+        needsProgressionBaselineRebase = false
+        needsDailyPaceReset = false
         species = option.resolveSpecies(hiddenSpeciesChance: hiddenSpeciesChance)
         self.customName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
         currentHatchTokens = 0
@@ -176,12 +182,37 @@ final class PetStore {
         }
     }
 
+    func shouldRefreshStats(now: Date = .init()) -> Bool {
+        guard isClaimed else {
+            return false
+        }
+        guard let statsUpdatedDay else {
+            return true
+        }
+        if currentStats == .neutral {
+            return true
+        }
+        return now.timeIntervalSince(statsUpdatedDay) >= Self.statsRefreshInterval
+    }
+
     func refreshDerivedState(currentAllTimeTokens: Int, computedStats: PetStats, now: Date = .init()) {
         guard isClaimed else {
             return
         }
 
         var didChange = false
+        if needsProgressionBaselineRebase
+            || (baselineAllTimeTokens.map { $0 > currentAllTimeTokens } ?? false) {
+            rebaseProgressionBaseline(currentAllTimeTokens: currentAllTimeTokens)
+            needsProgressionBaselineRebase = false
+            didChange = true
+        }
+        if needsDailyPaceReset {
+            rebaseDailyPaceCapture(currentAllTimeTokens: currentAllTimeTokens, now: now)
+            needsDailyPaceReset = false
+            didChange = true
+        }
+
         let claimed = claimedTokens(currentAllTimeTokens: currentAllTimeTokens)
         let nextHatchTokens = min(claimed, PetProgressInfo.hatchThreshold)
         let nextXP: Int
@@ -204,7 +235,7 @@ final class PetStore {
 
             // ── Daily pace limiter ──────────────────────────────────────────
             // Each calendar day we compute a rate multiplier based on how far
-            // ahead of the 30-day-to-Lv100 pace the pet is:
+            // ahead of the configured daily pace the pet is:
             //   • At pace or behind  → rate = 1.0 (no penalty)
             //   • N levels ahead     → rate = max(5%, 1 - N × 20%)
             // The rate applies only to tokens earned *today*. At day rollover
@@ -297,6 +328,52 @@ final class PetStore {
         }
     }
 
+    private func rebaseProgressionBaseline(currentAllTimeTokens: Int) {
+        let preservedHatchTokens = min(max(0, currentHatchTokens), PetProgressInfo.hatchThreshold)
+        let preservedXP = max(0, currentExperienceTokens)
+
+        baselineAllTimeTokens = max(0, currentAllTimeTokens - preservedHatchTokens)
+        if preservedHatchTokens >= PetProgressInfo.hatchThreshold {
+            growthBaselineAllTimeTokens = max(0, currentAllTimeTokens - preservedXP)
+        } else {
+            growthBaselineAllTimeTokens = nil
+            dailyXPCapture = nil
+        }
+
+        debugLog.log(
+            "pet-baseline",
+            "rebase current=\(currentAllTimeTokens) baseline=\(baselineAllTimeTokens ?? 0) hatch=\(preservedHatchTokens) xp=\(preservedXP) version=\(Self.progressionStateVersion)"
+        )
+    }
+
+    private func rebaseDailyPaceCapture(currentAllTimeTokens: Int, now: Date) {
+        guard currentHatchTokens >= PetProgressInfo.hatchThreshold,
+              growthBaselineAllTimeTokens != nil else {
+            dailyXPCapture = nil
+            return
+        }
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: now)
+        let currentLevel = PetProgressInfo.levelFromXP(currentExperienceTokens)
+        let dayIndex = claimedAt.map { PetProgressInfo.dayIndex(from: $0, to: now) } ?? 0
+        let rate = PetProgressInfo.dailyXPRate(currentLevel: currentLevel, dayIndex: dayIndex)
+
+        // Preserve the already-earned effective XP and only apply the new pace
+        // to tokens accumulated after this migration point.
+        dailyXPCapture = DailyXPCapture(
+            day: today,
+            effectiveXPAtDayStart: currentExperienceTokens,
+            allTimeTokensAtDayStart: currentAllTimeTokens,
+            rate: rate
+        )
+
+        debugLog.log(
+            "pet-pace",
+            "rebase dayIndex=\(dayIndex) level=\(currentLevel) rate=\(String(format: "%.0f%%", rate * 100)) xp=\(currentExperienceTokens) version=\(Self.dailyPaceStateVersion)"
+        )
+    }
+
     func debugForceExperienceTokens(_ experienceTokens: Int, currentAllTimeTokens: Int, now: Date = .init()) {
         guard isClaimed else {
             return
@@ -360,6 +437,8 @@ final class PetStore {
         guard let resolvedState = fileState else {
             return
         }
+        needsProgressionBaselineRebase = resolvedState.progressionVersion != Self.progressionStateVersion
+        needsDailyPaceReset = resolvedState.dailyPaceVersion != Self.dailyPaceStateVersion
         claimedAt = resolvedState.claimedAt
         baselineAllTimeTokens = resolvedState.baselineAllTimeTokens
         growthBaselineAllTimeTokens = resolvedState.growthBaselineAllTimeTokens
@@ -404,6 +483,8 @@ final class PetStore {
 
     private func save() {
         let state = PersistedPetState(
+            progressionVersion: Self.progressionStateVersion,
+            dailyPaceVersion: Self.dailyPaceStateVersion,
             claimedAt: claimedAt,
             baselineAllTimeTokens: baselineAllTimeTokens,
             growthBaselineAllTimeTokens: growthBaselineAllTimeTokens,
@@ -475,6 +556,8 @@ final class PetStore {
 }
 
 private struct PersistedPetState: Codable, Equatable {
+    var progressionVersion: Int?
+    var dailyPaceVersion: Int?
     var claimedAt: Date?
     var baselineAllTimeTokens: Int?
     var growthBaselineAllTimeTokens: Int?

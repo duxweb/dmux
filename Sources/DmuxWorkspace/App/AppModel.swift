@@ -60,6 +60,7 @@ final class AppModel {
     let aiSessionStore = AISessionStore.shared
     let aiStatsStore = AIStatsStore()
     let petStore = PetStore.shared
+    let petRefreshCoordinator = PetRefreshCoordinator(petStore: PetStore.shared)
     let gitStore = GitStore()
     let performanceMonitor = AppPerformanceMonitorStore()
 
@@ -141,6 +142,27 @@ final class AppModel {
             automatic: appSettings.aiAutoRefreshInterval,
             background: appSettings.aiBackgroundRefreshInterval
         )
+        petRefreshCoordinator.configure(
+            allTimeTokens: { [weak self] in
+                guard let self else {
+                    return 0
+                }
+                return self.aiStatsStore.petExperienceTokensAcrossProjects(self.projects)
+            },
+            computedStats: { [weak self] in
+                guard let self else {
+                    return .neutral
+                }
+                return self.aiStatsStore.petStatsAcrossProjects(
+                    self.projects,
+                    claimedAt: self.petStore.claimedAt
+                )
+            }
+        )
+        aiSessionStore.onRenderVersionChange = { [weak self] in
+            self?.petRefreshCoordinator.scheduleRefresh(reason: .aiSession)
+        }
+        petRefreshCoordinator.start()
         aiStatsStore.startTimers(
             isPanelVisible: { self.rightPanel == .aiStats },
             selectedProject: { self.selectedProject },

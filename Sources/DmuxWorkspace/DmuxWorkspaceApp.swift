@@ -23,7 +23,12 @@ enum AppWindowIdentifier {
 }
 
 @MainActor
-func applyStandardWindowChrome(_ window: NSWindow, title: String? = nil, toolbarStyle: NSWindow.ToolbarStyle = .automatic) {
+func applyStandardWindowChrome(
+    _ window: NSWindow,
+    title: String? = nil,
+    toolbarStyle: NSWindow.ToolbarStyle = .automatic,
+    backgroundColor: NSColor = .windowBackgroundColor
+) {
     if let title {
         window.title = title
     }
@@ -31,7 +36,7 @@ func applyStandardWindowChrome(_ window: NSWindow, title: String? = nil, toolbar
     window.titleVisibility = .visible
     window.titlebarAppearsTransparent = false
     window.isMovableByWindowBackground = false
-    window.backgroundColor = NSColor.windowBackgroundColor
+    window.backgroundColor = backgroundColor
     if toolbarStyle != .preference {
         window.toolbar = nil
     }

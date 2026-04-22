@@ -238,7 +238,7 @@ extension AIStatsStore {
         if let state = panelStateByProjectID[projectID] {
             return state
         }
-        return cachedPanels.value(for: projectID)
+        return cachedPanels.peekValue(for: projectID)
     }
 
     func relocalizedStatus(_ status: AIIndexingStatus) -> AIIndexingStatus {
@@ -278,6 +278,38 @@ extension AIStatsStore {
         }
 
         return max(0, summary)
+    }
+
+    func resolvedDisplayedTodayTotalTokens(for state: AIStatsPanelState) -> Int {
+        resolvedDisplayedTodayTotalTokens(
+            summary: state.projectSummary?.todayTotalTokens ?? 0,
+            summaryCached: state.projectSummary?.todayCachedInputTokens ?? 0,
+            timeBuckets: state.todayTimeBuckets,
+            heatmap: state.heatmap
+        )
+    }
+
+    func resolvedDisplayedTodayTotalTokens(
+        summary: Int,
+        summaryCached: Int,
+        timeBuckets: [AITimeBucket],
+        heatmap: [AIHeatmapDay]
+    ) -> Int {
+        let bucketTotal = timeBuckets.reduce(0) { $0 + $1.totalTokens + $1.cachedInputTokens }
+        if bucketTotal > 0 {
+            return bucketTotal
+        }
+
+        let calendar = Calendar.autoupdatingCurrent
+        let today = calendar.startOfDay(for: Date())
+        if let heatmapToday = heatmap.first(where: { calendar.isDate($0.day, inSameDayAs: today) }) {
+            let total = heatmapToday.totalTokens + heatmapToday.cachedInputTokens
+            if total > 0 {
+                return total
+            }
+        }
+
+        return max(0, summary) + max(0, summaryCached)
     }
 
     func clearCurrentState() {

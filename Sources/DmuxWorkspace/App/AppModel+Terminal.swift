@@ -148,7 +148,6 @@ extension AppModel {
             workspace.selectedSessionID = sessionID
             terminalFocusRequestID = sessionID
         }
-        refreshAIStatsIfNeeded()
     }
 
     func requestTerminalFocus(_ sessionID: UUID) {
@@ -174,7 +173,6 @@ extension AppModel {
             workspace.selectedSessionID = sessionID
             terminalFocusRequestID = sessionID
         }
-        refreshAIStatsIfNeeded()
     }
 
     func updateTopPaneRatios(_ ratios: [CGFloat]) {

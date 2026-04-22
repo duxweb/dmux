@@ -327,15 +327,10 @@ extension AIStatsStore {
                 return
             }
             Task { @MainActor in
-                guard isPanelVisible(), let project = selectedProject() else {
+                guard isPanelVisible(), selectedProject() != nil else {
                     return
                 }
-                let sessionID = self.effectiveSessionID(selectedSessionID())
-                self.refreshLiveState(
-                    project: project,
-                    selectedSessionID: sessionID,
-                    reason: .terminalFocus
-                )
+                self.scheduleLiveRefresh(reason: .terminalFocus)
             }
         }
     }

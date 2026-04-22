@@ -54,6 +54,7 @@
 		5F0A9C1D7E2B4A5C8D9E0F15 /* PetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0A9C1D7E2B4A5C8D9E0F16 /* PetStore.swift */; };
 		5F0A9C1D7E2B4A5C8D9E0F17 /* PetDexWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0A9C1D7E2B4A5C8D9E0F18 /* PetDexWindow.swift */; };
 		5F0A9C1D7E2B4A5C8D9E0F19 /* PetEvolutionEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0A9C1D7E2B4A5C8D9E0F20 /* PetEvolutionEffect.swift */; };
+		5F0A9C1D7E2B4A5C8D9E0F24 /* PetRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0A9C1D7E2B4A5C8D9E0F23 /* PetRefreshCoordinator.swift */; };
 		5F0A9C1D7E2B4A5C8D9E0F12 /* Pets in Resources */ = {isa = PBXBuildFile; fileRef = 5F0A9C1D7E2B4A5C8D9E0F13 /* Pets */; };
 		A7B8C9D0E1F2031425364762 /* DmuxTerminalBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B8C9D0E1F2031425364763 /* DmuxTerminalBackend.swift */; };
 		6FE3BAABA1DF148107499517 /* AIStatsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFE6C21DB9D84B024B4A9FC4 /* AIStatsPanelView.swift */; };
@@ -161,6 +162,7 @@
 		1D05D834FCB2D530F185C773 /* AIUsageModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIUsageModels.swift; sourceTree = "<group>"; };
 		A91F0A7E1B2C3D4E5F607182 /* AIHookEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIHookEvent.swift; sourceTree = "<group>"; };
 		5F0A9C1D7E2B4A5C8D9E0F22 /* PetModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetModels.swift; sourceTree = "<group>"; };
+		5F0A9C1D7E2B4A5C8D9E0F23 /* PetRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetRefreshCoordinator.swift; sourceTree = "<group>"; };
 		1E6B5C4D3A2F1E0D9C8B7A6E /* AppPerformanceMonitorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPerformanceMonitorStore.swift; sourceTree = "<group>"; };
 		2A3B4C5D6E7F8091A2B3C4D5 /* AppDiagnosticsExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDiagnosticsExportService.swift; sourceTree = "<group>"; };
 		21A2B3C4D5E6F708192A3B4D /* AIToolPermissionSettingsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolPermissionSettingsService.swift; sourceTree = "<group>"; };
@@ -497,6 +499,7 @@
 				C10000000000000000000041 /* AppTerminalAppearance+Options.swift */,
 				C10000000000000000000010 /* AppShortcutSettings.swift */,
 				5F0A9C1D7E2B4A5C8D9E0F16 /* PetStore.swift */,
+				5F0A9C1D7E2B4A5C8D9E0F23 /* PetRefreshCoordinator.swift */,
 				A2EEF0E8297855B7EA05302D /* GitStore.swift */,
 				C10000000000000000000021 /* GitStore+Refresh.swift */,
 				C10000000000000000000022 /* GitStore+Selection.swift */,
@@ -730,6 +733,7 @@
 				B10000000000000000000009 /* AppTerminalAppearance.swift in Sources */,
 				B10000000000000000000010 /* AppShortcutSettings.swift in Sources */,
 				5F0A9C1D7E2B4A5C8D9E0F15 /* PetStore.swift in Sources */,
+				5F0A9C1D7E2B4A5C8D9E0F24 /* PetRefreshCoordinator.swift in Sources */,
 				4634F57FC973786B1BC12CE7 /* CodexHookRuntimeService.swift in Sources */,
 				79E977E589A5DD4D64B73355 /* ConfirmDialog.swift in Sources */,
 				46597B6975112CD732F7D16D /* DmuxWorkspaceApp.swift in Sources */,

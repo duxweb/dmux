@@ -100,16 +100,13 @@ private struct TitlebarPetButtonContainer: View {
     let model: AppModel
     @Binding var isShowingPopover: Bool
 
-    private var totalAllTimeTokens: Int {
-        guard !model.projects.isEmpty else { return 0 }
-        return model.aiStatsStore.petExperienceTokensAcrossProjects(model.projects)
-    }
-
     var body: some View {
-        let _ = model.aiStatsStore.renderVersion
         TitlebarPetButton(
             model: model,
-            allTimeTokens: totalAllTimeTokens,
+            allTimeTokensProvider: {
+                guard !model.projects.isEmpty else { return 0 }
+                return model.aiStatsStore.petExperienceTokensAcrossProjects(model.projects)
+            },
             isShowingPopover: $isShowingPopover
         )
     }
@@ -550,6 +547,7 @@ private enum AITodayLevelTier: String, CaseIterable, Identifiable {
     case grandmaster
 
     var id: String { rawValue }
+    static let topThreshold = 50_000_000
 
     @MainActor
     func localizedTitle(using model: AppModel) -> String {
@@ -568,13 +566,13 @@ private enum AITodayLevelTier: String, CaseIterable, Identifiable {
     var minimumTokens: Int {
         switch self {
         case .blankSlate: return 0
-        case .bronze: return 5_000_000
-        case .silver: return 10_000_000
-        case .gold: return 30_000_000
-        case .platinum: return 70_000_000
-        case .diamond: return 100_000_000
-        case .master: return 200_000_000
-        case .grandmaster: return 300_000_000
+        case .bronze: return 1_000_000
+        case .silver: return 3_000_000
+        case .gold: return 6_000_000
+        case .platinum: return 10_000_000
+        case .diamond: return 18_000_000
+        case .master: return 30_000_000
+        case .grandmaster: return Self.topThreshold
         }
     }
 

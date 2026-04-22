@@ -31,7 +31,11 @@ final class AIStatsStore {
     var state = AIStatsPanelState.empty
     var refreshState: PanelRefreshState = .idle
     var isAutomaticRefreshInProgress = false
-    var renderVersion: UInt64 = 0
+    var renderVersion: UInt64 = 0 {
+        didSet {
+            onRenderVersionChange?()
+        }
+    }
 
     let aiUsageService = AIUsageService()
     let aiUsageStore = AIUsageStore()
@@ -62,6 +66,7 @@ final class AIStatsStore {
     var projectsProvider: (@MainActor () -> [Project])?
     var automaticRefreshInterval: TimeInterval = 180
     var backgroundRefreshInterval: TimeInterval = 600
+    var onRenderVersionChange: (@MainActor () -> Void)?
     let debugAIFocus = ProcessInfo.processInfo.environment["DMUX_DEBUG_AI_FOCUS"] == "1"
 
     func effectiveSessionID(_ selectedSessionID: UUID?) -> UUID? {
