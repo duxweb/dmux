@@ -107,6 +107,7 @@
 		B10000000000000000000038 /* AIStatsPanelCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000038 /* AIStatsPanelCharts.swift */; };
 		B10000000000000000000039 /* AIStatsPanelDetails.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000039 /* AIStatsPanelDetails.swift */; };
 		B10000000000000000000040 /* AISessionStore+Queries.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000040 /* AISessionStore+Queries.swift */; };
+		B10000000000000000000041 /* AppTerminalAppearance+Options.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000041 /* AppTerminalAppearance+Options.swift */; };
 		A458177F176213CEE32928D8 /* AIUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0598FB11F350F43D5A39628A /* AIUsageService.swift */; };
 		A8B33C70370354EC1B39A24A /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6BB59CA2E305DD7DBA2C167 /* main.swift */; };
 		A9D536707C6623508B39B82C /* WorkspacePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E565A0971373275B0012B0 /* WorkspacePaths.swift */; };
@@ -221,6 +222,7 @@
 		C10000000000000000000038 /* AIStatsPanelCharts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIStatsPanelCharts.swift; sourceTree = "<group>"; };
 		C10000000000000000000039 /* AIStatsPanelDetails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIStatsPanelDetails.swift; sourceTree = "<group>"; };
 		C10000000000000000000040 /* AISessionStore+Queries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AISessionStore+Queries.swift"; sourceTree = "<group>"; };
+		C10000000000000000000041 /* AppTerminalAppearance+Options.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppTerminalAppearance+Options.swift"; sourceTree = "<group>"; };
 		8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiRuntimeProbeService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeProbeService.swift; sourceTree = "<group>"; };
 		A2EEF0E8297855B7EA05302D /* GitStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStore.swift; sourceTree = "<group>"; };
@@ -473,6 +475,7 @@
 				BBDDBF2B08A1049FDB3CF220 /* AppSettings.swift */,
 				C10000000000000000000008 /* AppSettingsSupport.swift */,
 				C10000000000000000000009 /* AppTerminalAppearance.swift */,
+				C10000000000000000000041 /* AppTerminalAppearance+Options.swift */,
 				C10000000000000000000010 /* AppShortcutSettings.swift */,
 				5F0A9C1D7E2B4A5C8D9E0F16 /* PetStore.swift */,
 				A2EEF0E8297855B7EA05302D /* GitStore.swift */,
@@ -690,6 +693,7 @@
 				B10000000000000000000015 /* AppModel+Activity.swift in Sources */,
 				1E6B5C4D3A2F1E0D9C8B7A6F /* AppPerformanceMonitorStore.swift in Sources */,
 				CF756E0559A097A4F15FF4E4 /* AppModels.swift in Sources */,
+				B10000000000000000000041 /* AppTerminalAppearance+Options.swift in Sources */,
 				0677DA593A0554DAC639D0A3 /* AppReleaseService.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* AppUpdaterService.swift in Sources */,
 				2CD0F523B4EB37800317D6CD /* AppSettings.swift in Sources */,
