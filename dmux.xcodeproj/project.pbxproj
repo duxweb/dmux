@@ -74,6 +74,9 @@
 		B10000000000000000000005 /* GhosttyTerminalHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000005 /* GhosttyTerminalHostView.swift */; };
 		B10000000000000000000006 /* GhosttyTerminalContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000006 /* GhosttyTerminalContainerView.swift */; };
 		B10000000000000000000007 /* GhosttyTerminalRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000007 /* GhosttyTerminalRegistry.swift */; };
+		B10000000000000000000008 /* AppSettingsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000008 /* AppSettingsSupport.swift */; };
+		B10000000000000000000009 /* AppTerminalAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000009 /* AppTerminalAppearance.swift */; };
+		B10000000000000000000010 /* AppShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000010 /* AppShortcutSettings.swift */; };
 		A458177F176213CEE32928D8 /* AIUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0598FB11F350F43D5A39628A /* AIUsageService.swift */; };
 		A8B33C70370354EC1B39A24A /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6BB59CA2E305DD7DBA2C167 /* main.swift */; };
 		A9D536707C6623508B39B82C /* WorkspacePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E565A0971373275B0012B0 /* WorkspacePaths.swift */; };
@@ -155,6 +158,9 @@
 		C10000000000000000000005 /* GhosttyTerminalHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalHostView.swift; sourceTree = "<group>"; };
 		C10000000000000000000006 /* GhosttyTerminalContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalContainerView.swift; sourceTree = "<group>"; };
 		C10000000000000000000007 /* GhosttyTerminalRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalRegistry.swift; sourceTree = "<group>"; };
+		C10000000000000000000008 /* AppSettingsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsSupport.swift; sourceTree = "<group>"; };
+		C10000000000000000000009 /* AppTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTerminalAppearance.swift; sourceTree = "<group>"; };
+		C10000000000000000000010 /* AppShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShortcutSettings.swift; sourceTree = "<group>"; };
 		8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiRuntimeProbeService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeProbeService.swift; sourceTree = "<group>"; };
 		A2EEF0E8297855B7EA05302D /* GitStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStore.swift; sourceTree = "<group>"; };
@@ -384,6 +390,9 @@
 				B57CE529E3ABCD870DDA44AA /* AppModel.swift */,
 				1E6B5C4D3A2F1E0D9C8B7A6E /* AppPerformanceMonitorStore.swift */,
 				BBDDBF2B08A1049FDB3CF220 /* AppSettings.swift */,
+				C10000000000000000000008 /* AppSettingsSupport.swift */,
+				C10000000000000000000009 /* AppTerminalAppearance.swift */,
+				C10000000000000000000010 /* AppShortcutSettings.swift */,
 				5F0A9C1D7E2B4A5C8D9E0F16 /* PetStore.swift */,
 				A2EEF0E8297855B7EA05302D /* GitStore.swift */,
 				E0E565A0971373275B0012B0 /* WorkspacePaths.swift */,
@@ -581,6 +590,9 @@
 				0677DA593A0554DAC639D0A3 /* AppReleaseService.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* AppUpdaterService.swift in Sources */,
 				2CD0F523B4EB37800317D6CD /* AppSettings.swift in Sources */,
+				B10000000000000000000008 /* AppSettingsSupport.swift in Sources */,
+				B10000000000000000000009 /* AppTerminalAppearance.swift in Sources */,
+				B10000000000000000000010 /* AppShortcutSettings.swift in Sources */,
 				5F0A9C1D7E2B4A5C8D9E0F15 /* PetStore.swift in Sources */,
 				4634F57FC973786B1BC12CE7 /* CodexHookRuntimeService.swift in Sources */,
 				79E977E589A5DD4D64B73355 /* ConfirmDialog.swift in Sources */,
