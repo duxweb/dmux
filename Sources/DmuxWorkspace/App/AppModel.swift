@@ -143,20 +143,17 @@ final class AppModel {
             background: appSettings.aiBackgroundRefreshInterval
         )
         petRefreshCoordinator.configure(
-            allTimeTokens: { [weak self] in
+            liveSnapshots: { [weak self] in
                 guard let self else {
-                    return 0
+                    return []
                 }
-                return self.aiStatsStore.petExperienceTokensAcrossProjects(self.projects)
+                return self.aiSessionStore.globalLiveAggregationSnapshots()
             },
             computedStats: { [weak self] in
                 guard let self else {
                     return .neutral
                 }
-                return self.aiStatsStore.petStatsAcrossProjects(
-                    self.projects,
-                    claimedAt: self.petStore.claimedAt
-                )
+                return self.aiStatsStore.petStatsSinceClaimedAt(self.petStore.claimedAt)
             }
         )
         aiSessionStore.onRenderVersionChange = { [weak self] in

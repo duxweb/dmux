@@ -113,6 +113,8 @@ final class AIRuntimeIngressHookEventTests: XCTestCase {
 
         XCTAssertEqual(resolved.model, "claude-sonnet-4-6")
         XCTAssertEqual(resolved.totalTokens, 321)
+        XCTAssertEqual(resolved.metadata?.wasInterrupted, false)
+        XCTAssertEqual(resolved.metadata?.hasCompletedTurn, true)
     }
 
     func testClaudeTurnCompletedUsesRuntimeLogSnapshotWhenAvailable() async throws {
@@ -437,5 +439,160 @@ final class AIRuntimeIngressHookEventTests: XCTestCase {
         XCTAssertEqual(session.state, .idle)
         XCTAssertTrue(session.wasInterrupted)
         XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+    }
+
+    func testClaudeTurnCompletedAppliesImmediatelyThenBackfillsRuntimeTokens() async throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let driver = DeferredClaudeBackfillDriver(
+            snapshot: AIRuntimeContextSnapshot(
+                tool: "claude",
+                externalSessionID: "claude-thread",
+                model: "claude-sonnet-4-6",
+                inputTokens: 200,
+                outputTokens: 98,
+                cachedInputTokens: 0,
+                totalTokens: 298,
+                updatedAt: 102,
+                responseState: .idle,
+                wasInterrupted: false,
+                hasCompletedTurn: true,
+                sessionOrigin: .unknown,
+                source: .probe
+            ),
+            nilSnapshotCount: 2
+        )
+        let testIngress = AIRuntimeIngressService(
+            aiSessionStore: store,
+            toolDriverFactory: AIToolDriverFactory(drivers: [driver])
+        )
+
+        let promptPayload = try JSONEncoder().encode(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-claude",
+                projectID: projectID,
+                projectName: "Codux",
+                projectPath: "/tmp/claude-project",
+                sessionTitle: "Terminal",
+                tool: "claude",
+                aiSessionID: "claude-thread",
+                model: "claude-sonnet-4-6",
+                totalTokens: 0,
+                updatedAt: 100,
+                metadata: nil
+            )
+        )
+        await testIngress.ingestManagedRuntimeSocketEventForTesting(kind: "ai-hook", payloadData: promptPayload)
+
+        let stopPayload = try JSONEncoder().encode(
+            AIHookEvent(
+                kind: .turnCompleted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-claude",
+                projectID: projectID,
+                projectName: "Codux",
+                projectPath: "/tmp/claude-project",
+                sessionTitle: "Terminal",
+                tool: "claude",
+                aiSessionID: "claude-thread",
+                model: nil,
+                totalTokens: nil,
+                updatedAt: 101,
+                metadata: .init(reason: "end_turn")
+            )
+        )
+        await testIngress.ingestManagedRuntimeSocketEventForTesting(kind: "ai-hook", payloadData: stopPayload)
+
+        let immediateSession = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(immediateSession.state, .idle)
+        XCTAssertEqual(immediateSession.committedTotalTokens, 0)
+        XCTAssertTrue(immediateSession.hasCompletedTurn)
+        guard case .completed(let tool, _, _) = store.projectPhase(projectID: projectID) else {
+            return XCTFail("expected completed project phase")
+        }
+        XCTAssertEqual(tool, "claude")
+
+        for _ in 1...10 {
+            try await Task.sleep(for: .milliseconds(350))
+            if store.session(for: terminalID)?.committedTotalTokens == 298 {
+                break
+            }
+        }
+
+        let backfilledSession = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(backfilledSession.committedTotalTokens, 298)
+        let snapshotCalls = await driver.snapshotCallCount()
+        XCTAssertGreaterThanOrEqual(snapshotCalls, 3)
+    }
+}
+
+private actor DeferredClaudeBackfillCounter {
+    private var calls = 0
+
+    func nextCall() -> Int {
+        calls += 1
+        return calls
+    }
+
+    func current() -> Int {
+        calls
+    }
+}
+
+private struct DeferredClaudeBackfillDriver: AIToolDriver {
+    let id = "claude"
+    let aliases: Set<String> = ["claude"]
+    let isRealtimeTool = true
+    let snapshot: AIRuntimeContextSnapshot
+    let nilSnapshotCount: Int
+    private let counter = DeferredClaudeBackfillCounter()
+
+    func resolveHookEvent(
+        _ event: AIHookEvent,
+        currentSession: AISessionStore.TerminalSessionState?
+    ) async -> AIHookEvent {
+        var resolved = event
+        resolved.model = resolved.model ?? currentSession?.model
+        if resolved.kind == .turnCompleted {
+            resolved.totalTokens = resolved.totalTokens ?? currentSession?.committedTotalTokens
+            var metadata = resolved.metadata ?? AIHookEventMetadata()
+            metadata.wasInterrupted = false
+            metadata.hasCompletedTurn = true
+            resolved.metadata = metadata
+        }
+        return resolved
+    }
+
+    func runtimeSnapshot(
+        for session: AISessionStore.TerminalSessionState
+    ) async -> AIRuntimeContextSnapshot? {
+        _ = session
+        let call = await counter.nextCall()
+        return call <= nilSnapshotCount ? nil : snapshot
+    }
+
+    func snapshotCallCount() async -> Int {
+        await counter.current()
+    }
+
+    func sessionCapabilities(for session: AISessionSummary) -> AIToolSessionCapabilities {
+        _ = session
+        return .none
+    }
+
+    func resumeCommand(for session: AISessionSummary) -> String? {
+        _ = session
+        return nil
+    }
+
+    func renameSession(_ session: AISessionSummary, to title: String) throws {
+        _ = session
+        _ = title
+    }
+
+    func removeSession(_ session: AISessionSummary) throws {
+        _ = session
     }
 }

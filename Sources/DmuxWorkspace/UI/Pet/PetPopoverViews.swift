@@ -4,7 +4,6 @@ import SwiftUI
 
 struct PetPopoverView: View {
     let model: AppModel
-    let allTimeTokens: Int
     let sleeping: Bool
     let petStats: PetStats
     let onInheritConfirmed: (() -> Void)?

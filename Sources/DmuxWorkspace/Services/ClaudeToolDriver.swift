@@ -16,24 +16,12 @@ struct ClaudeToolDriver: AIToolDriver {
         var resolvedEvent = event
         let fallbackTotalTokens = currentSession?.committedTotalTokens
         resolvedEvent.model = resolvedEvent.model ?? currentSession?.model
-
-        if resolvedEvent.kind == .turnCompleted,
-           let projectPath = normalizedNonEmptyString(resolvedEvent.projectPath ?? currentSession?.projectPath),
-           let externalSessionID = normalizedNonEmptyString(resolvedEvent.aiSessionID ?? currentSession?.aiSessionID),
-           let snapshot = await ClaudeRuntimeLogCache.shared.snapshot(
-               projectPath: projectPath,
-               externalSessionID: externalSessionID
-           ) {
-            resolvedEvent.model = resolvedEvent.model ?? snapshot.model ?? currentSession?.model
-            resolvedEvent.inputTokens = snapshot.inputTokens
-            resolvedEvent.outputTokens = snapshot.outputTokens
-            resolvedEvent.cachedInputTokens = snapshot.cachedInputTokens
-            resolvedEvent.totalTokens = max(
-                resolvedEvent.totalTokens ?? 0,
-                fallbackTotalTokens ?? 0,
-                snapshot.totalTokens
-            )
-            return resolvedEvent
+        if resolvedEvent.kind == .turnCompleted {
+            var metadata = resolvedEvent.metadata ?? AIHookEventMetadata()
+            let wasInterrupted = metadata.wasInterrupted == true
+            metadata.wasInterrupted = wasInterrupted
+            metadata.hasCompletedTurn = metadata.hasCompletedTurn ?? !wasInterrupted
+            resolvedEvent.metadata = metadata
         }
 
         if resolvedEvent.totalTokens == nil {

@@ -9,6 +9,10 @@ extension AISessionStore {
             .map(snapshot(from:))
     }
 
+    func globalLiveAggregationSnapshots() -> [AITerminalSessionSnapshot] {
+        aggregationSnapshots(from: terminalSessionsByID.values.filter(\.isLive).map(snapshot(from:)))
+    }
+
     func runtimeTrackedSessions() -> [TerminalSessionState] {
         terminalSessionsByID.values
             .filter { isRuntimeTracked($0) }
@@ -20,25 +24,7 @@ extension AISessionStore {
     }
 
     func liveAggregationSnapshots(projectID: UUID) -> [AITerminalSessionSnapshot] {
-        var snapshotsByLogicalKey: [LogicalSessionKey: AITerminalSessionSnapshot] = [:]
-        var fallbackSnapshots: [UUID: AITerminalSessionSnapshot] = [:]
-
-        for snapshot in liveSnapshots(projectID: projectID) {
-            guard let tool = normalizedNonEmptyString(snapshot.tool),
-                  let aiSessionID = normalizedNonEmptyString(snapshot.externalSessionID) else {
-                fallbackSnapshots[snapshot.sessionID] = snapshot
-                continue
-            }
-            let key = LogicalSessionKey(tool: tool, aiSessionID: aiSessionID)
-            if let existing = snapshotsByLogicalKey[key], existing.updatedAt >= snapshot.updatedAt {
-                continue
-            }
-            snapshotsByLogicalKey[key] = snapshot
-        }
-
-        let combined = Array(snapshotsByLogicalKey.values) + Array(fallbackSnapshots.values)
-        return combined
-            .sorted { $0.updatedAt > $1.updatedAt }
+        aggregationSnapshots(from: liveSnapshots(projectID: projectID))
     }
 
     func currentDisplaySnapshot(projectID: UUID, selectedSessionID: UUID?) -> AITerminalSessionSnapshot? {
@@ -51,22 +37,23 @@ extension AISessionStore {
     }
 
     func projectPhase(projectID: UUID) -> ProjectActivityPhase {
+        let now = Date().timeIntervalSince1970
         let trackedSessions = terminalSessionsByID.values
             .filter { $0.projectID == projectID && $0.isLive }
             .sorted(by: { $0.updatedAt > $1.updatedAt })
 
-        if let responding = trackedSessions.first(where: { $0.state == .responding }) {
+        if let responding = trackedSessions.first(where: {
+            isVisibleRunningSession($0, now: now)
+        }) {
             return .running(tool: responding.tool)
         }
         if let needsInput = trackedSessions.first(where: { $0.state == .needsInput }) {
             return .waitingInput(tool: needsInput.tool)
         }
-        let now = Date().timeIntervalSince1970
         if let completed = trackedSessions.first(where: {
             $0.state == .idle
                 && $0.wasInterrupted == false
                 && $0.hasCompletedTurn
-                && now - $0.updatedAt <= completedPhaseLifetime
         }) {
             return .completed(
                 tool: completed.tool,
@@ -121,7 +108,8 @@ extension AISessionStore {
     }
 
     private func snapshot(from session: TerminalSessionState) -> AITerminalSessionSnapshot {
-        AITerminalSessionSnapshot(
+        let now = Date().timeIntervalSince1970
+        return AITerminalSessionSnapshot(
             sessionID: session.terminalID,
             externalSessionID: session.aiSessionID,
             projectID: session.projectID,
@@ -130,7 +118,7 @@ extension AISessionStore {
             tool: session.tool,
             model: session.model,
             status: session.status,
-            isRunning: session.state == .responding,
+            isRunning: isVisibleRunningSession(session, now: now),
             startedAt: session.startedAt.map { Date(timeIntervalSince1970: $0) },
             updatedAt: Date(timeIntervalSince1970: session.updatedAt),
             currentInputTokens: session.committedInputTokens,
@@ -147,5 +135,36 @@ extension AISessionStore {
             wasInterrupted: session.wasInterrupted,
             hasCompletedTurn: session.hasCompletedTurn
         )
+    }
+
+    private func aggregationSnapshots(from snapshots: [AITerminalSessionSnapshot]) -> [AITerminalSessionSnapshot] {
+        var snapshotsByLogicalKey: [LogicalSessionKey: AITerminalSessionSnapshot] = [:]
+        var fallbackSnapshots: [UUID: AITerminalSessionSnapshot] = [:]
+
+        for snapshot in snapshots where snapshot.isRunning || snapshot.hasCompletedTurn || snapshot.currentTotalTokens > snapshot.baselineTotalTokens {
+            guard let tool = normalizedNonEmptyString(snapshot.tool),
+                  let aiSessionID = normalizedNonEmptyString(snapshot.externalSessionID) else {
+                fallbackSnapshots[snapshot.sessionID] = snapshot
+                continue
+            }
+            let key = LogicalSessionKey(tool: tool, aiSessionID: aiSessionID)
+            if let existing = snapshotsByLogicalKey[key], existing.updatedAt >= snapshot.updatedAt {
+                continue
+            }
+            snapshotsByLogicalKey[key] = snapshot
+        }
+
+        return (Array(snapshotsByLogicalKey.values) + Array(fallbackSnapshots.values))
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private func isVisibleRunningSession(
+        _ session: TerminalSessionState,
+        now: TimeInterval
+    ) -> Bool {
+        guard session.state == .responding else {
+            return false
+        }
+        return max(0, now - session.updatedAt) <= runningPhaseLifetime
     }
 }

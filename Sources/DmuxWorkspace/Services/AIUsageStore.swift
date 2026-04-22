@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 struct AIUsageStore: Sendable {
-    private static let normalizedHistorySchemaVersion = 5
+    private static let normalizedHistorySchemaVersion = 6
     let aggregator = AIHistoryAggregationService()
     private let databaseFileURL: URL
 
@@ -12,8 +12,7 @@ struct AIUsageStore: Sendable {
 
     private static func defaultDatabaseURL() -> URL {
         let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let root = appSupport.appendingPathComponent("dmux", isDirectory: true)
+        let root = AppRuntimePaths.appSupportRootURL(fileManager: fileManager)!
         try? fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         return root.appendingPathComponent("ai-usage.sqlite3")
     }

@@ -105,7 +105,7 @@ struct PetSpriteView: View {
 
 struct TitlebarPetButton: View {
     let model: AppModel
-    let allTimeTokensProvider: () -> Int
+    let realtimeSessionTotalsProvider: () -> [String: Int]
     @Binding var isShowingPopover: Bool
     @AppStorage("pet.last_level") private var lastLevel: Int = 0
     @AppStorage("pet.did_first_open_bubble") private var didFirstOpenBubble: Bool = false
@@ -132,7 +132,6 @@ struct TitlebarPetButton: View {
     private var hatchTokens: Int { petStore.currentHatchTokens }
     private var info: PetProgressInfo { PetProgressInfo(totalXP: currentXP, hatchTokens: hatchTokens, evoPath: evoPath) }
     private var petStats: PetStats { petStore.currentStats }
-    private var allTimeTokens: Int { max(0, allTimeTokensProvider()) }
     private var displayName: String {
         petStore.customName.isEmpty ? info.stage.speciesName(for: species, evoPath: evoPath) : petStore.customName
     }
@@ -290,7 +289,6 @@ struct TitlebarPetButton: View {
             ZStack {
                 PetPopoverView(
                     model: model,
-                    allTimeTokens: allTimeTokens,
                     sleeping: isSleeping,
                     petStats: petStats,
                     onInheritConfirmed: {
@@ -505,9 +503,9 @@ struct TitlebarPetButton: View {
             guard let result else { return }
             let hiddenSpeciesChance = model.aiStatsStore.hiddenPetSpeciesChanceAcrossProjects(model.projects)
             petStore.claim(
-                totalTokens: allTimeTokens,
                 option: result.option,
                 customName: result.customName,
+                realtimeSessionTotals: realtimeSessionTotalsProvider(),
                 hiddenSpeciesChance: hiddenSpeciesChance
             )
             model.petRefreshCoordinator.refreshNow(reason: .claim)

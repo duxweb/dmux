@@ -28,10 +28,7 @@ struct AIToolPermissionSettingsService {
     }
 
     private func configFileURL() -> URL? {
-        fileManager
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("dmux", isDirectory: true)
+        AppRuntimePaths.appSupportRootURL(fileManager: fileManager)?
             .appendingPathComponent("tool-permissions.json", isDirectory: false)
     }
 

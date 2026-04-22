@@ -233,9 +233,10 @@ struct AIStatsTodayUsageBarChart: View {
 
             let maxTokens = max(buckets.map { $0.displayedTotalTokens(mode: displayMode) }.max() ?? 0, 1)
             GeometryReader { proxy in
-                let spacing: CGFloat = 2
+                let spacing: CGFloat = buckets.count > 36 ? 1 : 2
                 let barCount = max(buckets.count, 1)
-                let barWidth = max(3, floor((proxy.size.width - spacing * CGFloat(max(barCount - 1, 0))) / CGFloat(barCount)))
+                let availableWidth = max(proxy.size.width, 1)
+                let barWidth = max(1, floor((availableWidth - spacing * CGFloat(max(barCount - 1, 0))) / CGFloat(barCount)))
                 let chartHeight: CGFloat = 78
                 let chartWidth = CGFloat(barCount) * barWidth + CGFloat(max(barCount - 1, 0)) * spacing
 
@@ -293,9 +294,9 @@ struct AIStatsTodayUsageBarChart: View {
                         ForEach(axisLabels(totalWidth: proxy.size.width), id: \.label) { item in
                             Text(item.label)
                                 .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
                                 .font(.system(size: 11, weight: .medium, design: .rounded))
                                 .foregroundStyle(.tertiary)
+                                .minimumScaleFactor(0.8)
                                 .frame(width: item.width, alignment: .leading)
                         }
                     }
@@ -330,8 +331,11 @@ struct AIStatsTodayUsageBarChart: View {
 
     private var currentBucketIndex: Int {
         let now = Date()
-        let hour = Calendar.autoupdatingCurrent.component(.hour, from: now)
-        return min(hour, max(buckets.count - 1, 0))
+        let calendar = Calendar.autoupdatingCurrent
+        let hour = calendar.component(.hour, from: now)
+        let minute = calendar.component(.minute, from: now)
+        let bucketIndex = hour * 2 + min(minute / 30, 1)
+        return min(bucketIndex, max(buckets.count - 1, 0))
     }
 
     private func axisLabels(totalWidth: CGFloat) -> [(label: String, width: CGFloat)] {
@@ -345,7 +349,8 @@ struct AIStatsTodayUsageBarChart: View {
     }
 
     private func gridLineColor(for index: Int) -> Color {
-        index % 6 == 0 ? Color(nsColor: .separatorColor).opacity(0.5) : Color.clear
+        let majorStep = max(buckets.count / 4, 1)
+        return index % majorStep == 0 ? Color(nsColor: .separatorColor).opacity(0.5) : Color.clear
     }
 
     private func hoveredBucketIndexAt(

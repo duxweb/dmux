@@ -2,6 +2,134 @@ import Foundation
 import SQLite3
 
 extension AIUsageStore {
+    func globalTodayNormalizedTokens(now: Date = .init()) -> Int {
+        let calendar = Calendar.autoupdatingCurrent
+        let startOfDay = calendar.startOfDay(for: now)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? now
+
+        return (try? withDatabase { db in
+            let sql = """
+            SELECT COALESCE(SUM(total_tokens), 0)
+            FROM ai_history_file_usage_bucket
+            WHERE bucket_end > ? AND bucket_start < ?;
+            """
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                return 0
+            }
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_double(statement, 1, startOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 2, endOfDay.timeIntervalSince1970)
+
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+                return 0
+            }
+            return Int(sqlite3_column_int64(statement, 0))
+        }) ?? 0
+    }
+
+    func indexedSessions(since cutoff: Date?) -> [AISessionSummary] {
+        let calendar = Calendar.autoupdatingCurrent
+        let startOfDay = calendar.startOfDay(for: Date())
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
+
+        return (try? withDatabase { db in
+            let sql = """
+            SELECT
+                session.project_id,
+                session.project_name,
+                session.session_title,
+                session.first_seen_at,
+                session.last_seen_at,
+                session.last_model,
+                session.external_session_id,
+                session.active_duration_seconds,
+                COALESCE(SUM(bucket.request_count), 0),
+                COALESCE(SUM(bucket.input_tokens), 0),
+                COALESCE(SUM(bucket.output_tokens), 0),
+                COALESCE(SUM(bucket.total_tokens), 0),
+                COALESCE(SUM(bucket.cached_input_tokens), 0),
+                COALESCE(SUM(CASE WHEN bucket.bucket_end > ? AND bucket.bucket_start < ? THEN bucket.total_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN bucket.bucket_end > ? AND bucket.bucket_start < ? THEN bucket.cached_input_tokens ELSE 0 END), 0)
+            FROM ai_history_file_session_link AS session
+            LEFT JOIN ai_history_file_usage_bucket AS bucket
+              ON bucket.source = session.source
+             AND bucket.file_path = session.file_path
+             AND bucket.project_path = session.project_path
+             AND bucket.session_key = session.session_key
+            WHERE (? IS NULL OR session.last_seen_at >= ?)
+            GROUP BY
+                session.source,
+                session.file_path,
+                session.project_path,
+                session.session_key,
+                session.project_id,
+                session.project_name,
+                session.session_title,
+                session.first_seen_at,
+                session.last_seen_at,
+                session.last_model,
+                session.external_session_id,
+                session.active_duration_seconds
+            ORDER BY session.last_seen_at DESC;
+            """
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                return []
+            }
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_double(statement, 1, startOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 2, endOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 3, startOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 4, endOfDay.timeIntervalSince1970)
+            if let cutoff {
+                sqlite3_bind_double(statement, 5, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 6, cutoff.timeIntervalSince1970)
+            } else {
+                sqlite3_bind_null(statement, 5)
+                sqlite3_bind_null(statement, 6)
+            }
+
+            var items: [AISessionSummary] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let rawProjectID = sqlite3_column_text(statement, 0),
+                      let projectID = UUID(uuidString: String(cString: rawProjectID)),
+                      let rawProjectName = sqlite3_column_text(statement, 1),
+                      let rawSessionTitle = sqlite3_column_text(statement, 2) else {
+                    continue
+                }
+
+                items.append(
+                    AISessionSummary(
+                        sessionID: UUID(),
+                        externalSessionID: sqlite3_column_text(statement, 6).map { String(cString: $0) },
+                        projectID: projectID,
+                        projectName: String(cString: rawProjectName),
+                        sessionTitle: String(cString: rawSessionTitle),
+                        firstSeenAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 3)),
+                        lastSeenAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 4)),
+                        lastTool: nil,
+                        lastModel: sqlite3_column_text(statement, 5).map { String(cString: $0) },
+                        requestCount: Int(sqlite3_column_int64(statement, 8)),
+                        totalInputTokens: Int(sqlite3_column_int64(statement, 9)),
+                        totalOutputTokens: Int(sqlite3_column_int64(statement, 10)),
+                        totalTokens: Int(sqlite3_column_int64(statement, 11)),
+                        cachedInputTokens: Int(sqlite3_column_int64(statement, 12)),
+                        maxContextUsagePercent: nil,
+                        activeDurationSeconds: Int(sqlite3_column_int64(statement, 7)),
+                        todayTokens: Int(sqlite3_column_int64(statement, 13)),
+                        todayCachedInputTokens: Int(sqlite3_column_int64(statement, 14))
+                    )
+                )
+            }
+            return items
+        }) ?? []
+    }
+
     func indexedProjectSnapshot(projectID: UUID) -> AIIndexedProjectSnapshot? {
         try? withDatabase { db in
             let sql = """

@@ -144,6 +144,10 @@ extension AppModel {
 
         lastWaitingInputTokenByProjectID[projectID] = nil
 
+        if aiSessionStore.clearCompleted(projectID: projectID) {
+            didClear = true
+        }
+
         if case .completed = activityByProjectID[projectID] {
             activityByProjectID[projectID] = .idle
             didClear = true

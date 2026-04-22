@@ -112,7 +112,7 @@ struct PersistenceService {
     }
 
     private func appSupportDirectoryURL() -> URL? {
-        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("dmux")
+        AppRuntimePaths.appSupportRootURL(fileManager: fileManager)
     }
 
     private func backupInvalidFile(at fileURL: URL) -> URL? {

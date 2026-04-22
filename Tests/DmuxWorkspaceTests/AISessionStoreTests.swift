@@ -63,7 +63,7 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertEqual(store.currentDisplaySnapshot(projectID: projectID, selectedSessionID: terminalID)?.sessionID, terminalID)
     }
 
-    func testProjectPhaseReturnsCompletedBrieflyAfterSuccessfulTurn() throws {
+    func testProjectPhaseReturnsCompletedAfterSuccessfulTurnUntilCleared() throws {
         let terminalID = UUID()
         let projectID = UUID()
 
@@ -160,7 +160,7 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertEqual(tool, "codex")
     }
 
-    func testCompletedTurnFallsOutOfLiveSnapshotsAfterCompletionWindowExpires() throws {
+    func testClearCompletedRemovesCompletedProjectPhase() throws {
         let terminalID = UUID()
         let projectID = UUID()
         let now = Date().timeIntervalSince1970
@@ -184,7 +184,14 @@ final class AISessionStoreTests: XCTestCase {
 
         XCTAssertEqual(store.liveSnapshots(projectID: projectID).count, 1)
         XCTAssertEqual(store.currentDisplaySnapshot(projectID: projectID, selectedSessionID: terminalID)?.sessionID, terminalID)
+        guard case .completed(let tool, _, _) = store.projectPhase(projectID: projectID) else {
+            return XCTFail("expected completed project phase before clearing")
+        }
+        XCTAssertEqual(tool, "claude")
+
+        XCTAssertTrue(store.clearCompleted(projectID: projectID))
         XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+        XCTAssertEqual(store.liveSnapshots(projectID: projectID).count, 1)
     }
 
     func testProjectPhaseDoesNotReturnCompletedForInterruptedTurn() throws {
@@ -226,6 +233,130 @@ final class AISessionStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+    }
+
+    func testRespondingPhaseExpiresToIdleAfterRunningLifetime() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-session",
+                model: "gpt-5.4",
+                totalTokens: 12,
+                updatedAt: Date().timeIntervalSince1970 - 181,
+                metadata: nil
+            )
+        )
+
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+        XCTAssertFalse(store.isRunning(terminalID: terminalID))
+    }
+
+    func testRuntimeSnapshotRespondingRestoresRunningPhase() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .sessionStarted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-session",
+                model: "gpt-5.4",
+                totalTokens: 12,
+                updatedAt: 100,
+                metadata: nil
+            )
+        )
+
+        XCTAssertTrue(
+            store.applyRuntimeSnapshot(
+                terminalID: terminalID,
+                snapshot: AIRuntimeContextSnapshot(
+                    tool: "codex",
+                    externalSessionID: "codex-session",
+                    model: "gpt-5.4",
+                    inputTokens: 12,
+                    outputTokens: 8,
+                    cachedInputTokens: 0,
+                    totalTokens: 20,
+                    updatedAt: Date().timeIntervalSince1970,
+                    responseState: .responding,
+                    wasInterrupted: false,
+                    hasCompletedTurn: false
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertFalse(session.hasCompletedTurn)
+        XCTAssertFalse(session.wasInterrupted)
+        XCTAssertTrue(store.isRunning(terminalID: terminalID))
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
+    }
+
+    func testRuntimeSnapshotRespondingDoesNotOverrideCompletedPhase() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .turnCompleted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "claude",
+                aiSessionID: "claude-session",
+                model: "claude-sonnet-4-6",
+                totalTokens: 42,
+                updatedAt: now,
+                metadata: .init(wasInterrupted: false, hasCompletedTurn: true)
+            )
+        )
+
+        XCTAssertTrue(
+            store.applyRuntimeSnapshot(
+                terminalID: terminalID,
+                snapshot: AIRuntimeContextSnapshot(
+                    tool: "claude",
+                    externalSessionID: "claude-session",
+                    model: "claude-sonnet-4-6",
+                    inputTokens: 20,
+                    outputTokens: 30,
+                    cachedInputTokens: 0,
+                    totalTokens: 50,
+                    updatedAt: now + 1,
+                    responseState: .responding,
+                    wasInterrupted: false,
+                    hasCompletedTurn: false
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertTrue(session.hasCompletedTurn)
+        XCTAssertFalse(session.wasInterrupted)
+        guard case .completed(let tool, _, _) = store.projectPhase(projectID: projectID) else {
+            return XCTFail("expected completed project phase")
+        }
+        XCTAssertEqual(tool, "claude")
     }
 
     func testNeedsInputProducesWaitingPhase() throws {

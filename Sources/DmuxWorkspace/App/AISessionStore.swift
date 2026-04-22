@@ -5,7 +5,7 @@ import Observation
 @Observable
 final class AISessionStore {
     static let shared = AISessionStore()
-    let completedPhaseLifetime: TimeInterval = 6
+    let runningPhaseLifetime: TimeInterval = 180
 
     enum State: String, Codable, Equatable, Sendable {
         case idle
@@ -363,7 +363,38 @@ final class AISessionStore {
     }
 
     func isRunning(terminalID: UUID) -> Bool {
-        terminalSessionsByID[terminalID]?.state == .responding
+        guard let session = terminalSessionsByID[terminalID],
+              session.state == .responding else {
+            return false
+        }
+        let now = Date().timeIntervalSince1970
+        return max(0, now - session.updatedAt) <= runningPhaseLifetime
+    }
+
+    func clearCompleted(projectID: UUID) -> Bool {
+        var didChange = false
+
+        for terminalID in terminalSessionsByID.keys {
+            guard var session = terminalSessionsByID[terminalID],
+                  session.projectID == projectID,
+                  session.state == .idle,
+                  session.wasInterrupted == false,
+                  session.hasCompletedTurn else {
+                continue
+            }
+
+            session.hasCompletedTurn = false
+            terminalSessionsByID[terminalID] = session
+            reconcileLogicalSession(for: session, previousLogicalKey: session.logicalSessionKey)
+            didChange = true
+        }
+
+        if didChange {
+            renderVersion &+= 1
+            logger.log("ai-session-store", "clear-completed project=\(projectID.uuidString)")
+        }
+
+        return didChange
     }
 
     struct WaitingInputContext: Equatable, Sendable {
@@ -414,6 +445,14 @@ final class AISessionStore {
             }
             if let normalizedModel {
                 session.model = normalizedModel
+            }
+            if snapshot.responseState == .responding,
+               session.wasInterrupted == false,
+               session.hasCompletedTurn == false {
+                session.state = .responding
+                session.notificationType = nil
+                session.targetToolName = nil
+                session.interactionMessage = nil
             }
             session.updatedAt = max(session.updatedAt, snapshot.updatedAt)
             session.committedInputTokens = max(session.committedInputTokens, snapshot.inputTokens)
@@ -502,13 +541,6 @@ final class AISessionStore {
         session.committedOutputTokens = committedOutput
         session.committedCachedInputTokens = committedCached
         session.committedTotalTokens = committedTotal
-        if session.hasCompletedTurn, !wasInterrupted {
-            let expiresAt = session.updatedAt + completedPhaseLifetime
-            logger.log(
-                "ai-session-store",
-                "completed terminal=\(session.terminalID.uuidString) tool=\(session.tool) display-hold-until=\(expiresAt)"
-            )
-        }
     }
 
     private func resolvedCommittedTotalTokens(for session: TerminalSessionState, incomingTotalTokens: Int?) -> Int {

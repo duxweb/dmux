@@ -70,8 +70,9 @@ private final class AppDebugLogBackend: @unchecked Sendable {
     }
 
     func logsDirectoryURL() -> URL {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let directoryURL = appSupport.appendingPathComponent("dmux/logs", isDirectory: true)
+        let directoryURL = AppRuntimePaths
+            .appSupportRootURL(fileManager: fileManager)!
+            .appendingPathComponent("logs", isDirectory: true)
         try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         return directoryURL
     }

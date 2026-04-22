@@ -217,7 +217,7 @@ extension AppModel {
     func sendEscapeToSelectedSessionIfInterruptingAI() -> Bool {
         guard let sessionID = DmuxTerminalBackend.shared.registry.focusedSessionID() ?? selectedSessionID,
               let tool = aiSessionStore.tool(for: sessionID),
-              toolDriverFactory.canonicalToolName(tool) == "claude",
+              toolDriverFactory.isRealtimeTool(tool),
               aiSessionStore.isRunning(terminalID: sessionID) else {
             return false
         }

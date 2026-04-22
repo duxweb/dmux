@@ -103,9 +103,21 @@ private struct TitlebarPetButtonContainer: View {
     var body: some View {
         TitlebarPetButton(
             model: model,
-            allTimeTokensProvider: {
-                guard !model.projects.isEmpty else { return 0 }
-                return model.aiStatsStore.petExperienceTokensAcrossProjects(model.projects)
+            realtimeSessionTotalsProvider: {
+                Dictionary(
+                    uniqueKeysWithValues: model.aiSessionStore.globalLiveAggregationSnapshots().map { snapshot in
+                        let key: String
+                        if let tool = snapshot.tool?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                           let externalSessionID = snapshot.externalSessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           !tool.isEmpty,
+                           !externalSessionID.isEmpty {
+                            key = "\(tool)|\(externalSessionID)"
+                        } else {
+                            key = "terminal|\(snapshot.sessionID.uuidString.lowercased())"
+                        }
+                        return (key, max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens))
+                    }
+                )
             },
             isShowingPopover: $isShowingPopover
         )
@@ -117,8 +129,7 @@ private struct TitlebarAITodayLevelButtonContainer: View {
     @Binding var isShowingPopover: Bool
 
     private var totalTodayTokens: Int {
-        guard !model.projects.isEmpty else { return 0 }
-        return model.aiStatsStore.titlebarTodayLevelTokensAcrossProjects(model.projects)
+        model.aiStatsStore.titlebarTodayLevelTokens()
     }
 
     var body: some View {

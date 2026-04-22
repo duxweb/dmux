@@ -3,12 +3,15 @@ import Foundation
 
 @MainActor
 extension AIStatsStore {
-    func titlebarTodayLevelTokensAcrossProjects(_ projects: [Project]) -> Int {
-        totalTodayDisplayedTokensAcrossProjects(projects)
+    func titlebarTodayLevelTokens() -> Int {
+        aiUsageStore.globalTodayNormalizedTokens()
     }
 
-    func petExperienceTokensAcrossProjects(_ projects: [Project]) -> Int {
-        totalAllTimeNormalizedTokensAcrossProjects(projects)
+    func petStatsSinceClaimedAt(_ claimedAt: Date?) -> PetStats {
+        guard let claimedAt else {
+            return .neutral
+        }
+        return Self.computePetStats(from: aiUsageStore.indexedSessions(since: claimedAt))
     }
 
     func totalTodayNormalizedTokensAcrossProjects(_ projects: [Project]) -> Int {
@@ -52,12 +55,12 @@ extension AIStatsStore {
 
     func totalAllTimeNormalizedTokensAcrossProjects(_ projects: [Project]) -> Int {
         projects.reduce(0) { partial, project in
-            let liveOverlayTokens = liveOverlayTotalTokens(projectID: project.id)
             if let liveOrCached = cachedState(for: project.id),
                let projectTotalTokens = liveOrCached.projectSummary?.projectTotalTokens {
-                return partial + max(0, projectTotalTokens) + liveOverlayTokens
+                return partial + max(0, projectTotalTokens)
             }
 
+            let liveOverlayTokens = liveOverlayTotalTokens(projectID: project.id)
             if let indexed = aiUsageStore.indexedProjectSnapshot(projectID: project.id) {
                 let indexedTotal = max(
                     indexed.projectSummary.projectTotalTokens,
@@ -73,21 +76,6 @@ extension AIStatsStore {
         aiSessionStore.liveAggregationSnapshots(projectID: projectID).reduce(0) { partial, snapshot in
             partial + max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens)
         }
-    }
-
-    func petStatsAcrossProjects(_ projects: [Project], claimedAt: Date?) -> PetStats {
-        guard let claimedAt else {
-            return .neutral
-        }
-
-        var sessions: [AISessionSummary] = []
-
-        for project in projects {
-            guard let indexed = aiUsageStore.indexedProjectSnapshot(projectID: project.id) else { continue }
-            sessions.append(contentsOf: indexed.sessions.filter { $0.lastSeenAt >= claimedAt })
-        }
-
-        return Self.computePetStats(from: sessions)
     }
 
     static func computePetStats(from sessions: [AISessionSummary]) -> PetStats {

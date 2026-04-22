@@ -69,6 +69,7 @@ private struct AIUsageBucketGroupKey: Hashable {
 
 struct AIHistoryAggregationService: Sendable {
     private let calendar = Calendar.autoupdatingCurrent
+    private let timeBucketIntervalMinutes = 30
 
     func buildExternalFileSummary(
         source: String,
@@ -225,7 +226,7 @@ struct AIHistoryAggregationService: Sendable {
 
         for entry in parseResult.entries {
             let metadata = metadataByKey[entry.key]
-            let bucketStart = roundToHour(entry.timestamp)
+            let bucketStart = roundToTimeBucket(entry.timestamp)
             let key = AIUsageBucketGroupKey(
                 source: entry.key.source,
                 sessionKey: entry.key.sessionID,
@@ -234,7 +235,7 @@ struct AIHistoryAggregationService: Sendable {
             )
             let externalSessionID = normalizedNonEmptyString(metadata?.externalSessionID) ?? entry.key.sessionID
             let sessionTitle = preferredTitle(metadata?.sessionTitle, project.name) ?? project.name
-            let bucketEnd = calendar.date(byAdding: .hour, value: 1, to: bucketStart) ?? bucketStart
+            let bucketEnd = calendar.date(byAdding: .minute, value: timeBucketIntervalMinutes, to: bucketStart) ?? bucketStart
 
             if var bucket = map[key] {
                 bucket.inputTokens += entry.inputTokens
@@ -269,7 +270,7 @@ struct AIHistoryAggregationService: Sendable {
 
         for event in parseResult.events {
             let metadata = metadataByKey[event.key]
-            let bucketStart = roundToHour(event.timestamp)
+            let bucketStart = roundToTimeBucket(event.timestamp)
             let key = AIUsageBucketGroupKey(
                 source: event.key.source,
                 sessionKey: event.key.sessionID,
@@ -278,7 +279,7 @@ struct AIHistoryAggregationService: Sendable {
             )
             let externalSessionID = normalizedNonEmptyString(metadata?.externalSessionID) ?? event.key.sessionID
             let sessionTitle = preferredTitle(metadata?.sessionTitle, project.name) ?? project.name
-            let bucketEnd = calendar.date(byAdding: .hour, value: 1, to: bucketStart) ?? bucketStart
+            let bucketEnd = calendar.date(byAdding: .minute, value: timeBucketIntervalMinutes, to: bucketStart) ?? bucketStart
 
             if var bucket = map[key] {
                 if event.role == .user {
@@ -312,7 +313,7 @@ struct AIHistoryAggregationService: Sendable {
 
         for (sessionKey, activity) in activityByKey {
             let metadata = metadataByKey[sessionKey]
-            let bucketStart = roundToHour(activity.lastMessageAt)
+            let bucketStart = roundToTimeBucket(activity.lastMessageAt)
             let key = AIUsageBucketGroupKey(
                 source: sessionKey.source,
                 sessionKey: sessionKey.sessionID,
@@ -321,7 +322,7 @@ struct AIHistoryAggregationService: Sendable {
             )
             let externalSessionID = normalizedNonEmptyString(metadata?.externalSessionID) ?? sessionKey.sessionID
             let sessionTitle = preferredTitle(metadata?.sessionTitle, project.name) ?? project.name
-            let bucketEnd = calendar.date(byAdding: .hour, value: 1, to: bucketStart) ?? bucketStart
+            let bucketEnd = calendar.date(byAdding: .minute, value: timeBucketIntervalMinutes, to: bucketStart) ?? bucketStart
 
             if var bucket = map[key] {
                 bucket.activeDurationSeconds += activity.activeSeconds
@@ -496,9 +497,9 @@ struct AIHistoryAggregationService: Sendable {
             }
         }
 
-        return stride(from: 0, to: 24, by: 1).map { hourOffset in
-            let bucketStart = calendar.date(byAdding: .hour, value: hourOffset, to: startOfToday)!
-            let bucketEnd = calendar.date(byAdding: .hour, value: 1, to: bucketStart)!
+        return stride(from: 0, to: 24 * 60, by: timeBucketIntervalMinutes).map { minuteOffset in
+            let bucketStart = calendar.date(byAdding: .minute, value: minuteOffset, to: startOfToday)!
+            let bucketEnd = calendar.date(byAdding: .minute, value: timeBucketIntervalMinutes, to: bucketStart)!
             return bucketMap[bucketStart] ?? AITimeBucket(
                 start: bucketStart,
                 end: bucketEnd,
@@ -533,13 +534,15 @@ struct AIHistoryAggregationService: Sendable {
         normalizedNonEmptyString(lhs) ?? normalizedNonEmptyString(rhs)
     }
 
-    private func roundToHour(_ date: Date) -> Date {
-        let components = calendar.dateComponents([.year, .month, .day, .hour], from: date)
+    private func roundToTimeBucket(_ date: Date) -> Date {
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let roundedMinute = ((components.minute ?? 0) / timeBucketIntervalMinutes) * timeBucketIntervalMinutes
         return calendar.date(from: DateComponents(
             year: components.year,
             month: components.month,
             day: components.day,
-            hour: components.hour
+            hour: components.hour,
+            minute: roundedMinute
         )) ?? date
     }
 

@@ -132,6 +132,27 @@ enum AppSupportLinks {
     static let releases = URL(string: "https://github.com/duxweb/codux/releases")!
 }
 
+enum AppRuntimePaths {
+    static func isDeveloperVariant(bundle: Bundle = .main) -> Bool {
+        let bundleIdentifier = (bundle.bundleIdentifier ?? "").lowercased()
+        return bundleIdentifier.hasSuffix(".dev") || bundleIdentifier.hasSuffix(".debug")
+    }
+
+    static func appSupportFolderName(bundle: Bundle = .main) -> String {
+        isDeveloperVariant(bundle: bundle) ? "dmux-dev" : "dmux"
+    }
+
+    static func appSupportRootURL(
+        fileManager: FileManager = .default,
+        bundle: Bundle = .main
+    ) -> URL? {
+        fileManager
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent(appSupportFolderName(bundle: bundle), isDirectory: true)
+    }
+}
+
 enum AppIconRenderer {
     enum Variant {
         case standard
