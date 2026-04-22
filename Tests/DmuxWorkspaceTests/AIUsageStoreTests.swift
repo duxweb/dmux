@@ -384,6 +384,111 @@ final class AIUsageStoreTests: XCTestCase {
         XCTAssertEqual(storedSummaryWithoutModifiedAt?.sessions.first?.totalTokens, 321)
     }
 
+    func testIndexedSessionsSinceClaimUsesFirstSeenAtCutoff() {
+        let store = makeStore()
+        let projectID = UUID()
+        let projectPath = "/tmp/pet-cutoff-project"
+        let cutoff = Date(timeIntervalSince1970: 1_713_700_000)
+
+        let summary = AIExternalFileSummary(
+            source: "codex",
+            filePath: "/tmp/pet-cutoff.jsonl",
+            fileModifiedAt: 1_713_700_100,
+            projectPath: projectPath,
+            usageBuckets: [
+                AIUsageBucket(
+                    source: "codex",
+                    sessionKey: "before-cutoff",
+                    externalSessionID: "before-cutoff",
+                    sessionTitle: "Old Session",
+                    model: "gpt-5.4",
+                    projectID: projectID,
+                    projectName: "Pet Cutoff",
+                    bucketStart: cutoff.addingTimeInterval(60),
+                    bucketEnd: cutoff.addingTimeInterval(120),
+                    inputTokens: 100,
+                    outputTokens: 50,
+                    totalTokens: 150,
+                    cachedInputTokens: 0,
+                    requestCount: 2,
+                    activeDurationSeconds: 120,
+                    firstSeenAt: cutoff.addingTimeInterval(-3600),
+                    lastSeenAt: cutoff.addingTimeInterval(120)
+                ),
+                AIUsageBucket(
+                    source: "codex",
+                    sessionKey: "after-cutoff",
+                    externalSessionID: "after-cutoff",
+                    sessionTitle: "Fresh Session",
+                    model: "gpt-5.4",
+                    projectID: projectID,
+                    projectName: "Pet Cutoff",
+                    bucketStart: cutoff.addingTimeInterval(180),
+                    bucketEnd: cutoff.addingTimeInterval(240),
+                    inputTokens: 60,
+                    outputTokens: 40,
+                    totalTokens: 100,
+                    cachedInputTokens: 0,
+                    requestCount: 1,
+                    activeDurationSeconds: 60,
+                    firstSeenAt: cutoff.addingTimeInterval(180),
+                    lastSeenAt: cutoff.addingTimeInterval(240)
+                ),
+            ],
+            sessions: [
+                AISessionSummary(
+                    sessionID: UUID(),
+                    externalSessionID: "before-cutoff",
+                    projectID: projectID,
+                    projectName: "Pet Cutoff",
+                    sessionTitle: "Old Session",
+                    firstSeenAt: cutoff.addingTimeInterval(-3600),
+                    lastSeenAt: cutoff.addingTimeInterval(120),
+                    lastTool: "codex",
+                    lastModel: "gpt-5.4",
+                    requestCount: 2,
+                    totalInputTokens: 100,
+                    totalOutputTokens: 50,
+                    totalTokens: 150,
+                    cachedInputTokens: 0,
+                    maxContextUsagePercent: nil,
+                    activeDurationSeconds: 120,
+                    todayTokens: 150,
+                    todayCachedInputTokens: 0
+                ),
+                AISessionSummary(
+                    sessionID: UUID(),
+                    externalSessionID: "after-cutoff",
+                    projectID: projectID,
+                    projectName: "Pet Cutoff",
+                    sessionTitle: "Fresh Session",
+                    firstSeenAt: cutoff.addingTimeInterval(180),
+                    lastSeenAt: cutoff.addingTimeInterval(240),
+                    lastTool: "codex",
+                    lastModel: "gpt-5.4",
+                    requestCount: 1,
+                    totalInputTokens: 60,
+                    totalOutputTokens: 40,
+                    totalTokens: 100,
+                    cachedInputTokens: 0,
+                    maxContextUsagePercent: nil,
+                    activeDurationSeconds: 60,
+                    todayTokens: 100,
+                    todayCachedInputTokens: 0
+                ),
+            ],
+            dayUsage: [],
+            timeBuckets: []
+        )
+
+        store.saveExternalSummary(summary)
+
+        let sessions = store.indexedSessions(since: cutoff)
+        XCTAssertEqual(sessions.map(\.externalSessionID), ["after-cutoff"])
+        XCTAssertEqual(sessions.first?.sessionTitle, "Fresh Session")
+        XCTAssertEqual(sessions.first?.totalTokens, 100)
+    }
+
     private func makeSessionSummary(projectPath: String, title: String, totalTokens: Int) -> AISessionSummary {
         let projectID = UUID()
         return AISessionSummary(

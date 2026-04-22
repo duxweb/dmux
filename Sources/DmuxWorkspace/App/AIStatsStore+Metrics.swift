@@ -101,9 +101,9 @@ extension AIStatsStore {
         let multiTurnRatio    = Double(multiTurnSessions.count) / Double(sessionCount)
 
         let iterativeRepairSessions = sessions.filter { s in
-            guard s.requestCount >= 4, s.totalTokens > 0 else { return false }
+            guard s.requestCount >= 3, s.totalTokens > 0 else { return false }
             let avgPerTurn = Double(s.totalTokens) / Double(s.requestCount)
-            return s.activeDurationSeconds >= 600 && avgPerTurn >= 200 && avgPerTurn <= 3_500
+            return s.activeDurationSeconds >= 360 && avgPerTurn >= 120 && avgPerTurn <= 4_200
         }
         let repairSecs        = iterativeRepairSessions.reduce(0) { $0 + $1.activeDurationSeconds }
         let repairRatio       = min(1.0, Double(repairSecs) / Double(max(1, totalSecs)))
@@ -111,7 +111,7 @@ extension AIStatsStore {
         let adjustmentLoopCount = sessions.filter { s in
             guard s.requestCount >= 3, s.totalTokens > 0 else { return false }
             let avgPerTurn = Double(s.totalTokens) / Double(s.requestCount)
-            return avgPerTurn >= 200 && avgPerTurn <= 2_800
+            return avgPerTurn >= 120 && avgPerTurn <= 3_600
         }.count
 
         func logPts(_ value: Double, divisor: Double, weight: Double, cap: Double) -> Double {
@@ -131,36 +131,31 @@ extension AIStatsStore {
             shared
 
         let chaosScore =
-            logPts(reqPerHour,            divisor: 1.8, weight: 108, cap: 150) +
-            ratioPts(shortRatio,          exponent: 0.68, weight: 62, cap: 62) +
-            logPts(Double(totalRequests), divisor: 22,  weight: 26,  cap: 44)  +
+            logPts(reqPerHour,            divisor: 2.2, weight: 92, cap: 138) +
+            ratioPts(shortRatio,          exponent: 0.72, weight: 46, cap: 46) +
+            logPts(Double(totalRequests), divisor: 26,  weight: 20, cap: 34)  +
             shared
 
-        let nightScore: Double
-        if nightRatio >= 0.10 {
-            let nightTokens = Double(totalTokens) * max(0.15, nightRatio)
-            nightScore =
-                ratioPts(nightRatio,          exponent: 0.62, weight: 140, cap: 140) +
-                logPts(Double(nightCount),    divisor: 3.5,   weight: 34,  cap: 68)  +
-                logPts(nightTokens,           divisor: 120_000, weight: 14, cap: 28) +
-                shared
-        } else {
-            nightScore = 0
-        }
+        let nightTokens = Double(totalTokens) * max(0.08, nightRatio)
+        let nightScore =
+            ratioPts(nightRatio,          exponent: 0.72, weight: 96, cap: 96) +
+            logPts(Double(nightCount),    divisor: 4.5,  weight: 22, cap: 42) +
+            logPts(nightTokens,           divisor: 150_000, weight: 10, cap: 18) +
+            shared * 0.35
 
         let staminaScore =
-            logPts(Double(maxSecs),  divisor: 800,    weight: 82, cap: 124) +
-            logPts(Double(avgSecs),  divisor: 400,    weight: 80, cap: 100) +
-            logPts(Double(totalSecs),divisor: 16_000, weight: 30, cap: 50)  +
-            shared
+            logPts(Double(maxSecs),  divisor: 1_400, weight: 58, cap: 88) +
+            logPts(Double(avgSecs),  divisor: 900,   weight: 52, cap: 72) +
+            logPts(Double(totalSecs),divisor: 28_800, weight: 18, cap: 28) +
+            shared * 0.5
 
         let empathyScore =
-            ratioPts(repairRatio,              exponent: 0.65, weight: 120, cap: 120) +
-            ratioPts(multiTurnRatio,           exponent: 0.52, weight: 52,  cap: 52)  +
-            logPts(Double(repairSecs) / 60,    divisor: 1_600, weight: 40,  cap: 72)  +
-            logPts(Double(repairTokenBudget),  divisor: 120_000, weight: 24, cap: 46) +
-            logPts(Double(adjustmentLoopCount),divisor: 1.8,   weight: 18,  cap: 30)  +
-            shared
+            ratioPts(repairRatio,              exponent: 0.70, weight: 92, cap: 92) +
+            ratioPts(multiTurnRatio,           exponent: 0.58, weight: 42, cap: 42) +
+            logPts(Double(repairSecs) / 60,    divisor: 900,   weight: 30, cap: 46) +
+            logPts(Double(repairTokenBudget),  divisor: 150_000, weight: 18, cap: 30) +
+            logPts(Double(adjustmentLoopCount),divisor: 2.4,   weight: 14, cap: 20) +
+            shared * 0.5
 
         return PetStats(
             wisdom:  max(0, Int(wisdomScore.rounded())),

@@ -59,7 +59,7 @@ extension AIUsageStore {
              AND bucket.file_path = session.file_path
              AND bucket.project_path = session.project_path
              AND bucket.session_key = session.session_key
-            WHERE (? IS NULL OR session.last_seen_at >= ?)
+            WHERE (? IS NULL OR session.first_seen_at >= ?)
             GROUP BY
                 session.source,
                 session.file_path,

@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class PetStore {
     private static let stateVersion = 7
+    private static let statsModelVersion = 2
     private static let statsRefreshInterval: TimeInterval = 3600
 
     struct Storage: Sendable {
@@ -303,6 +304,15 @@ final class PetStore {
 
         if resolvedState.stateVersion == Self.stateVersion {
             applyLedgerState(from: resolvedState)
+            if resolvedState.statsModelVersion != Self.statsModelVersion {
+                currentStats = .neutral
+                statsUpdatedDay = nil
+                debugLog.log(
+                    "pet-ledger",
+                    "invalidate-stats-cache from=\(resolvedState.statsModelVersion ?? 0) to=\(Self.statsModelVersion)"
+                )
+                save()
+            }
             return
         }
 
@@ -366,6 +376,7 @@ final class PetStore {
     private func save() {
         let state = PersistedPetState(
             stateVersion: Self.stateVersion,
+            statsModelVersion: Self.statsModelVersion,
             claimedAt: claimedAt,
             species: species,
             customName: customName,
@@ -436,6 +447,7 @@ final class PetStore {
 
 private struct PersistedPetState: Codable, Equatable {
     var stateVersion: Int?
+    var statsModelVersion: Int?
     var claimedAt: Date?
     var species: PetSpecies?
     var customName: String?

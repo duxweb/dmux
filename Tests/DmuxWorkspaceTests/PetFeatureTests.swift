@@ -194,6 +194,78 @@ final class PetFeatureTests: XCTestCase {
         )
     }
 
+    func testNightTraitSoftStartsWithoutTenPercentHardCutoff() {
+        let calendar = Calendar.current
+        let referenceDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let startOfDay = calendar.startOfDay(for: referenceDate)
+        let daySessions = (0..<19).map { index in
+            AISessionSummary(
+                sessionID: UUID(),
+                externalSessionID: nil,
+                projectID: UUID(),
+                projectName: "codux",
+                sessionTitle: "day-\(index)",
+                firstSeenAt: startOfDay.addingTimeInterval(Double(index % 8) * 3_600 + 9 * 3_600),
+                lastSeenAt: startOfDay.addingTimeInterval(Double(index % 8) * 3_600 + 9 * 3_600 + 180),
+                lastTool: "codex",
+                lastModel: "gpt-5.4-mini",
+                requestCount: 2,
+                totalInputTokens: 200,
+                totalOutputTokens: 300,
+                totalTokens: 500,
+                maxContextUsagePercent: nil,
+                activeDurationSeconds: 180,
+                todayTokens: 500
+            )
+        }
+        let nightSession = AISessionSummary(
+            sessionID: UUID(),
+            externalSessionID: nil,
+            projectID: UUID(),
+            projectName: "codux",
+            sessionTitle: "night",
+            firstSeenAt: startOfDay.addingTimeInterval(23 * 3_600),
+            lastSeenAt: startOfDay.addingTimeInterval(23 * 3_600 + 180),
+            lastTool: "codex",
+            lastModel: "gpt-5.4-mini",
+            requestCount: 2,
+            totalInputTokens: 200,
+            totalOutputTokens: 300,
+            totalTokens: 500,
+            maxContextUsagePercent: nil,
+            activeDurationSeconds: 180,
+            todayTokens: 500
+        )
+
+        let stats = AIStatsStore.computePetStats(from: daySessions + [nightSession])
+        XCTAssertGreaterThan(stats.night, 0)
+    }
+
+    func testSingleLongSessionDoesNotOverfavorStaminaOverWisdom() {
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let longSession = AISessionSummary(
+            sessionID: UUID(),
+            externalSessionID: nil,
+            projectID: UUID(),
+            projectName: "codux",
+            sessionTitle: "deep-work",
+            firstSeenAt: baseDate,
+            lastSeenAt: baseDate.addingTimeInterval(1_800),
+            lastTool: "codex",
+            lastModel: "gpt-5.4-mini",
+            requestCount: 1,
+            totalInputTokens: 1_000,
+            totalOutputTokens: 2_000,
+            totalTokens: 3_000,
+            maxContextUsagePercent: nil,
+            activeDurationSeconds: 1_800,
+            todayTokens: 3_000
+        )
+
+        let stats = AIStatsStore.computePetStats(from: [longSession])
+        XCTAssertGreaterThan(stats.wisdom, stats.stamina)
+    }
+
     func testPetStatsComputedFromClaimedSessionsOnly() {
         let claimDate = Date(timeIntervalSince1970: 1_700_000_000)
         let historicalSession = AISessionSummary(
