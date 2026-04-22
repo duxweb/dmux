@@ -3,7 +3,6 @@ import Foundation
 
 extension Notification.Name {
     static let dmuxTerminalFocusDidChange = Notification.Name("dmux.terminalFocusDidChange")
-    static let dmuxTerminalOutputDidChange = Notification.Name("dmux.terminalOutputDidChange")
     static let dmuxTerminalInterruptDidSend = Notification.Name("dmux.terminalInterruptDidSend")
 }
 
@@ -35,8 +34,6 @@ enum TerminalEditingShortcut: CaseIterable {
 @MainActor
 protocol DmuxTerminalBackendRegistry: AnyObject {
     func release(sessionID: UUID)
-    func beginStructuralResizeTransition(for sessionIDs: [UUID])
-    func reconcileGeometry(for sessionIDs: [UUID])
     func terminateAll()
     func shellPID(for sessionID: UUID) -> Int32?
     func projectID(for sessionID: UUID) -> UUID?
@@ -51,41 +48,6 @@ protocol DmuxTerminalBackendRegistry: AnyObject {
     func focusedSessionID() -> UUID?
     func ownsResponder(_ responder: NSResponder?) -> Bool
     func debugSnapshot() -> String
-}
-
-final class DmuxTerminalOutputEventEmitter: @unchecked Sendable {
-    static let shared = DmuxTerminalOutputEventEmitter()
-
-    private let lock = NSLock()
-    private var lastPostedAtBySessionID: [UUID: TimeInterval] = [:]
-    private let minimumInterval: TimeInterval = 0.35
-
-    func noteOutput(sessionID: UUID) {
-        let now = CFAbsoluteTimeGetCurrent()
-        let shouldPost: Bool
-
-        lock.lock()
-        let lastPostedAt = lastPostedAtBySessionID[sessionID] ?? 0
-        shouldPost = now - lastPostedAt >= minimumInterval
-        if shouldPost {
-            lastPostedAtBySessionID[sessionID] = now
-        }
-        lock.unlock()
-
-        guard shouldPost else {
-            return
-        }
-
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .dmuxTerminalOutputDidChange, object: sessionID)
-        }
-    }
-
-    func clear(sessionID: UUID) {
-        lock.lock()
-        lastPostedAtBySessionID[sessionID] = nil
-        lock.unlock()
-    }
 }
 
 @MainActor

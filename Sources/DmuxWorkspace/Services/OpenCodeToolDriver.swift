@@ -113,8 +113,7 @@ private func fetchOpenCodeSessionSnapshot(
            COALESCE(json_extract(m.data, '$.tokens.input'), 0) AS input_tokens,
            COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS output_tokens,
            COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0) AS cache_read_tokens,
-           COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0) AS cache_write_tokens,
-           COALESCE(json_extract(m.data, '$.tokens.total'), 0) AS total_tokens,
+           COALESCE(json_extract(m.data, '$.tokens.reasoning'), 0) AS reasoning_tokens,
            COALESCE(json_extract(m.data, '$.time.completed'), json_extract(m.data, '$.time.created'), 0) AS completed_at,
            s.time_updated AS session_updated_at
     FROM session s
@@ -138,6 +137,7 @@ private func fetchOpenCodeSessionSnapshot(
     var latestModel: String?
     var inputTokens = 0
     var outputTokens = 0
+    var cachedInputTokens = 0
     var totalTokens = 0
     var updatedAt = 0.0
     var hadRow = false
@@ -153,13 +153,13 @@ private func fetchOpenCodeSessionSnapshot(
         let input = Int(sqlite3_column_int64(statement, 1))
         let output = Int(sqlite3_column_int64(statement, 2))
         let cacheRead = Int(sqlite3_column_int64(statement, 3))
-        let cacheWrite = Int(sqlite3_column_int64(statement, 4))
-        let explicitTotal = Int(sqlite3_column_int64(statement, 5))
-        inputTokens += input + cacheRead + cacheWrite
+        let reasoning = Int(sqlite3_column_int64(statement, 4))
+        inputTokens += input
         outputTokens += output
-        totalTokens += max(explicitTotal, input + output + cacheRead + cacheWrite)
+        cachedInputTokens += cacheRead
+        totalTokens += input + output + reasoning
+        updatedAt = max(updatedAt, sqlite3_column_double(statement, 5) / 1000)
         updatedAt = max(updatedAt, sqlite3_column_double(statement, 6) / 1000)
-        updatedAt = max(updatedAt, sqlite3_column_double(statement, 7) / 1000)
     }
 
     guard hadRow else {
@@ -172,6 +172,7 @@ private func fetchOpenCodeSessionSnapshot(
         model: latestModel,
         inputTokens: inputTokens,
         outputTokens: outputTokens,
+        cachedInputTokens: cachedInputTokens,
         totalTokens: totalTokens,
         updatedAt: updatedAt,
         responseState: totalTokens > 0 ? .idle : nil,

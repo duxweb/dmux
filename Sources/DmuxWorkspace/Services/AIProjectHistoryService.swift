@@ -869,10 +869,8 @@ struct AIProjectHistoryService: Sendable {
                     source: source,
                     filePath: filePath,
                     fileModifiedAt: modifiedAt,
-                    fileSize: fileSize,
                     project: project,
                     storedSummary: storedSummary,
-                    checkpoint: checkpoint,
                     snapshot: snapshot
                 )
                 usageStore.saveExternalSummary(
@@ -978,10 +976,8 @@ struct AIProjectHistoryService: Sendable {
         source: String,
         filePath: String,
         fileModifiedAt: Double,
-        fileSize: UInt64,
         project: Project,
         storedSummary: AIExternalFileSummary,
-        checkpoint: AIExternalFileCheckpoint,
         snapshot: JSONLParseSnapshot
     ) -> AIExternalFileSummary {
         let deltaSummary = aggregator.buildExternalFileSummary(
@@ -991,21 +987,13 @@ struct AIProjectHistoryService: Sendable {
             project: project,
             parseResult: snapshot.result
         )
-        let computation = applyIncrementalParseResult(
-            source: source,
-            project: project,
-            seed: checkpoint.payload,
-            parseResult: snapshot.result
-        )
-
-        return AIExternalFileSummary(
+        let mergedUsageBuckets = mergeUsageBuckets(storedSummary.usageBuckets, deltaSummary.usageBuckets)
+        return aggregator.externalFileSummary(
             source: source,
             filePath: filePath,
             fileModifiedAt: fileModifiedAt,
             projectPath: project.path,
-            sessions: computation.map { [$0.session] } ?? storedSummary.sessions,
-            dayUsage: mergeHeatmap(storedSummary.dayUsage, deltaSummary.dayUsage),
-            timeBuckets: mergeTimeBuckets(storedSummary.timeBuckets, deltaSummary.timeBuckets),
+            usageBuckets: mergedUsageBuckets
         )
     }
 
@@ -1040,7 +1028,9 @@ struct AIProjectHistoryService: Sendable {
                     totalInputTokens: 0,
                     totalOutputTokens: 0,
                     totalTokens: 0,
+                    totalCachedInputTokens: 0,
                     todayTokens: 0,
+                    todayCachedInputTokens: 0,
                     activeDurationSeconds: 0,
                     waitingForFirstResponse: false,
                     pendingTurnStartAt: nil,
@@ -1090,7 +1080,9 @@ struct AIProjectHistoryService: Sendable {
             totalInputTokens: 0,
             totalOutputTokens: 0,
             totalTokens: 0,
+            totalCachedInputTokens: 0,
             todayTokens: 0,
+            todayCachedInputTokens: 0,
             activeDurationSeconds: 0,
             waitingForFirstResponse: false,
             pendingTurnStartAt: nil,
@@ -1145,8 +1137,10 @@ struct AIProjectHistoryService: Sendable {
             payload.totalInputTokens += entry.inputTokens
             payload.totalOutputTokens += entry.outputTokens
             payload.totalTokens += entry.totalTokens
+            payload.totalCachedInputTokens += entry.cachedInputTokens
             if calendar.startOfDay(for: entry.timestamp) == startOfToday {
                 payload.todayTokens += entry.totalTokens
+                payload.todayCachedInputTokens += entry.cachedInputTokens
             }
         }
 
@@ -1176,6 +1170,7 @@ struct AIProjectHistoryService: Sendable {
         if let lastSeenAt = payload.lastSeenAt,
            calendar.startOfDay(for: lastSeenAt) != startOfToday {
             payload.todayTokens = 0
+            payload.todayCachedInputTokens = 0
         }
         return payload
     }
@@ -1213,50 +1208,57 @@ struct AIProjectHistoryService: Sendable {
             totalInputTokens: payload.totalInputTokens,
             totalOutputTokens: payload.totalOutputTokens,
             totalTokens: payload.totalTokens,
+            cachedInputTokens: payload.totalCachedInputTokens,
             maxContextUsagePercent: nil,
             activeDurationSeconds: payload.activeDurationSeconds + activeInFlight,
-            todayTokens: payload.todayTokens
+            todayTokens: payload.todayTokens,
+            todayCachedInputTokens: payload.todayCachedInputTokens
         )
     }
 
-    private func mergeHeatmap(
-        _ existing: [AIHeatmapDay],
-        _ delta: [AIHeatmapDay]
-    ) -> [AIHeatmapDay] {
-        var map: [Date: AIHeatmapDay] = [:]
-        for item in existing + delta {
-            if var current = map[item.day] {
-                current.totalTokens += item.totalTokens
-                current.requestCount += item.requestCount
-                map[item.day] = current
+    private func mergeUsageBuckets(
+        _ existing: [AIUsageBucket],
+        _ delta: [AIUsageBucket]
+    ) -> [AIUsageBucket] {
+        var map: [String: AIUsageBucket] = [:]
+
+        for bucket in existing + delta {
+            if var current = map[bucket.id] {
+                current.inputTokens += bucket.inputTokens
+                current.outputTokens += bucket.outputTokens
+                current.totalTokens += bucket.totalTokens
+                current.cachedInputTokens += bucket.cachedInputTokens
+                current.requestCount += bucket.requestCount
+                current.activeDurationSeconds += bucket.activeDurationSeconds
+                current.firstSeenAt = min(current.firstSeenAt, bucket.firstSeenAt)
+                current.lastSeenAt = max(current.lastSeenAt, bucket.lastSeenAt)
+                if current.externalSessionID == nil {
+                    current.externalSessionID = bucket.externalSessionID
+                }
+                if current.model == nil {
+                    current.model = bucket.model
+                }
+                if current.sessionTitle.isEmpty {
+                    current.sessionTitle = bucket.sessionTitle
+                }
+                map[bucket.id] = current
             } else {
-                map[item.day] = item
+                map[bucket.id] = bucket
             }
         }
-        return map.values.sorted { $0.day < $1.day }
-    }
 
-    private func mergeTimeBuckets(
-        _ existing: [AITimeBucket],
-        _ delta: [AITimeBucket]
-    ) -> [AITimeBucket] {
-        let startOfToday = calendar.startOfDay(for: Date())
-        let base = existing.contains(where: { calendar.startOfDay(for: $0.start) == startOfToday }) ? existing : []
-
-        var map: [Date: AITimeBucket] = [:]
-        for item in base + delta {
-            guard calendar.startOfDay(for: item.start) == startOfToday else {
-                continue
+        return map.values.sorted {
+            if $0.bucketStart != $1.bucketStart {
+                return $0.bucketStart < $1.bucketStart
             }
-            if var current = map[item.start] {
-                current.totalTokens += item.totalTokens
-                current.requestCount += item.requestCount
-                map[item.start] = current
-            } else {
-                map[item.start] = item
+            if $0.source != $1.source {
+                return $0.source < $1.source
             }
+            if $0.sessionKey != $1.sessionKey {
+                return $0.sessionKey < $1.sessionKey
+            }
+            return ($0.model ?? "") < ($1.model ?? "")
         }
-        return map.values.sorted { $0.start < $1.start }
     }
 
     private func loadFileSummaries(
@@ -1355,7 +1357,7 @@ struct AIProjectHistoryService: Sendable {
     }
 
     private func totalRequestCount(in summary: AIExternalFileSummary) -> Int {
-        summary.sessions.reduce(0) { $0 + $1.requestCount }
+        summary.usageBuckets.reduce(0) { $0 + $1.requestCount }
     }
 
     private func totalTokenCount(in summaries: [AIExternalFileSummary]) -> Int {
@@ -1363,7 +1365,7 @@ struct AIProjectHistoryService: Sendable {
     }
 
     private func totalTokenCount(in summary: AIExternalFileSummary) -> Int {
-        summary.timeBuckets.reduce(0) { $0 + $1.totalTokens }
+        summary.usageBuckets.reduce(0) { $0 + $1.totalTokens }
     }
 
     private func claudeRole(from type: String?) -> AIHistorySessionRole? {

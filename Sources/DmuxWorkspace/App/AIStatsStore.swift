@@ -16,6 +16,12 @@ final class AIStatsStore {
         case background
     }
 
+    private enum LiveRefreshReason: String {
+        case runtimeBridge = "runtime-bridge"
+        case runtimePoll = "runtime-poll"
+        case terminalFocus = "terminal-focus"
+    }
+
     var state = AIStatsPanelState.empty
     var refreshState: PanelRefreshState = .idle
     var isAutomaticRefreshInProgress = false
@@ -39,8 +45,8 @@ final class AIStatsStore {
     private var backgroundRefreshTimer: Timer?
     private var runtimeBridgeObserver: NSObjectProtocol?
     private var terminalFocusObserver: NSObjectProtocol?
-    private var terminalOutputObserver: NSObjectProtocol?
-    private var pendingRuntimeBridgeRefreshTask: Task<Void, Never>?
+    private var pendingLiveRefreshTask: Task<Void, Never>?
+    private var pendingLiveRefreshReason: LiveRefreshReason?
     private var currentProjectID: UUID?
     private var currentSelectedSessionID: UUID?
     private var currentProjects: [Project] = []
@@ -115,12 +121,6 @@ final class AIStatsStore {
         startRuntimeBridgeObserver()
 
         startTerminalFocusObserver(
-            isPanelVisible: isPanelVisible,
-            selectedProject: selectedProject,
-            selectedSessionID: selectedSessionID
-        )
-
-        startTerminalOutputObserver(
             isPanelVisible: isPanelVisible,
             selectedProject: selectedProject,
             selectedSessionID: selectedSessionID
@@ -264,7 +264,15 @@ final class AIStatsStore {
         )
     }
 
-    func totalTodayTokensAcrossProjects(_ projects: [Project]) -> Int {
+    func titlebarTodayLevelTokensAcrossProjects(_ projects: [Project]) -> Int {
+        totalTodayNormalizedTokensAcrossProjects(projects)
+    }
+
+    func petExperienceTokensAcrossProjects(_ projects: [Project]) -> Int {
+        totalAllTimeNormalizedTokensAcrossProjects(projects)
+    }
+
+    private func totalTodayNormalizedTokensAcrossProjects(_ projects: [Project]) -> Int {
         projects.reduce(0) { partial, project in
             let liveOrCached = cachedState(for: project.id)
             if let liveOrCached {
@@ -283,7 +291,7 @@ final class AIStatsStore {
         }
     }
 
-    func totalAllTimeTokensAcrossProjects(_ projects: [Project]) -> Int {
+    private func totalAllTimeNormalizedTokensAcrossProjects(_ projects: [Project]) -> Int {
         projects.reduce(0) { partial, project in
             if let indexed = aiUsageStore.indexedProjectSnapshot(projectID: project.id) {
                 return partial + indexed.heatmap.reduce(0) { $0 + $1.totalTokens }
@@ -311,6 +319,8 @@ final class AIStatsStore {
         guard !sessions.isEmpty else { return .neutral }
 
         let totalRequests = sessions.reduce(0) { $0 + $1.requestCount }
+        // Pet personality and growth are intentionally normalized: cached input
+        // tokens are stored for AI usage display, but never influence pets.
         let totalTokens   = sessions.reduce(0) { $0 + $1.totalTokens }
         let totalSecs     = sessions.reduce(0) { $0 + $1.activeDurationSeconds }
         let sessionCount  = max(1, sessions.count)
@@ -632,7 +642,11 @@ final class AIStatsStore {
                     "finish trigger=\(self.refreshTriggerName(trigger)) project=\(project.id.uuidString) result=\(self.refreshResultName(finalStatus)) projectTotal=\(nextState.projectSummary?.projectTotalTokens ?? 0) todayTotal=\(nextState.projectSummary?.todayTotalTokens ?? 0) sessions=\(nextState.sessions.count) live=\(nextState.liveSnapshots.count) indexed=\(nextState.indexedAt != nil) durationMs=\(durationMS)"
                 )
                 if self.currentProjectID == project.id {
-                    self.refreshLiveState(project: project, selectedSessionID: selectedSessionID)
+                    self.refreshLiveState(
+                        project: project,
+                        selectedSessionID: selectedSessionID,
+                        reason: .runtimeBridge
+                    )
                 }
             }
         }
@@ -906,24 +920,32 @@ final class AIStatsStore {
             guard let self else {
                 return
             }
-            _ = notification.userInfo?["kind"]
+            let kind = notification.userInfo?["kind"] as? String
+            let reason: LiveRefreshReason = kind == "runtime-poll" ? .runtimePoll : .runtimeBridge
             Task { @MainActor [weak self] in
-                self?.scheduleRuntimeBridgeRefresh()
+                self?.scheduleLiveRefresh(reason: reason)
             }
         }
     }
 
-    private func scheduleRuntimeBridgeRefresh() {
-        guard pendingRuntimeBridgeRefreshTask == nil else {
+    private func scheduleLiveRefresh(reason: LiveRefreshReason) {
+        pendingLiveRefreshReason = mergedLiveRefreshReason(
+            pendingLiveRefreshReason,
+            reason
+        )
+
+        guard pendingLiveRefreshTask == nil else {
             return
         }
 
-        pendingRuntimeBridgeRefreshTask = Task { @MainActor [weak self] in
+        pendingLiveRefreshTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard let self else {
                 return
             }
-            self.pendingRuntimeBridgeRefreshTask = nil
+            self.pendingLiveRefreshTask = nil
+            let resolvedReason = self.pendingLiveRefreshReason ?? reason
+            self.pendingLiveRefreshReason = nil
 
             guard let isPanelVisible = self.panelVisibilityProvider,
                   let selectedProject = self.selectedProjectProvider,
@@ -937,7 +959,27 @@ final class AIStatsStore {
             let currentProjects = projects()
             let sessionID = self.effectiveSessionID(selectedSessionID())
             _ = self.ingestRuntime(project: project, projects: currentProjects, selectedSessionID: sessionID)
-            self.refreshLiveState(project: project, selectedSessionID: sessionID)
+            self.refreshLiveState(
+                project: project,
+                selectedSessionID: sessionID,
+                reason: resolvedReason
+            )
+        }
+    }
+
+    private func mergedLiveRefreshReason(
+        _ existing: LiveRefreshReason?,
+        _ incoming: LiveRefreshReason
+    ) -> LiveRefreshReason {
+        switch (existing, incoming) {
+        case (.runtimeBridge, _), (_, .runtimeBridge):
+            return .runtimeBridge
+        case (.runtimePoll, _), (_, .runtimePoll):
+            return .runtimePoll
+        case (.terminalFocus, _), (_, .terminalFocus):
+            return .terminalFocus
+        case (.none, _):
+            return incoming
         }
     }
 
@@ -963,53 +1005,20 @@ final class AIStatsStore {
                     return
                 }
                 let sessionID = self.effectiveSessionID(selectedSessionID())
-                self.refreshLiveState(project: project, selectedSessionID: sessionID)
+                self.refreshLiveState(
+                    project: project,
+                    selectedSessionID: sessionID,
+                    reason: .terminalFocus
+                )
             }
         }
     }
 
-    private func startTerminalOutputObserver(
-        isPanelVisible: @escaping @MainActor () -> Bool,
-        selectedProject: @escaping @MainActor () -> Project?,
-        selectedSessionID: @escaping @MainActor () -> UUID?
+    private func refreshLiveState(
+        project: Project,
+        selectedSessionID: UUID?,
+        reason: LiveRefreshReason
     ) {
-        if let terminalOutputObserver {
-            NotificationCenter.default.removeObserver(terminalOutputObserver)
-        }
-
-        terminalOutputObserver = NotificationCenter.default.addObserver(
-            forName: .dmuxTerminalOutputDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self,
-                  let sessionID = notification.object as? UUID else {
-                return
-            }
-
-            Task { @MainActor in
-                guard isPanelVisible(),
-                      let project = selectedProject() else {
-                    return
-                }
-
-                let effectiveSelectedSessionID = self.effectiveSessionID(selectedSessionID())
-                guard effectiveSelectedSessionID == sessionID else {
-                    return
-                }
-
-                let liveSnapshot = self.aiSessionStore
-                    .liveSnapshots(projectID: project.id)
-                    .first(where: { $0.sessionID == sessionID })
-                guard liveSnapshot != nil else {
-                    return
-                }
-                self.refreshLiveState(project: project, selectedSessionID: effectiveSelectedSessionID)
-            }
-        }
-    }
-
-    private func refreshLiveState(project: Project, selectedSessionID: UUID?) {
         let liveContext = liveSnapshotContext(projectID: project.id, selectedSessionID: selectedSessionID)
         let status = projectIndexingStatus(
             projectID: project.id,
@@ -1029,6 +1038,10 @@ final class AIStatsStore {
             return
         }
 
+        logger.log(
+            "ai-live-refresh",
+            "project=\(project.id.uuidString) reason=\(reason.rawValue) live=\(nextState.liveSnapshots.count) current=\(nextState.currentSnapshot?.sessionID.uuidString ?? "nil")"
+        )
         storeState(nextState, refreshState: .idle, for: project.id, updateCurrent: true)
         syncCurrentAutomaticRefreshFlag()
     }
@@ -1043,7 +1056,27 @@ final class AIStatsStore {
         guard let project else {
             return
         }
-        refreshLiveState(project: project, selectedSessionID: effectiveSessionID(selectedSessionID))
+        let resolvedSelectedSessionID = effectiveSessionID(selectedSessionID)
+        let liveContext = liveSnapshotContext(projectID: project.id, selectedSessionID: resolvedSelectedSessionID)
+        let status = projectIndexingStatus(
+            projectID: project.id,
+            fallback: .completed(detail: String(localized: "ai.indexing.complete", defaultValue: "Index complete.", bundle: .module))
+        )
+        let currentState = panelStateByProjectID[project.id] ?? cachedState(for: project.id) ?? .empty
+        var nextState = aiUsageService.lightweightLivePanelState(
+            from: currentState,
+            project: project,
+            liveSnapshots: liveContext.summary,
+            currentSnapshot: liveContext.current,
+            status: status
+        )
+        nextState.liveSnapshots = liveContext.display
+        if nextState == currentState,
+           restingRefreshState(projectID: project.id) == .idle {
+            return
+        }
+        storeState(nextState, refreshState: .idle, for: project.id, updateCurrent: true)
+        syncCurrentAutomaticRefreshFlag()
     }
 
     private func resolveProjectLiveSnapshots(

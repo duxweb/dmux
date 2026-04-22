@@ -2,6 +2,22 @@ import AppKit
 import Foundation
 import SwiftUI
 
+enum AppAIStatisticsDisplayMode: String, Codable, CaseIterable, Identifiable {
+    case normalized
+    case includingCache
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .normalized:
+            return String(localized: "settings.ai_statistics_mode.normalized", defaultValue: "Exclude Cache", bundle: .module)
+        case .includingCache:
+            return String(localized: "settings.ai_statistics_mode.including_cache", defaultValue: "Include Cache", bundle: .module)
+        }
+    }
+}
+
 struct AppSettings: Codable, Equatable {
     var language: AppLanguage = .system
     var terminalBackgroundPreset: AppTerminalBackgroundPreset = .automatic
@@ -15,6 +31,7 @@ struct AppSettings: Codable, Equatable {
     var gitAutoRefreshInterval: TimeInterval = 60
     var aiAutoRefreshInterval: TimeInterval = 180
     var aiBackgroundRefreshInterval: TimeInterval = 600
+    var aiStatisticsDisplayMode: AppAIStatisticsDisplayMode = .normalized
     var developer = AppDeveloperSettings()
     var shortcuts = AppShortcutConfiguration.defaults
     var pet = AppPetSettings()
@@ -34,6 +51,7 @@ struct AppSettings: Codable, Equatable {
         case gitAutoRefreshInterval
         case aiAutoRefreshInterval
         case aiBackgroundRefreshInterval
+        case aiStatisticsDisplayMode
         case developer
         case shortcuts
         case pet
@@ -53,6 +71,7 @@ struct AppSettings: Codable, Equatable {
         gitAutoRefreshInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .gitAutoRefreshInterval) ?? 60
         aiAutoRefreshInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .aiAutoRefreshInterval) ?? 180
         aiBackgroundRefreshInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .aiBackgroundRefreshInterval) ?? 600
+        aiStatisticsDisplayMode = try container.decodeIfPresent(AppAIStatisticsDisplayMode.self, forKey: .aiStatisticsDisplayMode) ?? .normalized
         developer = try container.decodeIfPresent(AppDeveloperSettings.self, forKey: .developer) ?? .init()
         shortcuts = (try container.decodeIfPresent(AppShortcutConfiguration.self, forKey: .shortcuts) ?? .defaults)
             .migratedFromLegacyDefaultsIfNeeded()

@@ -362,6 +362,7 @@ struct AIRuntimeContextSnapshot: Sendable {
     var model: String?
     var inputTokens: Int
     var outputTokens: Int
+    var cachedInputTokens: Int = 0
     var totalTokens: Int
     var updatedAt: Double
     var responseState: AIResponseState?

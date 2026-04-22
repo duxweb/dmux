@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 struct AIUsageStore: Sendable {
-    private static let normalizedHistorySchemaVersion = 3
+    private static let normalizedHistorySchemaVersion = 5
     private let aggregator = AIHistoryAggregationService()
     private let databaseFileURL: URL
 
@@ -31,7 +31,19 @@ struct AIUsageStore: Sendable {
     }
 
     private func initializeIfNeeded(_ db: OpaquePointer) throws {
-        let statements = [
+        let statements = normalizedSchemaStatements()
+
+        for statement in statements {
+            guard sqlite3_exec(db, statement, nil, nil, nil) == SQLITE_OK else {
+                throw NSError(domain: "AIUsageStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize AI usage database"])
+            }
+        }
+
+        try migrateNormalizedHistoryIfNeeded(db)
+    }
+
+    private func normalizedSchemaStatements() -> [String] {
+        [
             """
             CREATE TABLE IF NOT EXISTS ai_history_meta (
                 key TEXT PRIMARY KEY,
@@ -48,50 +60,37 @@ struct AIUsageStore: Sendable {
             );
             """,
             """
-            CREATE TABLE IF NOT EXISTS ai_history_file_session (
+            CREATE TABLE IF NOT EXISTS ai_history_file_session_link (
                 source TEXT NOT NULL,
                 file_path TEXT NOT NULL,
                 project_path TEXT NOT NULL,
-                session_id TEXT NOT NULL,
+                session_key TEXT NOT NULL,
                 external_session_id TEXT,
                 project_id TEXT NOT NULL,
                 project_name TEXT NOT NULL,
                 session_title TEXT NOT NULL,
                 first_seen_at REAL NOT NULL,
                 last_seen_at REAL NOT NULL,
-                last_tool TEXT,
                 last_model TEXT,
-                request_count INTEGER NOT NULL,
-                total_input_tokens INTEGER NOT NULL,
-                total_output_tokens INTEGER NOT NULL,
-                total_tokens INTEGER NOT NULL,
-                max_context_usage_percent REAL,
                 active_duration_seconds INTEGER NOT NULL,
-                today_tokens INTEGER NOT NULL,
-                PRIMARY KEY (source, file_path, project_path, session_id)
+                PRIMARY KEY (source, file_path, project_path, session_key)
             );
             """,
             """
-            CREATE TABLE IF NOT EXISTS ai_history_file_day_usage (
+            CREATE TABLE IF NOT EXISTS ai_history_file_usage_bucket (
                 source TEXT NOT NULL,
                 file_path TEXT NOT NULL,
                 project_path TEXT NOT NULL,
-                day_start REAL NOT NULL,
-                total_tokens INTEGER NOT NULL,
-                request_count INTEGER NOT NULL,
-                PRIMARY KEY (source, file_path, project_path, day_start)
-            );
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS ai_history_file_time_bucket (
-                source TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                project_path TEXT NOT NULL,
+                session_key TEXT NOT NULL,
+                model TEXT NOT NULL,
                 bucket_start REAL NOT NULL,
                 bucket_end REAL NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
                 total_tokens INTEGER NOT NULL,
+                cached_input_tokens INTEGER NOT NULL,
                 request_count INTEGER NOT NULL,
-                PRIMARY KEY (source, file_path, project_path, bucket_start)
+                PRIMARY KEY (source, file_path, project_path, session_key, model, bucket_start)
             );
             """,
             """
@@ -117,19 +116,10 @@ struct AIUsageStore: Sendable {
             """,
             "CREATE INDEX IF NOT EXISTS idx_ai_history_file_state_project_path ON ai_history_file_state(project_path);",
             "CREATE INDEX IF NOT EXISTS idx_ai_history_file_checkpoint_project_path ON ai_history_file_checkpoint(project_path);",
-            "CREATE INDEX IF NOT EXISTS idx_ai_history_file_session_project_path ON ai_history_file_session(project_path);",
-            "CREATE INDEX IF NOT EXISTS idx_ai_history_file_day_usage_project_path ON ai_history_file_day_usage(project_path, day_start);",
-            "CREATE INDEX IF NOT EXISTS idx_ai_history_file_time_bucket_project_path ON ai_history_file_time_bucket(project_path, bucket_start);",
+            "CREATE INDEX IF NOT EXISTS idx_ai_history_file_session_link_project_path ON ai_history_file_session_link(project_path);",
+            "CREATE INDEX IF NOT EXISTS idx_ai_history_file_usage_bucket_project_path ON ai_history_file_usage_bucket(project_path, bucket_start);",
             "CREATE INDEX IF NOT EXISTS idx_ai_history_project_index_state_indexed_at ON ai_history_project_index_state(indexed_at DESC);"
         ]
-
-        for statement in statements {
-            guard sqlite3_exec(db, statement, nil, nil, nil) == SQLITE_OK else {
-                throw NSError(domain: "AIUsageStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize AI usage database"])
-            }
-        }
-
-        try migrateNormalizedHistoryIfNeeded(db)
     }
 
     private func migrateNormalizedHistoryIfNeeded(_ db: OpaquePointer) throws {
@@ -139,17 +129,25 @@ struct AIUsageStore: Sendable {
         }
 
         let resetStatements = [
-            "DELETE FROM ai_history_file_time_bucket;",
-            "DELETE FROM ai_history_file_day_usage;",
-            "DELETE FROM ai_history_file_session;",
-            "DELETE FROM ai_history_file_checkpoint;",
-            "DELETE FROM ai_history_file_state;",
-            "DELETE FROM ai_history_project_index_state;",
+            "DROP TABLE IF EXISTS ai_history_file_usage_bucket;",
+            "DROP TABLE IF EXISTS ai_history_file_session_link;",
+            "DROP TABLE IF EXISTS ai_history_file_time_bucket;",
+            "DROP TABLE IF EXISTS ai_history_file_day_usage;",
+            "DROP TABLE IF EXISTS ai_history_file_session;",
+            "DROP TABLE IF EXISTS ai_history_file_checkpoint;",
+            "DROP TABLE IF EXISTS ai_history_file_state;",
+            "DROP TABLE IF EXISTS ai_history_project_index_state;",
         ]
 
         for statement in resetStatements {
             guard sqlite3_exec(db, statement, nil, nil, nil) == SQLITE_OK else {
                 throw NSError(domain: "AIUsageStore", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to reset normalized AI history tables"])
+            }
+        }
+
+        for statement in normalizedSchemaStatements() where !statement.contains("CREATE TABLE IF NOT EXISTS ai_history_meta") {
+            guard sqlite3_exec(db, statement, nil, nil, nil) == SQLITE_OK else {
+                throw NSError(domain: "AIUsageStore", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to rebuild normalized AI history tables"])
             }
         }
 
@@ -224,8 +222,11 @@ struct AIUsageStore: Sendable {
                     projectID: project.id,
                     projectName: project.name,
                     currentSessionTokens: 0,
+                    currentSessionCachedInputTokens: 0,
                     projectTotalTokens: summary.sessions.reduce(0) { $0 + $1.totalTokens },
+                    projectCachedInputTokens: summary.sessions.reduce(0) { $0 + $1.cachedInputTokens },
                     todayTotalTokens: todayTotal,
+                    todayCachedInputTokens: summary.todayTimeBuckets.reduce(0) { $0 + $1.cachedInputTokens },
                     currentTool: nil,
                     currentModel: nil,
                     currentContextUsagePercent: nil,
@@ -425,9 +426,8 @@ struct AIUsageStore: Sendable {
         try? withDatabase { db in
             try execute(db, sql: "DELETE FROM ai_history_file_checkpoint WHERE project_path = ?;", bindings: [projectPath])
             try execute(db, sql: "DELETE FROM ai_history_file_state WHERE project_path = ?;", bindings: [projectPath])
-            try execute(db, sql: "DELETE FROM ai_history_file_session WHERE project_path = ?;", bindings: [projectPath])
-            try execute(db, sql: "DELETE FROM ai_history_file_day_usage WHERE project_path = ?;", bindings: [projectPath])
-            try execute(db, sql: "DELETE FROM ai_history_file_time_bucket WHERE project_path = ?;", bindings: [projectPath])
+            try execute(db, sql: "DELETE FROM ai_history_file_session_link WHERE project_path = ?;", bindings: [projectPath])
+            try execute(db, sql: "DELETE FROM ai_history_file_usage_bucket WHERE project_path = ?;", bindings: [projectPath])
         }
     }
 
@@ -467,19 +467,20 @@ struct AIUsageStore: Sendable {
         projectPath: String,
         modifiedAt: Double
     ) -> AIExternalFileSummary? {
-        guard let sessions = loadNormalizedSessions(db: db, source: source, filePath: filePath, projectPath: projectPath),
-              let dayUsage = loadNormalizedDayUsage(db: db, source: source, filePath: filePath, projectPath: projectPath),
-              let timeBuckets = loadNormalizedTimeBuckets(db: db, source: source, filePath: filePath, projectPath: projectPath) else {
+        guard let usageBuckets = loadNormalizedUsageBuckets(
+            db: db,
+            source: source,
+            filePath: filePath,
+            projectPath: projectPath
+        ) else {
             return nil
         }
-        return AIExternalFileSummary(
+        return aggregator.externalFileSummary(
             source: source,
             filePath: filePath,
             fileModifiedAt: modifiedAt,
             projectPath: projectPath,
-            sessions: sessions,
-            dayUsage: dayUsage,
-            timeBuckets: timeBuckets
+            usageBuckets: usageBuckets
         )
     }
 
@@ -494,17 +495,12 @@ struct AIUsageStore: Sendable {
         do {
             try execute(
                 db,
-                sql: "DELETE FROM ai_history_file_session WHERE source = ? AND file_path = ? AND project_path = ?;",
+                sql: "DELETE FROM ai_history_file_session_link WHERE source = ? AND file_path = ? AND project_path = ?;",
                 bindings: [summary.source, summary.filePath, summary.projectPath]
             )
             try execute(
                 db,
-                sql: "DELETE FROM ai_history_file_day_usage WHERE source = ? AND file_path = ? AND project_path = ?;",
-                bindings: [summary.source, summary.filePath, summary.projectPath]
-            )
-            try execute(
-                db,
-                sql: "DELETE FROM ai_history_file_time_bucket WHERE source = ? AND file_path = ? AND project_path = ?;",
+                sql: "DELETE FROM ai_history_file_usage_bucket WHERE source = ? AND file_path = ? AND project_path = ?;",
                 bindings: [summary.source, summary.filePath, summary.projectPath]
             )
             try execute(
@@ -552,76 +548,54 @@ struct AIUsageStore: Sendable {
                 )
             }
 
-            for session in summary.sessions {
+            for session in buildSessionLinks(from: summary.usageBuckets) {
                 try execute(
                     db,
                     sql: """
-                        INSERT INTO ai_history_file_session (
-                            source, file_path, project_path, session_id, external_session_id,
+                        INSERT INTO ai_history_file_session_link (
+                            source, file_path, project_path, session_key, external_session_id,
                             project_id, project_name, session_title, first_seen_at, last_seen_at,
-                            last_tool, last_model, request_count, total_input_tokens,
-                            total_output_tokens, total_tokens, max_context_usage_percent,
-                            active_duration_seconds, today_tokens
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                            last_model, active_duration_seconds
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                     """,
                     bindings: [
                         summary.source,
                         summary.filePath,
                         summary.projectPath,
-                        session.sessionID.uuidString,
+                        session.sessionKey,
                         session.externalSessionID as Any,
                         session.projectID.uuidString,
                         session.projectName,
                         session.sessionTitle,
                         session.firstSeenAt.timeIntervalSince1970,
                         session.lastSeenAt.timeIntervalSince1970,
-                        session.lastTool as Any,
                         session.lastModel as Any,
-                        session.requestCount,
-                        session.totalInputTokens,
-                        session.totalOutputTokens,
-                        session.totalTokens,
-                        session.maxContextUsagePercent as Any,
                         session.activeDurationSeconds,
-                        session.todayTokens,
                     ]
                 )
             }
 
-            for day in summary.dayUsage {
+            for bucket in summary.usageBuckets {
                 try execute(
                     db,
                     sql: """
-                        INSERT INTO ai_history_file_day_usage (
-                            source, file_path, project_path, day_start, total_tokens, request_count
-                        ) VALUES (?, ?, ?, ?, ?, ?);
+                        INSERT INTO ai_history_file_usage_bucket (
+                            source, file_path, project_path, session_key, model, bucket_start, bucket_end,
+                            input_tokens, output_tokens, total_tokens, cached_input_tokens, request_count
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                     """,
                     bindings: [
                         summary.source,
                         summary.filePath,
                         summary.projectPath,
-                        day.day.timeIntervalSince1970,
-                        day.totalTokens,
-                        day.requestCount,
-                    ]
-                )
-            }
-
-            for bucket in summary.timeBuckets {
-                try execute(
-                    db,
-                    sql: """
-                        INSERT INTO ai_history_file_time_bucket (
-                            source, file_path, project_path, bucket_start, bucket_end, total_tokens, request_count
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?);
-                    """,
-                    bindings: [
-                        summary.source,
-                        summary.filePath,
-                        summary.projectPath,
-                        bucket.start.timeIntervalSince1970,
-                        bucket.end.timeIntervalSince1970,
+                        bucket.sessionKey,
+                        bucket.model ?? "",
+                        bucket.bucketStart.timeIntervalSince1970,
+                        bucket.bucketEnd.timeIntervalSince1970,
+                        bucket.inputTokens,
+                        bucket.outputTokens,
                         bucket.totalTokens,
+                        bucket.cachedInputTokens,
                         bucket.requestCount,
                     ]
                 )
@@ -636,18 +610,97 @@ struct AIUsageStore: Sendable {
         }
     }
 
-    private func loadNormalizedSessions(
+    private func loadNormalizedUsageBuckets(
         db: OpaquePointer,
         source: String,
         filePath: String,
         projectPath: String
-    ) -> [AISessionSummary]? {
+    ) -> [AIUsageBucket]? {
+        guard let sessionLinks = loadNormalizedSessionLinks(
+            db: db,
+            source: source,
+            filePath: filePath,
+            projectPath: projectPath
+        ) else {
+            return nil
+        }
+
         let sql = """
-        SELECT session_id, external_session_id, project_id, project_name, session_title,
-               first_seen_at, last_seen_at, last_tool, last_model, request_count,
-               total_input_tokens, total_output_tokens, total_tokens,
-               max_context_usage_percent, active_duration_seconds, today_tokens
-        FROM ai_history_file_session
+        SELECT session_key, model, bucket_start, bucket_end, input_tokens, output_tokens,
+               total_tokens, cached_input_tokens, request_count
+        FROM ai_history_file_usage_bucket
+        WHERE source = ? AND file_path = ? AND project_path = ?
+        ORDER BY bucket_start ASC, session_key ASC, model ASC;
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, source, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 2, filePath, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 3, projectPath, -1, SQLITE_TRANSIENT)
+
+        var rows: [NormalizedUsageBucketRow] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let rawSessionKey = sqlite3_column_text(statement, 0) else {
+                continue
+            }
+            rows.append(
+                NormalizedUsageBucketRow(
+                    sessionKey: String(cString: rawSessionKey),
+                    model: sqlite3_column_text(statement, 1).map { String(cString: $0) },
+                    bucketStart: Date(timeIntervalSince1970: sqlite3_column_double(statement, 2)),
+                    bucketEnd: Date(timeIntervalSince1970: sqlite3_column_double(statement, 3)),
+                    inputTokens: Int(sqlite3_column_int64(statement, 4)),
+                    outputTokens: Int(sqlite3_column_int64(statement, 5)),
+                    totalTokens: Int(sqlite3_column_int64(statement, 6)),
+                    cachedInputTokens: Int(sqlite3_column_int64(statement, 7)),
+                    requestCount: Int(sqlite3_column_int64(statement, 8))
+                )
+            )
+        }
+        let lastBucketStartBySession = rows.reduce(into: [String: Date]()) { partial, row in
+            partial[row.sessionKey] = max(partial[row.sessionKey] ?? row.bucketStart, row.bucketStart)
+        }
+
+        return rows.compactMap { row in
+            guard let session = sessionLinks[row.sessionKey] else {
+                return nil
+            }
+            return AIUsageBucket(
+                source: source,
+                sessionKey: row.sessionKey,
+                externalSessionID: session.externalSessionID,
+                sessionTitle: session.sessionTitle,
+                model: normalizedNonEmptyString(row.model),
+                projectID: session.projectID,
+                projectName: session.projectName,
+                bucketStart: row.bucketStart,
+                bucketEnd: row.bucketEnd,
+                inputTokens: row.inputTokens,
+                outputTokens: row.outputTokens,
+                totalTokens: row.totalTokens,
+                cachedInputTokens: row.cachedInputTokens,
+                requestCount: row.requestCount,
+                activeDurationSeconds: lastBucketStartBySession[row.sessionKey] == row.bucketStart ? session.activeDurationSeconds : 0,
+                firstSeenAt: session.firstSeenAt,
+                lastSeenAt: session.lastSeenAt
+            )
+        }
+    }
+
+    private func loadNormalizedSessionLinks(
+        db: OpaquePointer,
+        source: String,
+        filePath: String,
+        projectPath: String
+    ) -> [String: NormalizedSessionLinkRow]? {
+        let sql = """
+        SELECT session_key, external_session_id, project_id, project_name, session_title,
+               first_seen_at, last_seen_at, last_model, active_duration_seconds
+        FROM ai_history_file_session_link
         WHERE source = ? AND file_path = ? AND project_path = ?
         ORDER BY last_seen_at DESC;
         """
@@ -661,115 +714,70 @@ struct AIUsageStore: Sendable {
         sqlite3_bind_text(statement, 2, filePath, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(statement, 3, projectPath, -1, SQLITE_TRANSIENT)
 
-        var items: [AISessionSummary] = []
+        var items: [String: NormalizedSessionLinkRow] = [:]
         while sqlite3_step(statement) == SQLITE_ROW {
-            guard let rawSessionID = sqlite3_column_text(statement, 0),
-                  let sessionID = UUID(uuidString: String(cString: rawSessionID)),
+            guard let rawSessionKey = sqlite3_column_text(statement, 0),
                   let rawProjectID = sqlite3_column_text(statement, 2),
                   let projectID = UUID(uuidString: String(cString: rawProjectID)),
                   let rawProjectName = sqlite3_column_text(statement, 3),
                   let rawSessionTitle = sqlite3_column_text(statement, 4) else {
                 continue
             }
-            let externalSessionID = sqlite3_column_text(statement, 1).map { String(cString: $0) }
-            let firstSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 5))
-            let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 6))
-            let lastTool = sqlite3_column_text(statement, 7).map { String(cString: $0) }
-            let lastModel = sqlite3_column_text(statement, 8).map { String(cString: $0) }
-            let maxContextUsagePercent = sqlite3_column_type(statement, 13) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 13)
-            items.append(
-                AISessionSummary(
-                    sessionID: sessionID,
-                    externalSessionID: externalSessionID,
-                    projectID: projectID,
-                    projectName: String(cString: rawProjectName),
-                    sessionTitle: String(cString: rawSessionTitle),
-                    firstSeenAt: firstSeenAt,
-                    lastSeenAt: lastSeenAt,
-                    lastTool: lastTool,
-                    lastModel: lastModel,
-                    requestCount: Int(sqlite3_column_int64(statement, 9)),
-                    totalInputTokens: Int(sqlite3_column_int64(statement, 10)),
-                    totalOutputTokens: Int(sqlite3_column_int64(statement, 11)),
-                    totalTokens: Int(sqlite3_column_int64(statement, 12)),
-                    maxContextUsagePercent: maxContextUsagePercent,
-                    activeDurationSeconds: Int(sqlite3_column_int64(statement, 14)),
-                    todayTokens: Int(sqlite3_column_int64(statement, 15))
-                )
+            let sessionKey = String(cString: rawSessionKey)
+            items[sessionKey] = NormalizedSessionLinkRow(
+                sessionKey: sessionKey,
+                externalSessionID: sqlite3_column_text(statement, 1).map { String(cString: $0) },
+                projectID: projectID,
+                projectName: String(cString: rawProjectName),
+                sessionTitle: String(cString: rawSessionTitle),
+                firstSeenAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 5)),
+                lastSeenAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
+                lastModel: sqlite3_column_text(statement, 7).map { String(cString: $0) },
+                activeDurationSeconds: Int(sqlite3_column_int64(statement, 8))
             )
         }
         return items
     }
 
-    private func loadNormalizedDayUsage(
-        db: OpaquePointer,
-        source: String,
-        filePath: String,
-        projectPath: String
-    ) -> [AIHeatmapDay]? {
-        let sql = """
-        SELECT day_start, total_tokens, request_count
-        FROM ai_history_file_day_usage
-        WHERE source = ? AND file_path = ? AND project_path = ?
-        ORDER BY day_start ASC;
-        """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, source, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 2, filePath, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 3, projectPath, -1, SQLITE_TRANSIENT)
+    private func buildSessionLinks(from usageBuckets: [AIUsageBucket]) -> [NormalizedSessionLinkRow] {
+        var map: [String: NormalizedSessionLinkRow] = [:]
 
-        var items: [AIHeatmapDay] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            items.append(
-                AIHeatmapDay(
-                    day: Date(timeIntervalSince1970: sqlite3_column_double(statement, 0)),
-                    totalTokens: Int(sqlite3_column_int64(statement, 1)),
-                    requestCount: Int(sqlite3_column_int64(statement, 2))
+        for bucket in usageBuckets {
+            if var current = map[bucket.sessionKey] {
+                let previousLastSeenAt = current.lastSeenAt
+                current.externalSessionID = current.externalSessionID ?? bucket.externalSessionID
+                current.sessionTitle = normalizedNonEmptyString(bucket.sessionTitle) ?? current.sessionTitle
+                current.firstSeenAt = min(current.firstSeenAt, bucket.firstSeenAt)
+                current.lastSeenAt = max(current.lastSeenAt, bucket.lastSeenAt)
+                current.activeDurationSeconds += bucket.activeDurationSeconds
+                if bucket.lastSeenAt >= previousLastSeenAt,
+                   let model = normalizedNonEmptyString(bucket.model) {
+                    current.lastModel = model
+                } else if current.lastModel == nil {
+                    current.lastModel = normalizedNonEmptyString(bucket.model)
+                }
+                map[bucket.sessionKey] = current
+            } else {
+                map[bucket.sessionKey] = NormalizedSessionLinkRow(
+                    sessionKey: bucket.sessionKey,
+                    externalSessionID: bucket.externalSessionID,
+                    projectID: bucket.projectID,
+                    projectName: bucket.projectName,
+                    sessionTitle: normalizedNonEmptyString(bucket.sessionTitle) ?? bucket.projectName,
+                    firstSeenAt: bucket.firstSeenAt,
+                    lastSeenAt: bucket.lastSeenAt,
+                    lastModel: normalizedNonEmptyString(bucket.model),
+                    activeDurationSeconds: bucket.activeDurationSeconds
                 )
-            )
+            }
         }
-        return items
-    }
 
-    private func loadNormalizedTimeBuckets(
-        db: OpaquePointer,
-        source: String,
-        filePath: String,
-        projectPath: String
-    ) -> [AITimeBucket]? {
-        let sql = """
-        SELECT bucket_start, bucket_end, total_tokens, request_count
-        FROM ai_history_file_time_bucket
-        WHERE source = ? AND file_path = ? AND project_path = ?
-        ORDER BY bucket_start ASC;
-        """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            return nil
+        return map.values.sorted { lhs, rhs in
+            if lhs.lastSeenAt != rhs.lastSeenAt {
+                return lhs.lastSeenAt > rhs.lastSeenAt
+            }
+            return lhs.sessionKey < rhs.sessionKey
         }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, source, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 2, filePath, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 3, projectPath, -1, SQLITE_TRANSIENT)
-
-        var items: [AITimeBucket] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            items.append(
-                AITimeBucket(
-                    start: Date(timeIntervalSince1970: sqlite3_column_double(statement, 0)),
-                    end: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
-                    totalTokens: Int(sqlite3_column_int64(statement, 2)),
-                    requestCount: Int(sqlite3_column_int64(statement, 3))
-                )
-            )
-        }
-        return items
     }
 
     private func decodeCheckpointPayload(_ payloadJSON: String?) -> AIExternalFileCheckpointPayload? {
@@ -823,6 +831,37 @@ struct AIUsageStore: Sendable {
         }
     }
 
+    private func normalizedNonEmptyString(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
+private struct NormalizedSessionLinkRow {
+    var sessionKey: String
+    var externalSessionID: String?
+    var projectID: UUID
+    var projectName: String
+    var sessionTitle: String
+    var firstSeenAt: Date
+    var lastSeenAt: Date
+    var lastModel: String?
+    var activeDurationSeconds: Int
+}
+
+private struct NormalizedUsageBucketRow {
+    var sessionKey: String
+    var model: String?
+    var bucketStart: Date
+    var bucketEnd: Date
+    var inputTokens: Int
+    var outputTokens: Int
+    var totalTokens: Int
+    var cachedInputTokens: Int
+    var requestCount: Int
 }
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

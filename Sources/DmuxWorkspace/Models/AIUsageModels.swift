@@ -16,6 +16,7 @@ struct AIStatsPanelState: Equatable {
     var currentSnapshot: AITerminalSessionSnapshot?
     var liveSnapshots: [AITerminalSessionSnapshot]
     var liveOverlayTokens: Int
+    var liveOverlayCachedInputTokens: Int
     var sessions: [AISessionSummary]
     var heatmap: [AIHeatmapDay]
     var todayTimeBuckets: [AITimeBucket]
@@ -29,6 +30,7 @@ struct AIStatsPanelState: Equatable {
         currentSnapshot: nil,
         liveSnapshots: [],
         liveOverlayTokens: 0,
+        liveOverlayCachedInputTokens: 0,
         sessions: [],
         heatmap: [],
         todayTimeBuckets: [],
@@ -63,9 +65,11 @@ struct AITerminalSessionSnapshot: Codable, Equatable, Identifiable, Sendable {
     var currentInputTokens: Int
     var currentOutputTokens: Int
     var currentTotalTokens: Int
+    var currentCachedInputTokens: Int = 0
     var baselineInputTokens: Int
     var baselineOutputTokens: Int
     var baselineTotalTokens: Int
+    var baselineCachedInputTokens: Int = 0
     var currentContextWindow: Int?
     var currentContextUsedTokens: Int?
     var currentContextUsagePercent: Double?
@@ -88,17 +92,22 @@ struct AISessionSummary: Codable, Equatable, Identifiable, Sendable {
     var totalInputTokens: Int
     var totalOutputTokens: Int
     var totalTokens: Int
+    var cachedInputTokens: Int = 0
     var maxContextUsagePercent: Double?
     var activeDurationSeconds: Int
     var todayTokens: Int
+    var todayCachedInputTokens: Int = 0
 }
 
 struct AIProjectUsageSummary: Codable, Equatable, Sendable {
     var projectID: UUID
     var projectName: String
     var currentSessionTokens: Int
+    var currentSessionCachedInputTokens: Int = 0
     var projectTotalTokens: Int
+    var projectCachedInputTokens: Int = 0
     var todayTotalTokens: Int
+    var todayCachedInputTokens: Int = 0
     var currentTool: String?
     var currentModel: String?
     var currentContextUsagePercent: Double?
@@ -123,6 +132,7 @@ struct AIHeatmapDay: Codable, Equatable, Identifiable, Sendable {
     var id: Date { day }
     var day: Date
     var totalTokens: Int
+    var cachedInputTokens: Int = 0
     var requestCount: Int
 }
 
@@ -130,6 +140,7 @@ struct AIUsageBreakdownItem: Codable, Equatable, Identifiable, Sendable {
     var id: String { key }
     var key: String
     var totalTokens: Int
+    var cachedInputTokens: Int = 0
     var requestCount: Int
 }
 
@@ -146,6 +157,7 @@ struct AITimeBucket: Codable, Equatable, Identifiable, Sendable {
     var start: Date
     var end: Date
     var totalTokens: Int
+    var cachedInputTokens: Int = 0
     var requestCount: Int
 }
 
@@ -165,9 +177,14 @@ struct AIToolUsageEnvelope: Codable, Sendable {
     var inputTokens: Int?
     var outputTokens: Int?
     var totalTokens: Int?
+    var cachedInputTokens: Int? = nil
+    var currentCachedInputTokens: Int? {
+        cachedInputTokens
+    }
     var baselineInputTokens: Int?
     var baselineOutputTokens: Int?
     var baselineTotalTokens: Int?
+    var baselineCachedInputTokens: Int? = nil
     var contextWindow: Int?
     var contextUsedTokens: Int?
     var contextUsagePercent: Double?
@@ -178,9 +195,39 @@ struct AIExternalFileSummary: Codable, Equatable, Sendable {
     var filePath: String
     var fileModifiedAt: Double
     var projectPath: String
+    var usageBuckets: [AIUsageBucket] = []
     var sessions: [AISessionSummary]
     var dayUsage: [AIHeatmapDay]
     var timeBuckets: [AITimeBucket]
+}
+
+struct AIUsageBucket: Codable, Equatable, Identifiable, Sendable {
+    var id: String {
+        [
+            source,
+            sessionKey,
+            model ?? "",
+            String(Int(bucketStart.timeIntervalSince1970))
+        ].joined(separator: "|")
+    }
+
+    var source: String
+    var sessionKey: String
+    var externalSessionID: String?
+    var sessionTitle: String
+    var model: String?
+    var projectID: UUID
+    var projectName: String
+    var bucketStart: Date
+    var bucketEnd: Date
+    var inputTokens: Int
+    var outputTokens: Int
+    var totalTokens: Int
+    var cachedInputTokens: Int
+    var requestCount: Int
+    var activeDurationSeconds: Int
+    var firstSeenAt: Date
+    var lastSeenAt: Date
 }
 
 struct AIExternalFileCheckpointPayload: Codable, Equatable, Sendable {
@@ -195,11 +242,61 @@ struct AIExternalFileCheckpointPayload: Codable, Equatable, Sendable {
     var totalInputTokens: Int
     var totalOutputTokens: Int
     var totalTokens: Int
+    var totalCachedInputTokens: Int = 0
     var todayTokens: Int
+    var todayCachedInputTokens: Int = 0
     var activeDurationSeconds: Int
     var waitingForFirstResponse: Bool
     var pendingTurnStartAt: Date?
     var pendingTurnEndAt: Date?
+}
+
+extension AISessionSummary {
+    func displayedTotalTokens(mode: AppAIStatisticsDisplayMode) -> Int {
+        totalTokens + (mode == .includingCache ? cachedInputTokens : 0)
+    }
+
+    func displayedTodayTokens(mode: AppAIStatisticsDisplayMode) -> Int {
+        todayTokens + (mode == .includingCache ? todayCachedInputTokens : 0)
+    }
+}
+
+extension AIProjectUsageSummary {
+    func displayedProjectTotalTokens(mode: AppAIStatisticsDisplayMode) -> Int {
+        projectTotalTokens + (mode == .includingCache ? projectCachedInputTokens : 0)
+    }
+
+    func displayedTodayTotalTokens(mode: AppAIStatisticsDisplayMode) -> Int {
+        todayTotalTokens + (mode == .includingCache ? todayCachedInputTokens : 0)
+    }
+
+    func displayedCurrentSessionTokens(mode: AppAIStatisticsDisplayMode) -> Int {
+        currentSessionTokens + (mode == .includingCache ? currentSessionCachedInputTokens : 0)
+    }
+}
+
+extension AIHeatmapDay {
+    func displayedTotalTokens(mode: AppAIStatisticsDisplayMode) -> Int {
+        totalTokens + (mode == .includingCache ? cachedInputTokens : 0)
+    }
+}
+
+extension AITimeBucket {
+    func displayedTotalTokens(mode: AppAIStatisticsDisplayMode) -> Int {
+        totalTokens + (mode == .includingCache ? cachedInputTokens : 0)
+    }
+}
+
+extension AIUsageBreakdownItem {
+    func displayedTotalTokens(mode: AppAIStatisticsDisplayMode) -> Int {
+        totalTokens + (mode == .includingCache ? cachedInputTokens : 0)
+    }
+}
+
+extension AITerminalSessionSnapshot {
+    func displayedCurrentTotalTokens(mode: AppAIStatisticsDisplayMode) -> Int {
+        currentTotalTokens + (mode == .includingCache ? currentCachedInputTokens : 0)
+    }
 }
 
 struct AIExternalFileCheckpoint: Codable, Equatable, Sendable {

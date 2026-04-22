@@ -37,7 +37,8 @@ final class AIRuntimeIngressHookEventTests: XCTestCase {
         )
 
         XCTAssertEqual(snapshot?.model, "claude-sonnet-4-6")
-        XCTAssertEqual(snapshot?.totalTokens, 27_459)
+        XCTAssertEqual(snapshot?.totalTokens, 231)
+        XCTAssertEqual(snapshot?.cachedInputTokens, 8_151)
         XCTAssertEqual(snapshot?.outputTokens, 228)
     }
 
@@ -170,7 +171,8 @@ final class AIRuntimeIngressHookEventTests: XCTestCase {
         )
 
         XCTAssertEqual(resolved.model, "claude-sonnet-4-6")
-        XCTAssertEqual(resolved.totalTokens, 100)
+        XCTAssertEqual(resolved.totalTokens, 50)
+        XCTAssertEqual(resolved.cachedInputTokens, 30)
     }
 
     func testClaudePromptSubmittedDoesNotWaitForSnapshotTotals() async throws {

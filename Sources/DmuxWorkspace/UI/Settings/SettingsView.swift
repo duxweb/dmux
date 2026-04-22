@@ -27,7 +27,7 @@ private enum SettingsSectionTab: String, CaseIterable, Identifiable {
     var preferredContentHeight: CGFloat {
         switch self {
         case .general:
-            return 390
+            return 430
         case .appearance:
             return 760
         case .pet:
@@ -157,6 +157,15 @@ private struct GeneralSettingsPane: View {
             )) {
                 ForEach(RefreshIntervalOption.backgroundAIOptions, id: \.seconds) { option in
                     Text(option.title(model: model)).tag(option.seconds)
+                }
+            }
+
+            Picker(String(localized: "settings.ai_statistics_mode", defaultValue: "AI Statistics Mode", bundle: .module), selection: Binding(
+                get: { model.appSettings.aiStatisticsDisplayMode },
+                set: { model.updateAIStatisticsDisplayMode($0) }
+            )) {
+                ForEach(AppAIStatisticsDisplayMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
                 }
             }
         }

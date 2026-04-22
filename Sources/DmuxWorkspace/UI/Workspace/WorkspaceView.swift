@@ -150,7 +150,6 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
     private let minimumPaneWidth: CGFloat = 220
     private var isApplyingLayout = false
     private var needsEqualDistribution = false
-
     init(model: AppModel, workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
         self.model = model
         self.currentWorkspace = workspace
@@ -195,16 +194,11 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
 
     func update(workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
         let sessionIDsChanged = workspace.topSessionIDs != currentWorkspace.topSessionIDs
-        let previousSessionIDs = currentWorkspace.topSessionIDs
         currentWorkspace = workspace
         self.activeTerminalSessionID = activeTerminalSessionID
         self.showsInactiveOverlay = showsInactiveOverlay
         self.dividerColor = dividerColor
         paneSplitView.customDividerColor = dividerColor
-        if sessionIDsChanged {
-            let survivingSessionIDs = workspace.topSessionIDs.filter { previousSessionIDs.contains($0) }
-            DmuxTerminalBackend.shared.registry.beginStructuralResizeTransition(for: survivingSessionIDs)
-        }
         if sessionIDsChanged {
             rebuildPanes(for: workspace)
         }
@@ -273,16 +267,9 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
             }
             host.view.translatesAutoresizingMaskIntoConstraints = true
             host.view.autoresizingMask = [.width, .height]
-            host.view.needsLayout = true
         }
 
         lastRenderedFocusedSessionID = activeTerminalSessionID
-
-        paneSplitView.needsLayout = true
-        paneSplitView.layoutSubtreeIfNeeded()
-        for sessionID in workspace.topSessionIDs {
-            paneHosts[sessionID]?.view.layoutSubtreeIfNeeded()
-        }
 
         DispatchQueue.main.async { [weak self] in
             self?.applyRatiosIfNeeded()
@@ -364,25 +351,10 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         }
 
         paneSplitView.adjustSubviews()
-        paneSplitView.needsLayout = true
-        paneSplitView.layoutSubtreeIfNeeded()
-        for sessionID in currentSessionIDs {
-            paneHosts[sessionID]?.view.needsLayout = true
-            paneHosts[sessionID]?.view.layoutSubtreeIfNeeded()
-            paneHosts[sessionID]?.view.needsDisplay = true
-        }
-        DmuxTerminalBackend.shared.registry.reconcileGeometry(for: currentSessionIDs)
-        paneSplitView.needsDisplay = true
         if needsEqualDistribution {
             model.updateTopPaneRatios(ratios)
             needsEqualDistribution = false
         }
-    }
-
-    func splitViewWillResizeSubviews(_ notification: Notification) {
-        guard currentSessionIDs.count > 1,
-              model.selectedProjectID == currentWorkspace.projectID else { return }
-        DmuxTerminalBackend.shared.registry.beginStructuralResizeTransition(for: currentSessionIDs)
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
@@ -393,7 +365,6 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         let total = widths.reduce(0, +)
         guard total > 0 else { return }
         model.updateTopPaneRatios(widths.map { $0 / total })
-        DmuxTerminalBackend.shared.registry.reconcileGeometry(for: currentSessionIDs)
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
@@ -527,7 +498,6 @@ private final class SplitViewController<Top: View, Bottom: View>: NSViewControll
     private var hasCommittedInitialBottomLayout = false
     private let minimumTopHeight: CGFloat = 220
     private let minimumBottomHeight: CGFloat = 160
-
     init(model: AppModel, workspace: ProjectWorkspace, dividerColor: NSColor, hasBottomRegion: Bool, bottomHeight: CGFloat, top: Top, bottom: Bottom) {
         self.model = model
         self.currentWorkspace = workspace
@@ -635,6 +605,7 @@ private final class SplitViewController<Top: View, Bottom: View>: NSViewControll
         guard newBottomHeight > 0 else { return }
         model.updateBottomPaneHeight(newBottomHeight, for: currentWorkspace.projectID, availableHeight: splitView.bounds.height)
     }
+
 }
 
 private final class DividerStyledSplitView: NSSplitView {

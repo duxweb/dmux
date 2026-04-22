@@ -30,6 +30,9 @@ struct AIHookEvent: Codable, Equatable, Sendable {
     var tool: String
     var aiSessionID: String?
     var model: String?
+    var inputTokens: Int? = nil
+    var outputTokens: Int? = nil
+    var cachedInputTokens: Int? = nil
     var totalTokens: Int?
     var updatedAt: Double
     var metadata: AIHookEventMetadata?

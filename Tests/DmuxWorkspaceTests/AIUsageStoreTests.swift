@@ -35,6 +35,21 @@ final class AIUsageStoreTests: XCTestCase {
             filePath: "/tmp/claude.jsonl",
             fileModifiedAt: 1_713_690_000,
             projectPath: projectPath,
+            usageBuckets: [
+                makeUsageBucket(
+                    source: "claude",
+                    sessionKey: "claude-1",
+                    externalSessionID: "claude-1",
+                    projectID: projectID,
+                    projectName: "Normalized Project",
+                    sessionTitle: "Fix bug",
+                    model: "claude-sonnet-4-6",
+                    totalTokens: 150,
+                    cachedInputTokens: 30,
+                    requestCount: 2,
+                    activeDurationSeconds: 60
+                )
+            ],
             sessions: [
                 AISessionSummary(
                     sessionID: UUID(),
@@ -50,19 +65,22 @@ final class AIUsageStoreTests: XCTestCase {
                     totalInputTokens: 100,
                     totalOutputTokens: 50,
                     totalTokens: 150,
+                    cachedInputTokens: 30,
                     maxContextUsagePercent: nil,
                     activeDurationSeconds: 60,
-                    todayTokens: 150
+                    todayTokens: 150,
+                    todayCachedInputTokens: 30
                 )
             ],
             dayUsage: [
-                AIHeatmapDay(day: Calendar.autoupdatingCurrent.startOfDay(for: Date()), totalTokens: 150, requestCount: 2)
+                AIHeatmapDay(day: Calendar.autoupdatingCurrent.startOfDay(for: Date()), totalTokens: 150, cachedInputTokens: 30, requestCount: 2)
             ],
             timeBuckets: [
                 AITimeBucket(
                     start: Calendar.autoupdatingCurrent.date(bySettingHour: 10, minute: 0, second: 0, of: Date()) ?? Date(),
                     end: Calendar.autoupdatingCurrent.date(bySettingHour: 11, minute: 0, second: 0, of: Date()) ?? Date(),
                     totalTokens: 150,
+                    cachedInputTokens: 30,
                     requestCount: 2
                 )
             ]
@@ -76,8 +94,11 @@ final class AIUsageStoreTests: XCTestCase {
                     projectID: projectID,
                     projectName: "Normalized Project",
                     currentSessionTokens: 0,
+                    currentSessionCachedInputTokens: 0,
                     projectTotalTokens: 150,
+                    projectCachedInputTokens: 30,
                     todayTotalTokens: 150,
+                    todayCachedInputTokens: 30,
                     currentTool: nil,
                     currentModel: nil,
                     currentContextUsagePercent: nil,
@@ -98,10 +119,13 @@ final class AIUsageStoreTests: XCTestCase {
         let snapshot = store.indexedProjectSnapshot(projectID: projectID)
         XCTAssertEqual(snapshot?.projectID, projectID)
         XCTAssertEqual(snapshot?.projectSummary.projectTotalTokens, 150)
+        XCTAssertEqual(snapshot?.projectSummary.projectCachedInputTokens, 30)
         XCTAssertEqual(snapshot?.projectSummary.todayTotalTokens, 150)
+        XCTAssertEqual(snapshot?.projectSummary.todayCachedInputTokens, 30)
         XCTAssertEqual(snapshot?.sessions.count, 1)
         XCTAssertEqual(snapshot?.toolBreakdown.first?.key, "claude")
         XCTAssertEqual(snapshot?.toolBreakdown.first?.totalTokens, 150)
+        XCTAssertEqual(snapshot?.toolBreakdown.first?.cachedInputTokens, 30)
         XCTAssertEqual(snapshot?.indexedAt.timeIntervalSince1970, indexedAt.timeIntervalSince1970)
     }
 
@@ -120,6 +144,20 @@ final class AIUsageStoreTests: XCTestCase {
             filePath: sharedFilePath,
             fileModifiedAt: modifiedAt,
             projectPath: projectA,
+            usageBuckets: [
+                makeUsageBucket(
+                    source: "opencode",
+                    sessionKey: "A",
+                    externalSessionID: "A",
+                    projectID: UUID(),
+                    projectName: projectA,
+                    sessionTitle: "A",
+                    model: "gpt-4.1",
+                    totalTokens: 111,
+                    requestCount: 1,
+                    activeDurationSeconds: 10
+                )
+            ],
             sessions: [
                 makeSessionSummary(projectPath: projectA, title: "A", totalTokens: 111)
             ],
@@ -133,6 +171,20 @@ final class AIUsageStoreTests: XCTestCase {
             filePath: sharedFilePath,
             fileModifiedAt: modifiedAt,
             projectPath: projectB,
+            usageBuckets: [
+                makeUsageBucket(
+                    source: "opencode",
+                    sessionKey: "B",
+                    externalSessionID: "B",
+                    projectID: UUID(),
+                    projectName: projectB,
+                    sessionTitle: "B",
+                    model: "gpt-4.1",
+                    totalTokens: 222,
+                    requestCount: 1,
+                    activeDurationSeconds: 10
+                )
+            ],
             sessions: [
                 makeSessionSummary(projectPath: projectB, title: "B", totalTokens: 222)
             ],
@@ -203,6 +255,20 @@ final class AIUsageStoreTests: XCTestCase {
             filePath: "/tmp/legacy-claude.jsonl",
             fileModifiedAt: 1_713_690_000,
             projectPath: projectPath,
+            usageBuckets: [
+                makeUsageBucket(
+                    source: "claude",
+                    sessionKey: "legacy",
+                    externalSessionID: "legacy",
+                    projectID: projectID,
+                    projectName: "Legacy Upgrade",
+                    sessionTitle: "Legacy Session",
+                    model: "claude-sonnet-4-6",
+                    totalTokens: 70,
+                    requestCount: 1,
+                    activeDurationSeconds: 60
+                )
+            ],
             sessions: [
                 AISessionSummary(
                     sessionID: UUID(),
@@ -249,6 +315,22 @@ final class AIUsageStoreTests: XCTestCase {
             filePath: "/tmp/checkpoint.jsonl",
             fileModifiedAt: 1_713_690_000,
             projectPath: projectPath,
+            usageBuckets: [
+                makeUsageBucket(
+                    source: "claude",
+                    sessionKey: "session-1",
+                    externalSessionID: "session-1",
+                    projectID: UUID(),
+                    projectName: projectPath,
+                    sessionTitle: "Checkpoint",
+                    model: "claude-sonnet-4-6",
+                    inputTokens: 111,
+                    outputTokens: 210,
+                    totalTokens: 321,
+                    requestCount: 2,
+                    activeDurationSeconds: 60
+                )
+            ],
             sessions: [
                 makeSessionSummary(projectPath: projectPath, title: "Checkpoint", totalTokens: 321)
             ],
@@ -321,6 +403,46 @@ final class AIUsageStoreTests: XCTestCase {
             maxContextUsagePercent: nil,
             activeDurationSeconds: 10,
             todayTokens: totalTokens
+        )
+    }
+
+    private func makeUsageBucket(
+        source: String,
+        sessionKey: String,
+        externalSessionID: String,
+        projectID: UUID,
+        projectName: String,
+        sessionTitle: String,
+        model: String,
+        inputTokens: Int? = nil,
+        outputTokens: Int? = nil,
+        totalTokens: Int,
+        cachedInputTokens: Int = 0,
+        requestCount: Int,
+        activeDurationSeconds: Int
+    ) -> AIUsageBucket {
+        let start = Calendar.autoupdatingCurrent.date(bySettingHour: 10, minute: 0, second: 0, of: Date()) ?? Date()
+        let end = Calendar.autoupdatingCurrent.date(byAdding: .hour, value: 1, to: start) ?? start
+        let resolvedInput = inputTokens ?? totalTokens
+        let resolvedOutput = outputTokens ?? max(0, totalTokens - resolvedInput)
+        return AIUsageBucket(
+            source: source,
+            sessionKey: sessionKey,
+            externalSessionID: externalSessionID,
+            sessionTitle: sessionTitle,
+            model: model,
+            projectID: projectID,
+            projectName: projectName,
+            bucketStart: start,
+            bucketEnd: end,
+            inputTokens: resolvedInput,
+            outputTokens: resolvedOutput,
+            totalTokens: totalTokens,
+            cachedInputTokens: cachedInputTokens,
+            requestCount: requestCount,
+            activeDurationSeconds: activeDurationSeconds,
+            firstSeenAt: start,
+            lastSeenAt: start.addingTimeInterval(60)
         )
     }
 

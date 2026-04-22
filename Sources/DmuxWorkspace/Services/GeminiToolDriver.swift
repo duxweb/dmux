@@ -32,6 +32,9 @@ struct GeminiToolDriver: AIToolDriver {
 
         resolvedEvent.aiSessionID = normalizedNonEmptyString(resolvedEvent.aiSessionID) ?? parsedState.externalSessionID
         resolvedEvent.model = resolvedEvent.model ?? parsedState.model
+        resolvedEvent.inputTokens = parsedState.inputTokens
+        resolvedEvent.outputTokens = parsedState.outputTokens
+        resolvedEvent.cachedInputTokens = parsedState.cachedInputTokens
         resolvedEvent.totalTokens = max(
             resolvedEvent.totalTokens ?? 0,
             fallbackTotalTokens ?? 0,
@@ -68,6 +71,7 @@ struct GeminiToolDriver: AIToolDriver {
             model: parsedState.model,
             inputTokens: parsedState.inputTokens,
             outputTokens: parsedState.outputTokens,
+            cachedInputTokens: parsedState.cachedInputTokens,
             totalTokens: parsedState.totalTokens,
             updatedAt: parsedState.updatedAt,
             responseState: parsedState.responseState,

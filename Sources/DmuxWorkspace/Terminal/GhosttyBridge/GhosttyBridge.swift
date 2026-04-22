@@ -592,29 +592,6 @@ private extension NSColor {
     }
 }
 
-struct GhosttyResizeTransitionState {
-    private(set) var isSuspended = false
-    private var pendingViewport: InMemoryTerminalViewport?
-
-    mutating func begin() {
-        isSuspended = true
-    }
-
-    mutating func capture(_ viewport: InMemoryTerminalViewport) -> InMemoryTerminalViewport? {
-        guard isSuspended else {
-            return viewport
-        }
-        pendingViewport = viewport
-        return nil
-    }
-
-    mutating func end() -> InMemoryTerminalViewport? {
-        isSuspended = false
-        defer { pendingViewport = nil }
-        return pendingViewport
-    }
-}
-
 private final class GhosttyPTYProcessBridge: @unchecked Sendable {
     let sessionID: UUID
     let processInstanceID = UUID().uuidString.lowercased()
@@ -641,7 +618,6 @@ private final class GhosttyPTYProcessBridge: @unchecked Sendable {
     private var launchDate = Date()
     private var hasObservedOutput = false
     private var lastViewport = InMemoryTerminalViewport(columns: 80, rows: 24)
-    private var resizeTransitionState = GhosttyResizeTransitionState()
 
     init(sessionID: UUID) {
         self.sessionID = sessionID
@@ -712,24 +688,6 @@ private final class GhosttyPTYProcessBridge: @unchecked Sendable {
         lock.lock()
         hasObservedOutput = false
         lock.unlock()
-    }
-
-    func beginStructuralResizeTransition() {
-        lock.lock()
-        resizeTransitionState.begin()
-        lock.unlock()
-    }
-
-    func endStructuralResizeTransition() {
-        let viewport: InMemoryTerminalViewport?
-        lock.lock()
-        viewport = resizeTransitionState.end()
-        lock.unlock()
-
-        guard let viewport else {
-            return
-        }
-        resizeProcess(viewport)
     }
 
     var currentShellPID: Int32? {
@@ -875,9 +833,7 @@ private final class GhosttyPTYProcessBridge: @unchecked Sendable {
                 }
                 lock.unlock()
 
-                DmuxTerminalOutputEventEmitter.shared.noteOutput(sessionID: sessionID)
                 terminalSession.receive(data)
-
                 if fireFirstOutput {
                     DispatchQueue.main.async { [weak self] in
                         self?.onFirstOutput?()
@@ -982,27 +938,21 @@ private final class GhosttyPTYProcessBridge: @unchecked Sendable {
     }
 
     private func resizeProcess(_ viewport: InMemoryTerminalViewport) {
-        let viewportToApply: InMemoryTerminalViewport?
         lock.lock()
         lastViewport = viewport
-        viewportToApply = resizeTransitionState.capture(viewport)
         let fd = masterFD
         let pid = shellPID
         lock.unlock()
-
-        guard let viewportToApply else {
-            return
-        }
         guard fd >= 0 else {
             return
         }
 
         ioQueue.async {
             var winsizeValue = winsize(
-                ws_row: viewportToApply.rows,
-                ws_col: viewportToApply.columns,
-                ws_xpixel: UInt16(min(viewportToApply.widthPixels, UInt32(UInt16.max))),
-                ws_ypixel: UInt16(min(viewportToApply.heightPixels, UInt32(UInt16.max)))
+                ws_row: viewport.rows,
+                ws_col: viewport.columns,
+                ws_xpixel: UInt16(min(viewport.widthPixels, UInt32(UInt16.max))),
+                ws_ypixel: UInt16(min(viewport.heightPixels, UInt32(UInt16.max)))
             )
             _ = ioctl(fd, TIOCSWINSZ, &winsizeValue)
             if pid > 0 {
@@ -1067,6 +1017,7 @@ struct GhosttyTerminalHostView: NSViewRepresentable {
             onStartupFailure: onStartupFailure
         )
         let coordinator = context.coordinator
+        let previousContainerView = coordinator.containerView
         coordinator.containerView = view
         coordinator.bindGeneration &+= 1
         let generation = coordinator.bindGeneration
@@ -1093,12 +1044,23 @@ struct GhosttyTerminalHostView: NSViewRepresentable {
             bindHostedView(false)
         }
         nsView.onGeometryChanged = {
-            bindHostedView(true)
+            guard nsView.window != nil else {
+                GhosttyTerminalPortalRegistry.detach(
+                    hostedView: view,
+                    ifOwnedByAnchorId: coordinator.boundAnchorId
+                )
+                return
+            }
+            GhosttyTerminalPortalRegistry.synchronizeForAnchor(nsView)
         }
 
         if nsView.window != nil {
-            GhosttyTerminalPortalRegistry.bind(hostedView: view, to: nsView, visibleInUI: isVisible)
-            GhosttyTerminalPortalRegistry.synchronizeForAnchor(nsView)
+            if previousContainerView !== view {
+                GhosttyTerminalPortalRegistry.bind(hostedView: view, to: nsView, visibleInUI: isVisible)
+                GhosttyTerminalPortalRegistry.synchronizeForAnchor(nsView)
+            } else {
+                GhosttyTerminalPortalRegistry.updateEntryVisibility(for: view, visibleInUI: isVisible)
+            }
         } else {
             GhosttyTerminalPortalRegistry.updateEntryVisibility(for: view, visibleInUI: isVisible)
         }
@@ -1137,16 +1099,6 @@ struct GhosttyTerminalHostView: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            notifyGeometryChangedIfNeeded()
-        }
-
-        override func setFrameOrigin(_ newOrigin: NSPoint) {
-            super.setFrameOrigin(newOrigin)
-            notifyGeometryChangedIfNeeded()
-        }
-
-        override func setFrameSize(_ newSize: NSSize) {
-            super.setFrameSize(newSize)
             notifyGeometryChangedIfNeeded()
         }
 
@@ -1482,11 +1434,8 @@ private final class GhosttyWindowPortal {
         if entry.mountedView.frame != frameInHost {
             entry.mountedView.frame = frameInHost
         }
-        entry.mountedView.needsLayout = true
-        entry.mountedView.layoutSubtreeIfNeeded()
         entry.mountedView.isHidden = false
         entry.hostedView.isHidden = false
-        entry.hostedView.layoutSubtreeIfNeeded()
 
         CATransaction.commit()
     }
@@ -1652,11 +1601,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     private var hasReportedStartupFailure = false
     private var pendingStartWorkItem: DispatchWorkItem?
     private var startupWatchdogWorkItem: DispatchWorkItem?
-    private var structuralResizeRestoreWorkItem: DispatchWorkItem?
     private var pendingPermanentTearDown = false
-    private var geometryReconcileGeneration: UInt64 = 0
-    private var geometryReconcileScheduled = false
-    private var pendingGeometryReconcilePasses = 0
     private var lastAppliedFocusedState: Bool?
     private var lastAppliedVisibleState: Bool?
     private var lastShowsInactiveOverlay = false
@@ -1747,7 +1692,6 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
 
         if configuredSession.id != session.id {
             cancelDeferredLifecycleWork()
-            DmuxTerminalOutputEventEmitter.shared.clear(sessionID: configuredSession.id)
             processBridge.terminateProcessTree()
             configuredSession = session
             hasStartedProcess = false
@@ -1766,13 +1710,12 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         let visibilityChanged = lastAppliedVisibleState != isVisible
         lastAppliedFocusedState = isFocused
         lastAppliedVisibleState = isVisible
-        terminalView.setSurfaceVisible(isVisible)
+        if visibilityChanged {
+            terminalView.setSurfaceVisible(isVisible)
+        }
 
         if isVisible {
             scheduleProcessStartIfPossible(reason: isFocused ? "update-focused" : "update-visible")
-            if focusChanged || visibilityChanged {
-                scheduleGeometryReconcile()
-            }
         }
 
         let showsDimOverlay = showsInactiveOverlay && isVisible && !isFocused
@@ -1794,7 +1737,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             return
         }
         terminalBackgroundPreset = preset
-        let themeChanged = controller.setTheme(Self.theme(for: preset, backgroundColorPreset: backgroundColorPreset))
+        _ = controller.setTheme(Self.theme(for: preset, backgroundColorPreset: backgroundColorPreset))
         inactiveOverlayView.layer?.backgroundColor = Self.inactiveOverlayColor(for: preset, backgroundColorPreset: backgroundColorPreset).cgColor
 
         let isFocused = lastAppliedFocusedState ?? false
@@ -1802,12 +1745,6 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         let showsDimOverlay = lastShowsInactiveOverlay && isVisible && !isFocused
         setInactiveOverlay(visible: showsDimOverlay)
         applyEffectiveBackgroundColor()
-
-        guard themeChanged, window != nil else {
-            return
-        }
-
-        scheduleGeometryReconcile()
     }
 
     func focusTerminal() {
@@ -1832,31 +1769,6 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             GhosttyTerminalRegistry.shared.markFocused(sessionID: configuredSession.id)
             onFocusConsumed?()
         }
-    }
-
-    func beginStructuralResizeTransition(duration: TimeInterval = 0.22) {
-        structuralResizeRestoreWorkItem?.cancel()
-        processBridge.beginStructuralResizeTransition()
-
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else {
-                return
-            }
-            self.structuralResizeRestoreWorkItem = nil
-            self.layoutSubtreeIfNeeded()
-            self.terminalView.layoutSubtreeIfNeeded()
-            self.terminalView.fitToSize()
-            self.processBridge.endStructuralResizeTransition()
-        }
-        structuralResizeRestoreWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: workItem)
-    }
-
-    func reconcileGeometry() {
-        guard bounds.width > 0, bounds.height > 0 else {
-            return
-        }
-        scheduleGeometryReconcile()
     }
 
     var terminalShellPID: Int32? {
@@ -1922,15 +1834,6 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             return
         }
         scheduleProcessStartIfPossible(reason: "window-attached")
-        scheduleGeometryReconcile()
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        guard superview != nil, window != nil else {
-            return
-        }
-        scheduleGeometryReconcile()
     }
 
     func sendText(_ text: String) {
@@ -2093,8 +1996,6 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         pendingStartWorkItem = nil
         startupWatchdogWorkItem?.cancel()
         startupWatchdogWorkItem = nil
-        structuralResizeRestoreWorkItem?.cancel()
-        structuralResizeRestoreWorkItem = nil
     }
 
     private func scheduleProcessStartIfPossible(reason: String) {
@@ -2229,9 +2130,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     }
 
     private func tearDownTerminalView() {
-        geometryReconcileGeneration &+= 1
-        geometryReconcileScheduled = false
-        pendingGeometryReconcilePasses = 0
+        terminalView.setSurfaceVisible(false)
         if window?.firstResponder === terminalView {
             window?.makeFirstResponder(nil)
         }
@@ -2262,72 +2161,6 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         }
         notifyInteraction()
         focusTerminal()
-    }
-
-    private func scheduleGeometryReconcile(passCount: Int = 1) {
-        pendingGeometryReconcilePasses = max(pendingGeometryReconcilePasses, max(1, passCount))
-        guard geometryReconcileScheduled == false else {
-            return
-        }
-
-        geometryReconcileGeneration &+= 1
-        let generation = geometryReconcileGeneration
-        geometryReconcileScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            self?.runGeometryReconcilePass(generation: generation)
-        }
-    }
-
-    private func runGeometryReconcilePass(generation: UInt64) {
-        guard generation == geometryReconcileGeneration else {
-            geometryReconcileScheduled = false
-            return
-        }
-
-        let remainingPasses = max(1, pendingGeometryReconcilePasses)
-        pendingGeometryReconcilePasses = 0
-
-        guard window != nil, bounds.width > 0, bounds.height > 0 else {
-            if remainingPasses > 1 {
-                pendingGeometryReconcilePasses = max(pendingGeometryReconcilePasses, remainingPasses - 1)
-                DispatchQueue.main.async { [weak self] in
-                    self?.runGeometryReconcilePass(generation: generation)
-                }
-            } else {
-                geometryReconcileScheduled = false
-            }
-            return
-        }
-
-        layoutSubtreeIfNeeded()
-        terminalView.layoutSubtreeIfNeeded()
-        _ = terminalView.reconcileGeometryNow()
-        alignTerminalSurfaceGeometry()
-        terminalView.fitToSize()
-
-        let nextPendingPasses = max(pendingGeometryReconcilePasses, remainingPasses - 1)
-        if nextPendingPasses > 0 {
-            pendingGeometryReconcilePasses = nextPendingPasses
-            DispatchQueue.main.async { [weak self] in
-                self?.runGeometryReconcilePass(generation: generation)
-            }
-        } else {
-            geometryReconcileScheduled = false
-        }
-    }
-
-    private func alignTerminalSurfaceGeometry() {
-        guard bounds.width > 0, bounds.height > 0 else {
-            return
-        }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-
-        if terminalView.frame != bounds {
-            terminalView.frame = bounds
-        }
-        CATransaction.commit()
     }
 
     private func configureTerminalView(_ view: AppTerminalView) {
@@ -2545,7 +2378,6 @@ final class GhosttyTerminalRegistry {
             "release session=\(sessionID.uuidString) remaining=\(containers.count)"
         )
         GhosttyTerminalPortalRegistry.detach(hostedView: container)
-        DmuxTerminalOutputEventEmitter.shared.clear(sessionID: sessionID)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         container.removeFromSuperviewWithoutNeedingDisplay()
@@ -2554,18 +2386,6 @@ final class GhosttyTerminalRegistry {
         if explicitFocusedSessionID == sessionID {
             explicitFocusedSessionID = nil
             NotificationCenter.default.post(name: .dmuxTerminalFocusDidChange, object: sessionID)
-        }
-    }
-
-    func beginStructuralResizeTransition(for sessionIDs: [UUID]) {
-        for sessionID in sessionIDs {
-            containers[sessionID]?.beginStructuralResizeTransition()
-        }
-    }
-
-    func reconcileGeometry(for sessionIDs: [UUID]) {
-        for sessionID in sessionIDs {
-            containers[sessionID]?.reconcileGeometry()
         }
     }
 

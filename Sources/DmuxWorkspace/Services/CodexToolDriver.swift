@@ -29,6 +29,9 @@ struct CodexToolDriver: AIToolDriver {
         }
 
         resolvedEvent.model = resolvedEvent.model ?? parsedState.model
+        resolvedEvent.inputTokens = parsedState.inputTokens ?? resolvedEvent.inputTokens
+        resolvedEvent.outputTokens = parsedState.outputTokens ?? resolvedEvent.outputTokens
+        resolvedEvent.cachedInputTokens = parsedState.cachedInputTokens ?? resolvedEvent.cachedInputTokens
         if let parsedTotalTokens = parsedState.totalTokens {
             resolvedEvent.totalTokens = max(
                 resolvedEvent.totalTokens ?? 0,
@@ -78,8 +81,9 @@ struct CodexToolDriver: AIToolDriver {
             tool: id,
             externalSessionID: normalizedNonEmptyString(session.aiSessionID),
             model: parsedState.model ?? session.model,
-            inputTokens: parsedState.totalTokens ?? 0,
-            outputTokens: 0,
+            inputTokens: parsedState.inputTokens ?? 0,
+            outputTokens: parsedState.outputTokens ?? 0,
+            cachedInputTokens: parsedState.cachedInputTokens ?? 0,
             totalTokens: parsedState.totalTokens ?? 0,
             updatedAt: parsedState.updatedAt ?? session.updatedAt,
             responseState: parsedState.responseState,

@@ -25,6 +25,9 @@ struct ClaudeToolDriver: AIToolDriver {
                externalSessionID: externalSessionID
            ) {
             resolvedEvent.model = resolvedEvent.model ?? snapshot.model ?? currentSession?.model
+            resolvedEvent.inputTokens = snapshot.inputTokens
+            resolvedEvent.outputTokens = snapshot.outputTokens
+            resolvedEvent.cachedInputTokens = snapshot.cachedInputTokens
             resolvedEvent.totalTokens = max(
                 resolvedEvent.totalTokens ?? 0,
                 fallbackTotalTokens ?? 0,

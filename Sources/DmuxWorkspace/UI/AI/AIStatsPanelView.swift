@@ -22,25 +22,24 @@ struct AIStatsPanelView: View {
 
     var body: some View {
         let _ = store.renderVersion
+        let statisticsDisplayMode = model.appSettings.aiStatisticsDisplayMode
         VStack(spacing: 0) {
             AIStatsHeader(model: model)
 
             if stateMatchesCurrentProject, let summary = store.state.projectSummary {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        AIStatsLiveSessionsCard(model: model, snapshots: store.state.liveSnapshots)
+                        AIStatsLiveSessionsCard(model: model, snapshots: store.state.liveSnapshots, displayMode: statisticsDisplayMode)
                         AIStatsSummaryCards(
-                            model: model,
                             summary: summary,
-                            heatmap: store.state.heatmap,
-                            todayTimeBuckets: store.state.todayTimeBuckets
+                            displayMode: statisticsDisplayMode
                         )
                         if showsDeferredDetails {
-                            AIStatsTodayUsageBarChart(model: model, buckets: store.state.todayTimeBuckets)
-                            AIStatsHeatmapCard(model: model, days: store.state.heatmap)
-                            AIStatsBreakdownCard(model: model, title: String(localized: "ai.breakdown.tool_ranking", defaultValue: "Tool Ranking", bundle: .module), items: store.state.toolBreakdown)
-                            AIStatsBreakdownCard(model: model, title: String(localized: "ai.breakdown.model_ranking", defaultValue: "Model Ranking", bundle: .module), items: store.state.modelBreakdown)
-                            AIStatsSessionsCard(model: model, sessions: store.state.sessions)
+                            AIStatsTodayUsageBarChart(model: model, buckets: store.state.todayTimeBuckets, displayMode: statisticsDisplayMode)
+                            AIStatsHeatmapCard(model: model, days: store.state.heatmap, displayMode: statisticsDisplayMode)
+                            AIStatsBreakdownCard(model: model, title: String(localized: "ai.breakdown.tool_ranking", defaultValue: "Tool Ranking", bundle: .module), items: store.state.toolBreakdown, displayMode: statisticsDisplayMode)
+                            AIStatsBreakdownCard(model: model, title: String(localized: "ai.breakdown.model_ranking", defaultValue: "Model Ranking", bundle: .module), items: store.state.modelBreakdown, displayMode: statisticsDisplayMode)
+                            AIStatsSessionsCard(model: model, sessions: store.state.sessions, displayMode: statisticsDisplayMode)
                         } else {
                             AIStatsDeferredSectionsPlaceholder()
                         }
@@ -178,16 +177,14 @@ private struct AIStatsHeader: View {
 // MARK: - Summary Cards
 
 private struct AIStatsSummaryCards: View {
-    let model: AppModel
     let summary: AIProjectUsageSummary
-    let heatmap: [AIHeatmapDay]
-    let todayTimeBuckets: [AITimeBucket]
+    let displayMode: AppAIStatisticsDisplayMode
 
     var body: some View {
         HStack(spacing: 10) {
             metricCard(
                 title: String(localized: "ai.summary.current_project", defaultValue: "Current Project", bundle: .module),
-                value: formatCompactToken(summary.projectTotalTokens),
+                value: formatCompactToken(summary.displayedProjectTotalTokens(mode: displayMode)),
                 accent: AppTheme.focus
             )
             metricCard(
@@ -199,19 +196,7 @@ private struct AIStatsSummaryCards: View {
     }
 
     private var displayedTodayTotalTokens: Int {
-        let bucketTotal = todayTimeBuckets.reduce(0) { $0 + $1.totalTokens }
-        if bucketTotal > 0 {
-            return bucketTotal
-        }
-
-        let calendar = Calendar.autoupdatingCurrent
-        let today = calendar.startOfDay(for: Date())
-        if let heatmapToday = heatmap.first(where: { calendar.isDate($0.day, inSameDayAs: today) })?.totalTokens,
-           heatmapToday > 0 {
-            return heatmapToday
-        }
-
-        return summary.todayTotalTokens
+        return summary.displayedTodayTotalTokens(mode: displayMode)
     }
 
     private func metricCard(title: String, value: String, accent: Color) -> some View {
@@ -244,6 +229,7 @@ private struct AIStatsSummaryCards: View {
 private struct AIStatsLiveSessionsCard: View {
     let model: AppModel
     let snapshots: [AITerminalSessionSnapshot]
+    let displayMode: AppAIStatisticsDisplayMode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -297,11 +283,7 @@ private struct AIStatsLiveSessionsCard: View {
     }
 
     private func displayTokens(for snapshot: AITerminalSessionSnapshot) -> Int {
-        let delta = max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens)
-        if delta > 0 {
-            return delta
-        }
-        return max(0, snapshot.currentTotalTokens)
+        max(0, snapshot.displayedCurrentTotalTokens(mode: displayMode))
     }
 }
 
@@ -310,6 +292,7 @@ private struct AIStatsLiveSessionsCard: View {
 private struct AIStatsHeatmapCard: View {
     let model: AppModel
     let days: [AIHeatmapDay]
+    let displayMode: AppAIStatisticsDisplayMode
     @State private var hoveredDay: AIHeatmapDay?
     @State private var hoveredDayAnchor: CGPoint = .zero
 
@@ -319,7 +302,7 @@ private struct AIStatsHeatmapCard: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            AIRecentDaysHeatmapGrid(days: days, hoveredDay: $hoveredDay, hoveredAnchor: $hoveredDayAnchor)
+            AIRecentDaysHeatmapGrid(days: days, hoveredDay: $hoveredDay, hoveredAnchor: $hoveredDayAnchor, displayMode: displayMode)
         }
         .padding(14)
         .background(AppTheme.aiPanelCardBackground.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -328,7 +311,7 @@ private struct AIStatsHeatmapCard: View {
                 if let hoveredDay {
                     AIChartTooltip(
                         title: formattedNumericDate(hoveredDay.day, language: model.displayLanguage),
-                        primary: "\(String(localized: "ai.metric.token", defaultValue: "Token", bundle: .module)) \(formatCompactToken(hoveredDay.totalTokens))",
+                        primary: "\(String(localized: "ai.metric.token", defaultValue: "Token", bundle: .module)) \(formatCompactToken(hoveredDay.displayedTotalTokens(mode: displayMode)))",
                         secondary: String(format: String(localized: "common.requests_format", defaultValue: "Requests %@", bundle: .module), "\(hoveredDay.requestCount)")
                     )
                     .position(chartTooltipPosition(anchor: hoveredDayAnchor, containerSize: proxy.size, tooltipSize: CGSize(width: 150, height: 72)))
@@ -343,11 +326,12 @@ private struct AIRecentDaysHeatmapGrid: View {
     let days: [AIHeatmapDay]
     @Binding var hoveredDay: AIHeatmapDay?
     @Binding var hoveredAnchor: CGPoint
+    let displayMode: AppAIStatisticsDisplayMode
 
     var body: some View {
-        let maxTokens = max(days.map(\.totalTokens).max() ?? 0, 1)
+        let maxTokens = max(days.map { $0.displayedTotalTokens(mode: displayMode) }.max() ?? 0, 1)
         let sortedNonZeroTokens = days
-            .map(\.totalTokens)
+            .map { $0.displayedTotalTokens(mode: displayMode) }
             .filter { $0 > 0 }
             .sorted()
 
@@ -436,7 +420,11 @@ private struct AIRecentDaysHeatmapGrid: View {
 
     private func fillColor(for item: AIHeatmapDay?, maxTokens: Int, sortedNonZeroTokens: [Int]) -> Color {
         guard let item else { return .clear }
-        let normalized = percentileRatio(value: item.totalTokens, maxValue: maxTokens, sortedNonZeroTokens: sortedNonZeroTokens)
+        let normalized = percentileRatio(
+            value: item.displayedTotalTokens(mode: displayMode),
+            maxValue: maxTokens,
+            sortedNonZeroTokens: sortedNonZeroTokens
+        )
         switch normalized {
         case 0..<0.10:
             return AppTheme.focus.opacity(0.14)
@@ -523,6 +511,7 @@ private struct AIRecentDaysHeatmapGrid: View {
 private struct AIStatsTodayUsageBarChart: View {
     let model: AppModel
     let buckets: [AITimeBucket]
+    let displayMode: AppAIStatisticsDisplayMode
     @State private var hoveredBucket: AITimeBucket?
     @State private var hoveredBucketAnchor: CGPoint = .zero
 
@@ -532,7 +521,7 @@ private struct AIStatsTodayUsageBarChart: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            let maxTokens = max(buckets.map(\.totalTokens).max() ?? 0, 1)
+            let maxTokens = max(buckets.map { $0.displayedTotalTokens(mode: displayMode) }.max() ?? 0, 1)
             GeometryReader { proxy in
                 let spacing: CGFloat = 2
                 let barCount = max(buckets.count, 1)
@@ -546,7 +535,7 @@ private struct AIStatsTodayUsageBarChart: View {
                             ForEach(Array(buckets.enumerated()), id: \.offset) { _, bucket in
                                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                                     .fill(hoveredBucket?.id == bucket.id ? AppTheme.focus : AppTheme.focus.opacity(0.7))
-                                    .frame(width: barWidth, height: max(6, CGFloat(bucket.totalTokens) / CGFloat(maxTokens) * 72))
+                                    .frame(width: barWidth, height: max(6, CGFloat(bucket.displayedTotalTokens(mode: displayMode)) / CGFloat(maxTokens) * 72))
                             }
                         }
                         .frame(width: chartWidth, height: chartHeight, alignment: .bottomLeading)
@@ -611,7 +600,7 @@ private struct AIStatsTodayUsageBarChart: View {
                 if let hoveredBucket {
                     AIChartTooltip(
                         title: bucketRangeLabel(hoveredBucket.start, hoveredBucket.end),
-                        primary: "\(String(localized: "ai.metric.token", defaultValue: "Token", bundle: .module)) \(formatCompactToken(hoveredBucket.totalTokens))",
+                        primary: "\(String(localized: "ai.metric.token", defaultValue: "Token", bundle: .module)) \(formatCompactToken(hoveredBucket.displayedTotalTokens(mode: displayMode)))",
                         secondary: String(format: String(localized: "common.requests_format", defaultValue: "Requests %@", bundle: .module), "\(hoveredBucket.requestCount)")
                     )
                     .position(chartTooltipPosition(anchor: hoveredBucketAnchor, containerSize: proxy.size, tooltipSize: CGSize(width: 172, height: 72)))
@@ -777,10 +766,12 @@ private func chartTooltipPosition(anchor: CGPoint, containerSize: CGSize, toolti
 
 private func formatCompactToken(_ value: Int) -> String {
     if value >= 1_000_000 {
-        return String(format: "%.1fM", Double(value) / 1_000_000)
+        let precision = value < 10_000_000 ? "%.2fM" : "%.1fM"
+        return String(format: precision, Double(value) / 1_000_000)
     }
     if value >= 1_000 {
-        return String(format: "%.1fK", Double(value) / 1_000)
+        let precision = value < 100_000 ? "%.2fK" : "%.1fK"
+        return String(format: precision, Double(value) / 1_000)
     }
     return "\(value)"
 }
@@ -809,6 +800,7 @@ private struct AIStatsBreakdownCard: View {
     let model: AppModel
     let title: String
     let items: [AIUsageBreakdownItem]
+    let displayMode: AppAIStatisticsDisplayMode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -821,10 +813,13 @@ private struct AIStatsBreakdownCard: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.tertiary)
             } else {
-                let total = max(items.reduce(0) { $0 + $1.totalTokens }, 1)
+                let sortedItems = items.sorted {
+                    $0.displayedTotalTokens(mode: displayMode) > $1.displayedTotalTokens(mode: displayMode)
+                }
+                let total = max(sortedItems.reduce(0) { $0 + $1.displayedTotalTokens(mode: displayMode) }, 1)
                 VStack(spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        let ratio = Double(item.totalTokens) / Double(total)
+                    ForEach(Array(sortedItems.enumerated()), id: \.element.id) { index, item in
+                        let ratio = Double(item.displayedTotalTokens(mode: displayMode)) / Double(total)
 
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
@@ -835,7 +830,7 @@ private struct AIStatsBreakdownCard: View {
 
                                 Spacer()
 
-                                Text(formatCompactToken(item.totalTokens))
+                                Text(formatCompactToken(item.displayedTotalTokens(mode: displayMode)))
                                     .font(.system(size: 13, weight: .bold, design: .rounded))
                                     .foregroundStyle(.secondary)
 
@@ -872,6 +867,7 @@ private struct AIStatsBreakdownCard: View {
 private struct AIStatsSessionsCard: View {
     let model: AppModel
     let sessions: [AISessionSummary]
+    let displayMode: AppAIStatisticsDisplayMode
     @State private var selectedSessionID: UUID?
     private let maxVisibleSessions = 20
 
@@ -931,10 +927,10 @@ private struct AIStatsSessionsCard: View {
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
-                                Text(formatCompactToken(session.totalTokens))
+                                Text(formatCompactToken(session.displayedTotalTokens(mode: displayMode)))
                                     .font(.system(size: 14, weight: .medium, design: .rounded))
                                     .foregroundStyle(.primary)
-                                Text(String(format: String(localized: "common.today_format", defaultValue: "Today %@", bundle: .module), formatCompactToken(session.todayTokens)))
+                                Text(String(format: String(localized: "common.today_format", defaultValue: "Today %@", bundle: .module), formatCompactToken(session.displayedTodayTokens(mode: displayMode))))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(.tertiary)
                             }

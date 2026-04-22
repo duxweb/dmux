@@ -2,6 +2,9 @@ import Foundation
 
 struct CodexParsedRuntimeState {
     var model: String?
+    var inputTokens: Int?
+    var outputTokens: Int?
+    var cachedInputTokens: Int?
     var totalTokens: Int?
     var updatedAt: Double?
     var startedAt: Double?
@@ -59,6 +62,9 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
     var latestUpdatedAt: Double?
     var latestStartedAt: Double?
     var latestCompletedAt: Double?
+    var inputTokens: Int?
+    var outputTokens: Int?
+    var cachedInputTokens: Int?
     var totalTokens: Int?
     var latestTurnWasInterrupted = false
     var latestTurnCompleted = false
@@ -141,8 +147,11 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
         case "token_count":
             let info = payload["info"] as? [String: Any] ?? [:]
             let totalUsage = info["total_token_usage"] as? [String: Any] ?? [:]
-            if let total = totalUsage["total_tokens"] as? NSNumber {
-                totalTokens = total.intValue
+            if let parsedUsage = parseCodexUsageTotals(totalUsage) {
+                inputTokens = parsedUsage.inputTokens
+                outputTokens = parsedUsage.outputTokens
+                cachedInputTokens = parsedUsage.cachedInputTokens
+                totalTokens = parsedUsage.totalTokens
             }
         default:
             continue
@@ -161,6 +170,9 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
 
     return CodexParsedRuntimeState(
         model: latestModel,
+        inputTokens: inputTokens,
+        outputTokens: outputTokens,
+        cachedInputTokens: cachedInputTokens,
         totalTokens: totalTokens,
         updatedAt: latestUpdatedAt,
         startedAt: latestStartedAt,
@@ -169,4 +181,29 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
         wasInterrupted: latestTurnWasInterrupted,
         hasCompletedTurn: latestTurnCompleted
     )
+}
+
+private func parseCodexUsageTotals(_ usage: [String: Any]) -> (inputTokens: Int, outputTokens: Int, cachedInputTokens: Int, totalTokens: Int)? {
+    if usage.isEmpty {
+        return nil
+    }
+    let rawInputTokens = (usage["input_tokens"] as? NSNumber)?.intValue ?? 0
+    let rawOutputTokens = (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
+    let cachedInputTokens = (usage["cached_input_tokens"] as? NSNumber)?.intValue
+        ?? (usage["cache_read_input_tokens"] as? NSNumber)?.intValue
+        ?? 0
+    let reasoningOutputTokens = (usage["reasoning_output_tokens"] as? NSNumber)?.intValue ?? 0
+    if rawInputTokens == 0,
+       rawOutputTokens == 0,
+       let rawTotalTokens = (usage["total_tokens"] as? NSNumber)?.intValue,
+       rawTotalTokens > 0 {
+        return (rawTotalTokens, 0, cachedInputTokens, rawTotalTokens)
+    }
+    let inputTokens = max(0, rawInputTokens - cachedInputTokens)
+    let outputTokens = max(0, rawOutputTokens - reasoningOutputTokens)
+    let totalTokens = inputTokens + outputTokens + reasoningOutputTokens
+    guard inputTokens > 0 || outputTokens > 0 || cachedInputTokens > 0 || totalTokens > 0 else {
+        return nil
+    }
+    return (inputTokens, outputTokens, cachedInputTokens, totalTokens)
 }

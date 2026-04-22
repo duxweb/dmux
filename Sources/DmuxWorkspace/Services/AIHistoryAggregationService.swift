@@ -60,6 +60,13 @@ struct AIHistoryExtractedSessionMetrics: Equatable, Sendable {
     var userPromptHours: [Int]
 }
 
+private struct AIUsageBucketGroupKey: Hashable {
+    var source: String
+    var sessionKey: String
+    var modelKey: String
+    var bucketStart: Date
+}
+
 struct AIHistoryAggregationService: Sendable {
     private let calendar = Calendar.autoupdatingCurrent
 
@@ -70,15 +77,57 @@ struct AIHistoryAggregationService: Sendable {
         project: Project,
         parseResult: AIHistoryParseResult
     ) -> AIExternalFileSummary {
-        let sessions = sortSessions(buildSessions(project: project, parseResults: [parseResult]))
-        return AIExternalFileSummary(
+        let usageBuckets = buildUsageBuckets(project: project, parseResult: parseResult)
+        return externalFileSummary(
             source: source,
             filePath: filePath,
             fileModifiedAt: fileModifiedAt,
             projectPath: project.path,
-            sessions: sessions,
-            dayUsage: buildHeatmap(parseResult.entries, events: parseResult.events),
-            timeBuckets: buildTodayTimeBuckets(parseResult.entries, events: parseResult.events)
+            usageBuckets: usageBuckets
+        )
+    }
+
+    func externalFileSummary(
+        source: String,
+        filePath: String,
+        fileModifiedAt: Double,
+        projectPath: String,
+        usageBuckets: [AIUsageBucket]
+    ) -> AIExternalFileSummary {
+        let project = usageBuckets.first.map {
+            Project(
+                id: $0.projectID,
+                name: $0.projectName,
+                path: projectPath,
+                shell: "/bin/zsh",
+                defaultCommand: "",
+                badgeText: nil,
+                badgeSymbol: nil,
+                badgeColorHex: nil,
+                gitDefaultPushRemoteName: nil
+            )
+        } ?? Project(
+            id: UUID(),
+            name: URL(fileURLWithPath: projectPath).lastPathComponent,
+            path: projectPath,
+            shell: "/bin/zsh",
+            defaultCommand: "",
+            badgeText: nil,
+            badgeSymbol: nil,
+            badgeColorHex: nil,
+            gitDefaultPushRemoteName: nil
+        )
+
+        let summary = makeProjectSummary(project: project, usageBuckets: usageBuckets)
+        return AIExternalFileSummary(
+            source: source,
+            filePath: filePath,
+            fileModifiedAt: fileModifiedAt,
+            projectPath: projectPath,
+            usageBuckets: usageBuckets,
+            sessions: summary.sessions,
+            dayUsage: summary.heatmap,
+            timeBuckets: summary.todayTimeBuckets
         )
     }
 
@@ -153,71 +202,187 @@ struct AIHistoryAggregationService: Sendable {
         project: Project,
         parseResults: [AIHistoryParseResult]
     ) -> AIProjectDirectorySourceSummary {
-        let entries = parseResults.flatMap(\.entries)
-        let events = parseResults.flatMap(\.events)
-        return makeProjectSummary(
-            project: project,
-            sessions: buildSessions(project: project, parseResults: parseResults),
-            heatmap: buildHeatmap(entries, events: events),
-            todayTimeBuckets: buildTodayTimeBuckets(entries, events: events)
-        )
+        let usageBuckets = parseResults.flatMap { buildUsageBuckets(project: project, parseResult: $0) }
+        return makeProjectSummary(project: project, usageBuckets: usageBuckets)
     }
 
     func buildProjectSummary(
         project: Project,
         fileSummaries: [AIExternalFileSummary]
     ) -> AIProjectDirectorySourceSummary {
-        makeProjectSummary(
-            project: project,
-            sessions: mergeSessions(fileSummaries.flatMap(\.sessions)),
-            heatmap: mergeHeatmap(fileSummaries.flatMap(\.dayUsage)),
-            todayTimeBuckets: mergeTimeBuckets(fileSummaries.flatMap(\.timeBuckets))
-        )
+        makeProjectSummary(project: project, usageBuckets: fileSummaries.flatMap(\.usageBuckets))
     }
 
-    private func buildSessions(
+    func buildUsageBuckets(
         project: Project,
-        parseResults: [AIHistoryParseResult]
-    ) -> [AISessionSummary] {
-        let entries = parseResults.flatMap(\.entries)
-        let events = parseResults.flatMap(\.events)
-        let metadataByKey = mergeMetadata(parseResults.map(\.metadataByKey))
-        let usageByKey = aggregateUsage(entries)
+        parseResult: AIHistoryParseResult
+    ) -> [AIUsageBucket] {
+        let metadataByKey = parseResult.metadataByKey
         let activityByKey = Dictionary(
-            uniqueKeysWithValues: extractSessions(events).map { ($0.key, $0) }
+            uniqueKeysWithValues: extractSessions(parseResult.events).map { ($0.key, $0) }
         )
+        var map: [AIUsageBucketGroupKey: AIUsageBucket] = [:]
 
-        let allKeys = Set(usageByKey.keys)
-            .union(activityByKey.keys)
-            .union(metadataByKey.keys)
-
-        return allKeys.compactMap { key in
-            makeSessionSummary(
-                project: project,
-                key: key,
-                usage: usageByKey[key],
-                activity: activityByKey[key],
-                metadata: metadataByKey[key]
+        for entry in parseResult.entries {
+            let metadata = metadataByKey[entry.key]
+            let bucketStart = roundToHour(entry.timestamp)
+            let key = AIUsageBucketGroupKey(
+                source: entry.key.source,
+                sessionKey: entry.key.sessionID,
+                modelKey: normalizedNonEmptyString(entry.model) ?? "",
+                bucketStart: bucketStart
             )
+            let externalSessionID = normalizedNonEmptyString(metadata?.externalSessionID) ?? entry.key.sessionID
+            let sessionTitle = preferredTitle(metadata?.sessionTitle, project.name) ?? project.name
+            let bucketEnd = calendar.date(byAdding: .hour, value: 1, to: bucketStart) ?? bucketStart
+
+            if var bucket = map[key] {
+                bucket.inputTokens += entry.inputTokens
+                bucket.outputTokens += entry.outputTokens
+                bucket.totalTokens += entry.totalTokens
+                bucket.cachedInputTokens += entry.cachedInputTokens
+                bucket.firstSeenAt = min(bucket.firstSeenAt, entry.timestamp)
+                bucket.lastSeenAt = max(bucket.lastSeenAt, entry.timestamp)
+                map[key] = bucket
+            } else {
+                map[key] = AIUsageBucket(
+                    source: entry.key.source,
+                    sessionKey: entry.key.sessionID,
+                    externalSessionID: externalSessionID,
+                    sessionTitle: sessionTitle,
+                    model: normalizedNonEmptyString(entry.model),
+                    projectID: project.id,
+                    projectName: project.name,
+                    bucketStart: bucketStart,
+                    bucketEnd: bucketEnd,
+                    inputTokens: entry.inputTokens,
+                    outputTokens: entry.outputTokens,
+                    totalTokens: entry.totalTokens,
+                    cachedInputTokens: entry.cachedInputTokens,
+                    requestCount: 0,
+                    activeDurationSeconds: 0,
+                    firstSeenAt: entry.timestamp,
+                    lastSeenAt: entry.timestamp
+                )
+            }
+        }
+
+        for event in parseResult.events {
+            let metadata = metadataByKey[event.key]
+            let bucketStart = roundToHour(event.timestamp)
+            let key = AIUsageBucketGroupKey(
+                source: event.key.source,
+                sessionKey: event.key.sessionID,
+                modelKey: "",
+                bucketStart: bucketStart
+            )
+            let externalSessionID = normalizedNonEmptyString(metadata?.externalSessionID) ?? event.key.sessionID
+            let sessionTitle = preferredTitle(metadata?.sessionTitle, project.name) ?? project.name
+            let bucketEnd = calendar.date(byAdding: .hour, value: 1, to: bucketStart) ?? bucketStart
+
+            if var bucket = map[key] {
+                if event.role == .user {
+                    bucket.requestCount += 1
+                }
+                bucket.firstSeenAt = min(bucket.firstSeenAt, event.timestamp)
+                bucket.lastSeenAt = max(bucket.lastSeenAt, event.timestamp)
+                map[key] = bucket
+            } else {
+                map[key] = AIUsageBucket(
+                    source: event.key.source,
+                    sessionKey: event.key.sessionID,
+                    externalSessionID: externalSessionID,
+                    sessionTitle: sessionTitle,
+                    model: nil,
+                    projectID: project.id,
+                    projectName: project.name,
+                    bucketStart: bucketStart,
+                    bucketEnd: bucketEnd,
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    totalTokens: 0,
+                    cachedInputTokens: 0,
+                    requestCount: event.role == .user ? 1 : 0,
+                    activeDurationSeconds: 0,
+                    firstSeenAt: event.timestamp,
+                    lastSeenAt: event.timestamp
+                )
+            }
+        }
+
+        for (sessionKey, activity) in activityByKey {
+            let metadata = metadataByKey[sessionKey]
+            let bucketStart = roundToHour(activity.lastMessageAt)
+            let key = AIUsageBucketGroupKey(
+                source: sessionKey.source,
+                sessionKey: sessionKey.sessionID,
+                modelKey: "",
+                bucketStart: bucketStart
+            )
+            let externalSessionID = normalizedNonEmptyString(metadata?.externalSessionID) ?? sessionKey.sessionID
+            let sessionTitle = preferredTitle(metadata?.sessionTitle, project.name) ?? project.name
+            let bucketEnd = calendar.date(byAdding: .hour, value: 1, to: bucketStart) ?? bucketStart
+
+            if var bucket = map[key] {
+                bucket.activeDurationSeconds += activity.activeSeconds
+                bucket.firstSeenAt = min(bucket.firstSeenAt, activity.firstMessageAt)
+                bucket.lastSeenAt = max(bucket.lastSeenAt, activity.lastMessageAt)
+                map[key] = bucket
+            } else {
+                map[key] = AIUsageBucket(
+                    source: sessionKey.source,
+                    sessionKey: sessionKey.sessionID,
+                    externalSessionID: externalSessionID,
+                    sessionTitle: sessionTitle,
+                    model: nil,
+                    projectID: project.id,
+                    projectName: project.name,
+                    bucketStart: bucketStart,
+                    bucketEnd: bucketEnd,
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    totalTokens: 0,
+                    cachedInputTokens: 0,
+                    requestCount: 0,
+                    activeDurationSeconds: activity.activeSeconds,
+                    firstSeenAt: activity.firstMessageAt,
+                    lastSeenAt: activity.lastMessageAt
+                )
+            }
+        }
+
+        return map.values.sorted {
+            if $0.bucketStart != $1.bucketStart {
+                return $0.bucketStart < $1.bucketStart
+            }
+            if $0.source != $1.source {
+                return $0.source < $1.source
+            }
+            if $0.sessionKey != $1.sessionKey {
+                return $0.sessionKey < $1.sessionKey
+            }
+            return ($0.model ?? "") < ($1.model ?? "")
         }
     }
 
     private func makeProjectSummary(
         project: Project,
-        sessions rawSessions: [AISessionSummary],
-        heatmap: [AIHeatmapDay],
-        todayTimeBuckets: [AITimeBucket]
+        usageBuckets: [AIUsageBucket]
     ) -> AIProjectDirectorySourceSummary {
-        let sessions = sortSessions(rawSessions)
-        let toolBreakdown = breakdown(items:
-            sessions.map { ($0.lastTool ?? keyLabelUnknownTool, $0.totalTokens, max($0.requestCount, 1)) }
+        let sessions = sortSessions(buildSessions(project: project, usageBuckets: usageBuckets))
+        let heatmap = buildHeatmap(usageBuckets)
+        let todayTimeBuckets = buildTodayTimeBuckets(usageBuckets)
+        let toolBreakdown = breakdown(
+            items: usageBuckets.map {
+                ($0.source, $0.totalTokens, $0.cachedInputTokens, $0.requestCount)
+            }
         )
-        let modelBreakdown = breakdown(items:
-            sessions.compactMap {
-                guard let model = normalizedNonEmptyString($0.lastModel) else {
+        let modelBreakdown = breakdown(
+            items: usageBuckets.compactMap {
+                guard let model = normalizedNonEmptyString($0.model) else {
                     return nil
                 }
-                return (model, $0.totalTokens, max($0.requestCount, 1))
+                return (model, $0.totalTokens, $0.cachedInputTokens, $0.requestCount)
             }
         )
 
@@ -230,227 +395,103 @@ struct AIHistoryAggregationService: Sendable {
         )
     }
 
-    private func mergeSessions(_ sessions: [AISessionSummary]) -> [AISessionSummary] {
-        var merged: [String: AISessionSummary] = [:]
-        for session in sessions {
-            let key = "\(session.lastTool ?? "unknown")|\(session.externalSessionID ?? session.sessionID.uuidString)"
-            if let existing = merged[key] {
-                merged[key] = AISessionSummary(
-                    sessionID: existing.sessionID,
-                    externalSessionID: existing.externalSessionID ?? session.externalSessionID,
-                    projectID: existing.projectID,
-                    projectName: existing.projectName,
-                    sessionTitle: preferredTitle(existing.sessionTitle, session.sessionTitle) ?? existing.sessionTitle,
-                    firstSeenAt: min(existing.firstSeenAt, session.firstSeenAt),
-                    lastSeenAt: max(existing.lastSeenAt, session.lastSeenAt),
-                    lastTool: existing.lastTool ?? session.lastTool,
-                    lastModel: existing.lastModel ?? session.lastModel,
-                    requestCount: max(existing.requestCount, session.requestCount),
-                    totalInputTokens: max(existing.totalInputTokens, session.totalInputTokens),
-                    totalOutputTokens: max(existing.totalOutputTokens, session.totalOutputTokens),
-                    totalTokens: max(existing.totalTokens, session.totalTokens),
-                    maxContextUsagePercent: max(existing.maxContextUsagePercent ?? 0, session.maxContextUsagePercent ?? 0),
-                    activeDurationSeconds: max(existing.activeDurationSeconds, session.activeDurationSeconds),
-                    todayTokens: max(existing.todayTokens, session.todayTokens)
-                )
-            } else {
-                merged[key] = session
-            }
-        }
-        return Array(merged.values)
-    }
-
-    private func mergeHeatmap(_ days: [AIHeatmapDay]) -> [AIHeatmapDay] {
-        var map: [Date: AIHeatmapDay] = [:]
-        for day in days {
-            if var existing = map[day.day] {
-                existing.totalTokens += day.totalTokens
-                existing.requestCount += day.requestCount
-                map[day.day] = existing
-            } else {
-                map[day.day] = day
-            }
-        }
-        return map.values.sorted { $0.day < $1.day }
-    }
-
-    private func mergeTimeBuckets(_ buckets: [AITimeBucket]) -> [AITimeBucket] {
-        var map: [Date: AITimeBucket] = [:]
-        for bucket in buckets {
-            if var existing = map[bucket.start] {
-                existing.totalTokens += bucket.totalTokens
-                existing.requestCount += bucket.requestCount
-                map[bucket.start] = existing
-            } else {
-                map[bucket.start] = bucket
-            }
-        }
-        return map.values.sorted { $0.start < $1.start }
-    }
-
-    private func mergeMetadata(
-        _ maps: [[AIHistorySessionKey: AIHistorySessionMetadata]]
-    ) -> [AIHistorySessionKey: AIHistorySessionMetadata] {
-        var merged: [AIHistorySessionKey: AIHistorySessionMetadata] = [:]
-        for map in maps {
-            for (key, metadata) in map {
-                if var existing = merged[key] {
-                    existing.externalSessionID = normalizedNonEmptyString(existing.externalSessionID)
-                        ?? normalizedNonEmptyString(metadata.externalSessionID)
-                    existing.sessionTitle = preferredTitle(existing.sessionTitle, metadata.sessionTitle)
-                    existing.model = normalizedNonEmptyString(existing.model)
-                        ?? normalizedNonEmptyString(metadata.model)
-                    merged[key] = existing
-                } else {
-                    merged[key] = metadata
-                }
-            }
-        }
-        return merged
-    }
-
-    private func preferredTitle(_ lhs: String?, _ rhs: String?) -> String? {
-        normalizedNonEmptyString(lhs) ?? normalizedNonEmptyString(rhs)
-    }
-
-    private func aggregateUsage(
-        _ entries: [AIHistoryUsageEntry]
-    ) -> [AIHistorySessionKey: (inputTokens: Int, outputTokens: Int, totalTokens: Int, model: String?, firstSeenAt: Date, lastSeenAt: Date, todayTokens: Int, requestCount: Int)] {
-        let now = Date()
-        let startOfToday = calendar.startOfDay(for: now)
-        var map: [AIHistorySessionKey: (inputTokens: Int, outputTokens: Int, totalTokens: Int, model: String?, firstSeenAt: Date, lastSeenAt: Date, todayTokens: Int, requestCount: Int)] = [:]
-
-        for entry in entries {
-            let inputTokens = entry.inputTokens
-            let outputTokens = entry.outputTokens
-            let todayTokens = calendar.startOfDay(for: entry.timestamp) == startOfToday ? entry.totalTokens : 0
-
-            if var existing = map[entry.key] {
-                existing.inputTokens += inputTokens
-                existing.outputTokens += outputTokens
-                existing.totalTokens += entry.totalTokens
-                if normalizedNonEmptyString(existing.model) == nil {
-                    existing.model = normalizedNonEmptyString(entry.model)
-                }
-                existing.firstSeenAt = min(existing.firstSeenAt, entry.timestamp)
-                existing.lastSeenAt = max(existing.lastSeenAt, entry.timestamp)
-                existing.todayTokens += todayTokens
-                map[entry.key] = existing
-            } else {
-                map[entry.key] = (
-                    inputTokens,
-                    outputTokens,
-                    entry.totalTokens,
-                    normalizedNonEmptyString(entry.model),
-                    entry.timestamp,
-                    entry.timestamp,
-                    todayTokens,
-                    0
-                )
-            }
-        }
-
-        return map
-    }
-
-    private func makeSessionSummary(
+    private func buildSessions(
         project: Project,
-        key: AIHistorySessionKey,
-        usage: (inputTokens: Int, outputTokens: Int, totalTokens: Int, model: String?, firstSeenAt: Date, lastSeenAt: Date, todayTokens: Int, requestCount: Int)?,
-        activity: AIHistoryExtractedSessionMetrics?,
-        metadata: AIHistorySessionMetadata?
-    ) -> AISessionSummary? {
-        let firstSeenAt = activity?.firstMessageAt ?? usage?.firstSeenAt
-        let lastSeenAt = activity?.lastMessageAt ?? usage?.lastSeenAt
-        guard let firstSeenAt, let lastSeenAt else {
-            return nil
-        }
+        usageBuckets: [AIUsageBucket]
+    ) -> [AISessionSummary] {
+        let startOfToday = calendar.startOfDay(for: Date())
+        var map: [String: AISessionSummary] = [:]
 
-        let externalSessionID = normalizedNonEmptyString(metadata?.externalSessionID) ?? key.sessionID
-        let requestCount = max(
-            activity?.userMessageCount ?? 0,
-            1
-        )
-        let model = normalizedNonEmptyString(metadata?.model) ?? usage?.model
-        let sessionTitle = normalizedNonEmptyString(metadata?.sessionTitle) ?? project.name
-        let activeDuration = activity?.activeSeconds
-            ?? max(0, Int(lastSeenAt.timeIntervalSince(firstSeenAt)))
-
-        return AISessionSummary(
-            sessionID: deterministicUUID(from: "\(key.source):\(externalSessionID)"),
-            externalSessionID: externalSessionID,
-            projectID: project.id,
-            projectName: project.name,
-            sessionTitle: sessionTitle,
-            firstSeenAt: firstSeenAt,
-            lastSeenAt: lastSeenAt,
-            lastTool: key.source,
-            lastModel: model,
-            requestCount: requestCount,
-            totalInputTokens: usage?.inputTokens ?? 0,
-            totalOutputTokens: usage?.outputTokens ?? 0,
-            totalTokens: usage?.totalTokens ?? 0,
-            maxContextUsagePercent: nil,
-            activeDurationSeconds: activeDuration,
-            todayTokens: usage?.todayTokens ?? 0
-        )
-    }
-
-    private func buildHeatmap(_ entries: [AIHistoryUsageEntry], events: [AIHistorySessionEvent]) -> [AIHeatmapDay] {
-        var map: [Date: AIHeatmapDay] = [:]
-        for entry in entries {
-            let day = calendar.startOfDay(for: entry.timestamp)
-            if var existing = map[day] {
-                existing.totalTokens += entry.totalTokens
-                map[day] = existing
+        for bucket in usageBuckets {
+            let groupingKey = "\(bucket.source)|\(bucket.externalSessionID ?? bucket.sessionKey)"
+            if var existing = map[groupingKey] {
+                let previousLastSeenAt = existing.lastSeenAt
+                existing.sessionTitle = preferredTitle(bucket.sessionTitle, existing.sessionTitle) ?? existing.sessionTitle
+                existing.firstSeenAt = min(existing.firstSeenAt, bucket.firstSeenAt)
+                existing.lastSeenAt = max(existing.lastSeenAt, bucket.lastSeenAt)
+                existing.lastTool = bucket.source
+                if bucket.lastSeenAt >= previousLastSeenAt,
+                   let model = normalizedNonEmptyString(bucket.model) {
+                    existing.lastModel = model
+                } else if existing.lastModel == nil {
+                    existing.lastModel = normalizedNonEmptyString(bucket.model)
+                }
+                existing.requestCount += bucket.requestCount
+                existing.totalInputTokens += bucket.inputTokens
+                existing.totalOutputTokens += bucket.outputTokens
+                existing.totalTokens += bucket.totalTokens
+                existing.cachedInputTokens += bucket.cachedInputTokens
+                existing.activeDurationSeconds += bucket.activeDurationSeconds
+                if calendar.startOfDay(for: bucket.bucketStart) == startOfToday {
+                    existing.todayTokens += bucket.totalTokens
+                    existing.todayCachedInputTokens += bucket.cachedInputTokens
+                }
+                map[groupingKey] = existing
             } else {
-                map[day] = AIHeatmapDay(day: day, totalTokens: entry.totalTokens, requestCount: 0)
+                map[groupingKey] = AISessionSummary(
+                    sessionID: deterministicUUID(from: "\(bucket.source):\(bucket.externalSessionID ?? bucket.sessionKey)"),
+                    externalSessionID: bucket.externalSessionID ?? bucket.sessionKey,
+                    projectID: project.id,
+                    projectName: project.name,
+                    sessionTitle: bucket.sessionTitle,
+                    firstSeenAt: bucket.firstSeenAt,
+                    lastSeenAt: bucket.lastSeenAt,
+                    lastTool: bucket.source,
+                    lastModel: normalizedNonEmptyString(bucket.model),
+                    requestCount: bucket.requestCount,
+                    totalInputTokens: bucket.inputTokens,
+                    totalOutputTokens: bucket.outputTokens,
+                    totalTokens: bucket.totalTokens,
+                    cachedInputTokens: bucket.cachedInputTokens,
+                    maxContextUsagePercent: nil,
+                    activeDurationSeconds: bucket.activeDurationSeconds,
+                    todayTokens: calendar.startOfDay(for: bucket.bucketStart) == startOfToday ? bucket.totalTokens : 0,
+                    todayCachedInputTokens: calendar.startOfDay(for: bucket.bucketStart) == startOfToday ? bucket.cachedInputTokens : 0
+                )
             }
         }
-        for event in events where event.role == .user {
-            let day = calendar.startOfDay(for: event.timestamp)
+
+        return Array(map.values)
+    }
+
+    private func buildHeatmap(_ usageBuckets: [AIUsageBucket]) -> [AIHeatmapDay] {
+        var map: [Date: AIHeatmapDay] = [:]
+        for bucket in usageBuckets {
+            let day = calendar.startOfDay(for: bucket.bucketStart)
             if var existing = map[day] {
-                existing.requestCount += 1
+                existing.totalTokens += bucket.totalTokens
+                existing.cachedInputTokens += bucket.cachedInputTokens
+                existing.requestCount += bucket.requestCount
                 map[day] = existing
             } else {
-                map[day] = AIHeatmapDay(day: day, totalTokens: 0, requestCount: 1)
+                map[day] = AIHeatmapDay(
+                    day: day,
+                    totalTokens: bucket.totalTokens,
+                    cachedInputTokens: bucket.cachedInputTokens,
+                    requestCount: bucket.requestCount
+                )
             }
         }
         return map.values.sorted { $0.day < $1.day }
     }
 
-    private func buildTodayTimeBuckets(_ entries: [AIHistoryUsageEntry], events: [AIHistorySessionEvent]) -> [AITimeBucket] {
+    private func buildTodayTimeBuckets(_ usageBuckets: [AIUsageBucket]) -> [AITimeBucket] {
         let startOfToday = calendar.startOfDay(for: Date())
         var bucketMap: [Date: AITimeBucket] = [:]
 
-        for entry in entries where calendar.startOfDay(for: entry.timestamp) == startOfToday {
-            let bucketStart = roundToHour(entry.timestamp)
-            let bucketEnd = calendar.date(byAdding: .hour, value: 1, to: bucketStart) ?? bucketStart
-            if var existing = bucketMap[bucketStart] {
-                existing.totalTokens += entry.totalTokens
-                bucketMap[bucketStart] = existing
+        for bucket in usageBuckets where calendar.startOfDay(for: bucket.bucketStart) == startOfToday {
+            if var existing = bucketMap[bucket.bucketStart] {
+                existing.totalTokens += bucket.totalTokens
+                existing.cachedInputTokens += bucket.cachedInputTokens
+                existing.requestCount += bucket.requestCount
+                bucketMap[bucket.bucketStart] = existing
             } else {
-                bucketMap[bucketStart] = AITimeBucket(
-                    start: bucketStart,
-                    end: bucketEnd,
-                    totalTokens: entry.totalTokens,
-                    requestCount: 0
-                )
-            }
-        }
-
-        for event in events where event.role == .user && calendar.startOfDay(for: event.timestamp) == startOfToday {
-            let bucketStart = roundToHour(event.timestamp)
-            let bucketEnd = calendar.date(byAdding: .hour, value: 1, to: bucketStart) ?? bucketStart
-            if var existing = bucketMap[bucketStart] {
-                existing.requestCount += 1
-                bucketMap[bucketStart] = existing
-            } else {
-                bucketMap[bucketStart] = AITimeBucket(
-                    start: bucketStart,
-                    end: bucketEnd,
-                    totalTokens: 0,
-                    requestCount: 1
+                bucketMap[bucket.bucketStart] = AITimeBucket(
+                    start: bucket.bucketStart,
+                    end: bucket.bucketEnd,
+                    totalTokens: bucket.totalTokens,
+                    cachedInputTokens: bucket.cachedInputTokens,
+                    requestCount: bucket.requestCount
                 )
             }
         }
@@ -462,23 +503,34 @@ struct AIHistoryAggregationService: Sendable {
                 start: bucketStart,
                 end: bucketEnd,
                 totalTokens: 0,
+                cachedInputTokens: 0,
                 requestCount: 0
             )
         }
     }
 
-    private func breakdown(items: [(String, Int, Int)]) -> [AIUsageBreakdownItem] {
+    private func breakdown(items: [(String, Int, Int, Int)]) -> [AIUsageBreakdownItem] {
         var map: [String: AIUsageBreakdownItem] = [:]
         for item in items {
             if var existing = map[item.0] {
                 existing.totalTokens += item.1
-                existing.requestCount += item.2
+                existing.cachedInputTokens += item.2
+                existing.requestCount += item.3
                 map[item.0] = existing
             } else {
-                map[item.0] = AIUsageBreakdownItem(key: item.0, totalTokens: item.1, requestCount: item.2)
+                map[item.0] = AIUsageBreakdownItem(
+                    key: item.0,
+                    totalTokens: item.1,
+                    cachedInputTokens: item.2,
+                    requestCount: item.3
+                )
             }
         }
         return map.values.sorted { $0.totalTokens > $1.totalTokens }
+    }
+
+    private func preferredTitle(_ lhs: String?, _ rhs: String?) -> String? {
+        normalizedNonEmptyString(lhs) ?? normalizedNonEmptyString(rhs)
     }
 
     private func roundToHour(_ date: Date) -> Date {
@@ -518,9 +570,5 @@ struct AIHistoryAggregationService: Sendable {
             return nil
         }
         return value
-    }
-
-    private var keyLabelUnknownTool: String {
-        String(localized: "ai.unknown_tool", defaultValue: "Unknown Tool", bundle: .module)
     }
 }

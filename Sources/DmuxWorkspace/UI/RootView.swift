@@ -68,9 +68,6 @@ private struct TitlebarOverlayView: View {
     @State private var isShowingPetPopover = false
 
     var body: some View {
-        let _ = model.aiStatsStore.renderVersion
-        let _ = model.performanceMonitor.renderVersion
-
         ZStack {
             TitlebarZoomSurface()
 
@@ -98,17 +95,15 @@ private struct TitlebarOverlayView: View {
                     let hasVSCode = ApplicationIconAsset.isInstalled("com.microsoft.VSCode")
 
                     if model.appSettings.pet.enabled {
-                        TitlebarPetButton(
+                        TitlebarPetButtonContainer(
                             model: model,
-                            allTimeTokens: totalAllTimeTokens,
                             isShowingPopover: $isShowingPetPopover
                         )
                     }
 
                     if model.selectedProject != nil {
-                        TitlebarAITodayLevelButton(
+                        TitlebarAITodayLevelButtonContainer(
                             model: model,
-                            tokens: totalTodayTokens,
                             isShowingPopover: $isShowingLevelPopover
                         )
                     }
@@ -160,15 +155,43 @@ private struct TitlebarOverlayView: View {
             isShowingLevelPopover = false
         }
     }
+}
 
-    private var totalTodayTokens: Int {
-        guard !model.projects.isEmpty else { return 0 }
-        return model.aiStatsStore.totalTodayTokensAcrossProjects(model.projects)
-    }
+private struct TitlebarPetButtonContainer: View {
+    let model: AppModel
+    @Binding var isShowingPopover: Bool
 
     private var totalAllTimeTokens: Int {
         guard !model.projects.isEmpty else { return 0 }
-        return model.aiStatsStore.totalAllTimeTokensAcrossProjects(model.projects)
+        return model.aiStatsStore.petExperienceTokensAcrossProjects(model.projects)
+    }
+
+    var body: some View {
+        let _ = model.aiStatsStore.renderVersion
+        TitlebarPetButton(
+            model: model,
+            allTimeTokens: totalAllTimeTokens,
+            isShowingPopover: $isShowingPopover
+        )
+    }
+}
+
+private struct TitlebarAITodayLevelButtonContainer: View {
+    let model: AppModel
+    @Binding var isShowingPopover: Bool
+
+    private var totalTodayTokens: Int {
+        guard !model.projects.isEmpty else { return 0 }
+        return model.aiStatsStore.titlebarTodayLevelTokensAcrossProjects(model.projects)
+    }
+
+    var body: some View {
+        let _ = model.aiStatsStore.renderVersion
+        TitlebarAITodayLevelButton(
+            model: model,
+            tokens: totalTodayTokens,
+            isShowingPopover: $isShowingPopover
+        )
     }
 }
 
@@ -195,6 +218,7 @@ private struct TitlebarPerformanceMonitorView: View {
     }
 
     var body: some View {
+        let _ = model.performanceMonitor.renderVersion
         HStack(spacing: 8) {
             HStack(spacing: 4) {
                 Image(systemName: "cpu")
@@ -335,7 +359,6 @@ private final class TerminalHorizontalSplitController: NSViewController, NSSplit
     private var isApplyingLayout = false
     private var collapsedRightPanelSize = NSSize(width: 0, height: 0)
     private let workspaceCornerRadius: CGFloat = 22
-
     init(model: AppModel) {
         self.model = model
         self.workspaceHosting = NSHostingController(rootView: WorkspaceView(model: model))

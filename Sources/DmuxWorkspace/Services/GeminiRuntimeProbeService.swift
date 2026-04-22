@@ -6,6 +6,7 @@ struct GeminiParsedRuntimeState {
     var model: String?
     var inputTokens: Int
     var outputTokens: Int
+    var cachedInputTokens: Int
     var totalTokens: Int
     var startedAt: Double
     var updatedAt: Double
@@ -59,6 +60,7 @@ actor GeminiRuntimeProbeService {
             model: parsedState.model,
             inputTokens: parsedState.inputTokens,
             outputTokens: parsedState.outputTokens,
+            cachedInputTokens: parsedState.cachedInputTokens,
             totalTokens: parsedState.totalTokens,
             updatedAt: parsedState.updatedAt,
             responseState: parsedState.responseState,
@@ -154,7 +156,9 @@ func parseGeminiSessionRuntimeState(fileURL: URL) -> GeminiParsedRuntimeState? {
         ?? .distantPast
 
     var model: String?
+    var inputTokens = 0
     var totalTokens = 0
+    var cachedInputTokens = 0
     var outputTokens = 0
     var title: String?
 
@@ -178,13 +182,14 @@ func parseGeminiSessionRuntimeState(fileURL: URL) -> GeminiParsedRuntimeState? {
         let outputValue = (tokens["output"] as? NSNumber)?.intValue ?? 0
         let cachedValue = (tokens["cached"] as? NSNumber)?.intValue ?? 0
         let thoughtsValue = (tokens["thoughts"] as? NSNumber)?.intValue ?? 0
-        let toolValue = (tokens["tool"] as? NSNumber)?.intValue ?? 0
-        let messageTotal = totalValue ?? (inputValue + outputValue + cachedValue + thoughtsValue + toolValue)
-        totalTokens += max(0, messageTotal)
-        outputTokens += max(0, outputValue)
+        let normalizedInputValue = max(0, inputValue - cachedValue)
+        let normalizedOutputValue = max(0, outputValue - thoughtsValue)
+        let normalizedTotalValue = totalValue.map { max(0, $0 - cachedValue) } ?? (normalizedInputValue + normalizedOutputValue + thoughtsValue)
+        inputTokens += normalizedInputValue
+        totalTokens += max(0, normalizedTotalValue)
+        cachedInputTokens += max(0, cachedValue)
+        outputTokens += max(0, normalizedOutputValue)
     }
-
-    let inputTokens = max(0, totalTokens - outputTokens)
     let responseState: AIResponseState? = {
         let lastRelevantType = messages
             .reversed()
@@ -217,6 +222,7 @@ func parseGeminiSessionRuntimeState(fileURL: URL) -> GeminiParsedRuntimeState? {
         model: model,
         inputTokens: inputTokens,
         outputTokens: outputTokens,
+        cachedInputTokens: cachedInputTokens,
         totalTokens: totalTokens,
         startedAt: startedAtDate.timeIntervalSince1970,
         updatedAt: updatedAtDate.timeIntervalSince1970,

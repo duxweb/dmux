@@ -107,20 +107,22 @@ actor ClaudeRuntimeLogCache {
     struct UsageTotals: Equatable {
         var inputTokens: Int
         var outputTokens: Int
+        var cachedInputTokens: Int
         var totalTokens: Int
 
-        static let zero = UsageTotals(inputTokens: 0, outputTokens: 0, totalTokens: 0)
+        static let zero = UsageTotals(inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, totalTokens: 0)
 
         func delta(from previous: UsageTotals) -> UsageTotals {
             UsageTotals(
                 inputTokens: max(0, inputTokens - previous.inputTokens),
                 outputTokens: max(0, outputTokens - previous.outputTokens),
+                cachedInputTokens: max(0, cachedInputTokens - previous.cachedInputTokens),
                 totalTokens: max(0, totalTokens - previous.totalTokens)
             )
         }
 
         var isZero: Bool {
-            inputTokens == 0 && outputTokens == 0 && totalTokens == 0
+            inputTokens == 0 && outputTokens == 0 && cachedInputTokens == 0 && totalTokens == 0
         }
     }
 
@@ -128,6 +130,7 @@ actor ClaudeRuntimeLogCache {
         var model: String?
         var inputTokens: Int
         var outputTokens: Int
+        var cachedInputTokens: Int
         var totalTokens: Int
         var updatedAt: Double
         var lastUserAt: Double
@@ -158,6 +161,7 @@ actor ClaudeRuntimeLogCache {
             model: session.model,
             inputTokens: session.inputTokens,
             outputTokens: session.outputTokens,
+            cachedInputTokens: session.cachedInputTokens,
             totalTokens: session.totalTokens,
             updatedAt: session.updatedAt,
             responseState: responseState(for: session),
@@ -295,6 +299,7 @@ actor ClaudeRuntimeLogCache {
                 model: nil,
                 inputTokens: 0,
                 outputTokens: 0,
+                cachedInputTokens: 0,
                 totalTokens: 0,
                 updatedAt: timestamp,
                 lastUserAt: 0,
@@ -333,12 +338,14 @@ actor ClaudeRuntimeLogCache {
                 usageTotalsByKey[usageKey] = UsageTotals(
                     inputTokens: max(previousUsageTotals.inputTokens, nextUsageTotals.inputTokens),
                     outputTokens: max(previousUsageTotals.outputTokens, nextUsageTotals.outputTokens),
+                    cachedInputTokens: max(previousUsageTotals.cachedInputTokens, nextUsageTotals.cachedInputTokens),
                     totalTokens: max(previousUsageTotals.totalTokens, nextUsageTotals.totalTokens)
                 )
 
                 if usageDelta.isZero == false {
                     aggregate.inputTokens += usageDelta.inputTokens
                     aggregate.outputTokens += usageDelta.outputTokens
+                    aggregate.cachedInputTokens += usageDelta.cachedInputTokens
                     aggregate.totalTokens += usageDelta.totalTokens
                 }
             }
@@ -371,6 +378,7 @@ actor ClaudeRuntimeLogCache {
             model: nil,
             inputTokens: 0,
             outputTokens: 0,
+            cachedInputTokens: 0,
             totalTokens: 0,
             updatedAt: contribution.updatedAt,
             lastUserAt: contribution.lastUserAt,
@@ -386,6 +394,7 @@ actor ClaudeRuntimeLogCache {
         }
         aggregate.inputTokens += contribution.inputTokens
         aggregate.outputTokens += contribution.outputTokens
+        aggregate.cachedInputTokens += contribution.cachedInputTokens
         aggregate.totalTokens += contribution.totalTokens
         aggregate.updatedAt = max(previousUpdatedAt, contribution.updatedAt)
         aggregate.lastUserAt = max(aggregate.lastUserAt, contribution.lastUserAt)
@@ -398,13 +407,12 @@ actor ClaudeRuntimeLogCache {
     private func usageTotals(from usage: [String: Any]) -> UsageTotals {
         let input = (usage["input_tokens"] as? NSNumber)?.intValue ?? 0
         let output = (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
-        let cacheCreation = (usage["cache_creation_input_tokens"] as? NSNumber)?.intValue ?? 0
         let cacheRead = (usage["cache_read_input_tokens"] as? NSNumber)?.intValue ?? 0
-        let effectiveInput = input + cacheCreation + cacheRead
         return UsageTotals(
-            inputTokens: effectiveInput,
+            inputTokens: input,
             outputTokens: output,
-            totalTokens: effectiveInput + output
+            cachedInputTokens: cacheRead,
+            totalTokens: input + output
         )
     }
 
@@ -627,6 +635,7 @@ actor ClaudeRuntimeProbeService {
             model: snapshot.model,
             inputTokens: snapshot.inputTokens,
             outputTokens: snapshot.outputTokens,
+            cachedInputTokens: snapshot.cachedInputTokens,
             totalTokens: snapshot.totalTokens,
             updatedAt: snapshot.updatedAt,
             responseState: normalizedResponseState,

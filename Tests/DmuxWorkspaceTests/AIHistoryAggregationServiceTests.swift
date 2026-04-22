@@ -191,4 +191,148 @@ final class AIHistoryAggregationServiceTests: XCTestCase {
         XCTAssertEqual(summary.todayTimeBuckets.reduce(0) { $0 + $1.requestCount }, 1)
         XCTAssertEqual(summary.todayTimeBuckets.reduce(0) { $0 + $1.totalTokens }, 28)
     }
+
+    func testDuplicateLogicalSessionsAcrossFilesAccumulateSessionTotals() {
+        let service = AIHistoryAggregationService()
+        let project = Project(
+            id: UUID(),
+            name: "Workspace",
+            path: "/tmp/workspace",
+            shell: "/bin/zsh",
+            defaultCommand: "",
+            badgeText: nil,
+            badgeSymbol: nil,
+            badgeColorHex: nil,
+            gitDefaultPushRemoteName: nil
+        )
+
+        let now = Date()
+        let components = Calendar.autoupdatingCurrent.dateComponents([.year, .month, .day, .hour], from: now)
+        let bucketStart = Calendar.autoupdatingCurrent.date(from: components) ?? now
+        let bucketEnd = bucketStart.addingTimeInterval(3600)
+        let sessionA = AISessionSummary(
+            sessionID: UUID(),
+            externalSessionID: "claude-1",
+            projectID: project.id,
+            projectName: project.name,
+            sessionTitle: "Claude Session",
+            firstSeenAt: now.addingTimeInterval(-120),
+            lastSeenAt: now.addingTimeInterval(-60),
+            lastTool: "claude",
+            lastModel: "claude-sonnet-4-6",
+            requestCount: 2,
+            totalInputTokens: 100,
+            totalOutputTokens: 50,
+            totalTokens: 150,
+            cachedInputTokens: 20,
+            maxContextUsagePercent: nil,
+            activeDurationSeconds: 60,
+            todayTokens: 150,
+            todayCachedInputTokens: 20
+        )
+        let sessionB = AISessionSummary(
+            sessionID: UUID(),
+            externalSessionID: "claude-1",
+            projectID: project.id,
+            projectName: project.name,
+            sessionTitle: "Claude Session Duplicate",
+            firstSeenAt: now.addingTimeInterval(-50),
+            lastSeenAt: now,
+            lastTool: "claude",
+            lastModel: "claude-sonnet-4-6",
+            requestCount: 1,
+            totalInputTokens: 40,
+            totalOutputTokens: 10,
+            totalTokens: 50,
+            cachedInputTokens: 5,
+            maxContextUsagePercent: nil,
+            activeDurationSeconds: 30,
+            todayTokens: 50,
+            todayCachedInputTokens: 5
+        )
+
+        let summaryA = AIExternalFileSummary(
+            source: "claude",
+            filePath: "/tmp/a.jsonl",
+            fileModifiedAt: now.timeIntervalSince1970,
+            projectPath: project.path,
+            usageBuckets: [
+                AIUsageBucket(
+                    source: "claude",
+                    sessionKey: "claude-1",
+                    externalSessionID: "claude-1",
+                    sessionTitle: "Claude Session",
+                    model: "claude-sonnet-4-6",
+                    projectID: project.id,
+                    projectName: project.name,
+                    bucketStart: bucketStart,
+                    bucketEnd: bucketEnd,
+                    inputTokens: 100,
+                    outputTokens: 50,
+                    totalTokens: 150,
+                    cachedInputTokens: 20,
+                    requestCount: 2,
+                    activeDurationSeconds: 60,
+                    firstSeenAt: sessionA.firstSeenAt,
+                    lastSeenAt: sessionA.lastSeenAt
+                )
+            ],
+            sessions: [sessionA],
+            dayUsage: [
+                AIHeatmapDay(day: Calendar.autoupdatingCurrent.startOfDay(for: now), totalTokens: 150, cachedInputTokens: 20, requestCount: 2)
+            ],
+            timeBuckets: [
+                AITimeBucket(start: now, end: now.addingTimeInterval(3600), totalTokens: 150, cachedInputTokens: 20, requestCount: 2)
+            ]
+        )
+        let summaryB = AIExternalFileSummary(
+            source: "claude",
+            filePath: "/tmp/b.jsonl",
+            fileModifiedAt: now.timeIntervalSince1970,
+            projectPath: project.path,
+            usageBuckets: [
+                AIUsageBucket(
+                    source: "claude",
+                    sessionKey: "claude-1",
+                    externalSessionID: "claude-1",
+                    sessionTitle: "Claude Session Duplicate",
+                    model: "claude-sonnet-4-6",
+                    projectID: project.id,
+                    projectName: project.name,
+                    bucketStart: bucketStart,
+                    bucketEnd: bucketEnd,
+                    inputTokens: 40,
+                    outputTokens: 10,
+                    totalTokens: 50,
+                    cachedInputTokens: 5,
+                    requestCount: 1,
+                    activeDurationSeconds: 30,
+                    firstSeenAt: sessionB.firstSeenAt,
+                    lastSeenAt: sessionB.lastSeenAt
+                )
+            ],
+            sessions: [sessionB],
+            dayUsage: [
+                AIHeatmapDay(day: Calendar.autoupdatingCurrent.startOfDay(for: now), totalTokens: 50, cachedInputTokens: 5, requestCount: 1)
+            ],
+            timeBuckets: [
+                AITimeBucket(start: now, end: now.addingTimeInterval(3600), totalTokens: 50, cachedInputTokens: 5, requestCount: 1)
+            ]
+        )
+
+        let merged = service.buildProjectSummary(project: project, fileSummaries: [summaryA, summaryB])
+
+        XCTAssertEqual(merged.sessions.count, 1)
+        XCTAssertEqual(merged.sessions.first?.requestCount, 3)
+        XCTAssertEqual(merged.sessions.first?.totalInputTokens, 140)
+        XCTAssertEqual(merged.sessions.first?.totalOutputTokens, 60)
+        XCTAssertEqual(merged.sessions.first?.totalTokens, 200)
+        XCTAssertEqual(merged.sessions.first?.cachedInputTokens, 25)
+        XCTAssertEqual(merged.sessions.first?.todayTokens, 200)
+        XCTAssertEqual(merged.sessions.first?.todayCachedInputTokens, 25)
+        XCTAssertEqual(merged.heatmap.reduce(0) { $0 + $1.totalTokens }, 200)
+        XCTAssertEqual(merged.heatmap.reduce(0) { $0 + $1.cachedInputTokens }, 25)
+        XCTAssertEqual(merged.todayTimeBuckets.reduce(0) { $0 + $1.totalTokens }, 200)
+        XCTAssertEqual(merged.todayTimeBuckets.reduce(0) { $0 + $1.cachedInputTokens }, 25)
+    }
 }

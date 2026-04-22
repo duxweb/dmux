@@ -85,7 +85,7 @@ final class AppModel {
     private var pendingActivityRefreshTask: Task<Void, Never>?
     private var pendingActivityRefreshShouldNotify = false
     private var pendingActivityRefreshShouldRefreshAIStats = false
-    private var pendingActivityRefreshRequiresFullRefresh = false
+    private var pendingActivityRefreshRequiresStatusReload = false
     private var cachedActivityPayloadByProjectID: [UUID: ProjectActivityPayload] = [:]
     private var lastCompletionTokenByProjectID: [UUID: String] = [:]
     private var clearedCompletionTokenByProjectID: [UUID: String] = [:]
@@ -2795,15 +2795,17 @@ final class AppModel {
             runtimeBridgeObserver,
             name: .dmuxAIRuntimeBridgeDidChange,
             sendNotifications: true,
-            refreshAIStats: true,
-            requiresFullRefresh: true
+            refreshAIStats: false,
+            requiresStatusReload: false,
+            refreshImmediatelyFromRuntime: true
         )
         runtimeActivityObserver = replaceActivityObserver(
             runtimeActivityObserver,
             name: .dmuxAIRuntimeActivityPulse,
             sendNotifications: false,
             refreshAIStats: false,
-            requiresFullRefresh: false
+            requiresStatusReload: false,
+            refreshImmediatelyFromRuntime: true
         )
     }
 
@@ -2822,7 +2824,7 @@ final class AppModel {
             self?.queueProjectActivityRefresh(
                 sendNotifications: true,
                 refreshAIStats: true,
-                requiresFullRefresh: true
+                requiresStatusReload: true
             )
         }
         watcher.setCancelHandler {
@@ -2837,7 +2839,8 @@ final class AppModel {
         name: Notification.Name,
         sendNotifications: Bool,
         refreshAIStats: Bool,
-        requiresFullRefresh: Bool
+        requiresStatusReload: Bool,
+        refreshImmediatelyFromRuntime: Bool
     ) -> NSObjectProtocol {
         if let existingObserver {
             NotificationCenter.default.removeObserver(existingObserver)
@@ -2848,10 +2851,17 @@ final class AppModel {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            if refreshImmediatelyFromRuntime {
+                Task { @MainActor [weak self] in
+                    self?.refreshProjectActivityImmediatelyFromRuntime(
+                        sendNotifications: sendNotifications
+                    )
+                }
+            }
             self?.queueProjectActivityRefresh(
                 sendNotifications: sendNotifications,
                 refreshAIStats: refreshAIStats,
-                requiresFullRefresh: requiresFullRefresh
+                requiresStatusReload: requiresStatusReload
             )
         }
     }
@@ -2859,25 +2869,32 @@ final class AppModel {
     nonisolated private func queueProjectActivityRefresh(
         sendNotifications: Bool,
         refreshAIStats: Bool,
-        requiresFullRefresh: Bool
+        requiresStatusReload: Bool
     ) {
         Task { @MainActor [weak self] in
             self?.scheduleProjectActivityRefresh(
                 sendNotifications: sendNotifications,
                 refreshAIStats: refreshAIStats,
-                requiresFullRefresh: requiresFullRefresh
+                requiresStatusReload: requiresStatusReload
             )
         }
+    }
+
+    private func refreshProjectActivityImmediatelyFromRuntime(sendNotifications: Bool) {
+        refreshProjectActivity(
+            sendNotifications: sendNotifications,
+            useCachedStatusesOnly: true
+        )
     }
 
     private func scheduleProjectActivityRefresh(
         sendNotifications: Bool,
         refreshAIStats: Bool,
-        requiresFullRefresh: Bool
+        requiresStatusReload: Bool
     ) {
         pendingActivityRefreshShouldNotify = pendingActivityRefreshShouldNotify || sendNotifications
         pendingActivityRefreshShouldRefreshAIStats = pendingActivityRefreshShouldRefreshAIStats || refreshAIStats
-        pendingActivityRefreshRequiresFullRefresh = pendingActivityRefreshRequiresFullRefresh || requiresFullRefresh
+        pendingActivityRefreshRequiresStatusReload = pendingActivityRefreshRequiresStatusReload || requiresStatusReload
 
         guard pendingActivityRefreshTask == nil else {
             return
@@ -2895,7 +2912,7 @@ final class AppModel {
 
                 self.refreshProjectActivity(
                     sendNotifications: pendingRequest.sendNotifications,
-                    useCachedStatusesOnly: !pendingRequest.requiresFullRefresh
+                    useCachedStatusesOnly: !pendingRequest.requiresStatusReload
                 )
                 if pendingRequest.refreshAIStats, self.rightPanel == .aiStats {
                     self.refreshAIStatsIfNeeded()
@@ -2951,18 +2968,18 @@ final class AppModel {
     private func drainPendingActivityRefreshRequest() -> (
         sendNotifications: Bool,
         refreshAIStats: Bool,
-        requiresFullRefresh: Bool
+        requiresStatusReload: Bool
     ) {
         defer {
             pendingActivityRefreshShouldNotify = false
             pendingActivityRefreshShouldRefreshAIStats = false
-            pendingActivityRefreshRequiresFullRefresh = false
+            pendingActivityRefreshRequiresStatusReload = false
         }
 
         return (
             sendNotifications: pendingActivityRefreshShouldNotify,
             refreshAIStats: pendingActivityRefreshShouldRefreshAIStats,
-            requiresFullRefresh: pendingActivityRefreshRequiresFullRefresh
+            requiresStatusReload: pendingActivityRefreshRequiresStatusReload
         )
     }
 
@@ -3410,6 +3427,16 @@ final class AppModel {
         persist()
     }
 
+    func updateAIStatisticsDisplayMode(_ mode: AppAIStatisticsDisplayMode) {
+        guard appSettings.aiStatisticsDisplayMode != mode else {
+            return
+        }
+        var settings = appSettings
+        settings.aiStatisticsDisplayMode = mode
+        appSettings = settings
+        persist()
+    }
+
     func updateDeveloperPerformanceMonitorEnabled(_ enabled: Bool) {
         applyPerformanceMonitorSettings { developer in
             developer.showsPerformanceMonitor = enabled
@@ -3608,7 +3635,6 @@ final class AppModel {
         guard appSettings.showsDockBadge else {
             NSApp.dockTile.badgeLabel = nil
             NSApp.dockTile.display()
-            applyRuntimeDockIcon()
             return
         }
 
@@ -3619,7 +3645,6 @@ final class AppModel {
         }
         NSApp.dockTile.badgeLabel = completedCount > 0 ? "\(completedCount)" : nil
         NSApp.dockTile.display()
-        applyRuntimeDockIcon()
     }
 
     private func applyRuntimeDockIcon() {

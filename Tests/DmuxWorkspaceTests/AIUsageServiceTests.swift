@@ -41,6 +41,7 @@ final class AIUsageServiceTests: XCTestCase {
                 filePath: sharedFilePath,
                 fileModifiedAt: modifiedAt,
                 projectPath: projectA.path,
+                usageBuckets: [makeUsageBucket(project: projectA, externalSessionID: "a-1", totalTokens: 111)],
                 sessions: [makeSessionSummary(project: projectA, externalSessionID: "a-1", totalTokens: 111)],
                 dayUsage: [AIHeatmapDay(day: Calendar.autoupdatingCurrent.startOfDay(for: Date()), totalTokens: 111, requestCount: 1)],
                 timeBuckets: []
@@ -52,6 +53,7 @@ final class AIUsageServiceTests: XCTestCase {
                 filePath: sharedFilePath,
                 fileModifiedAt: modifiedAt,
                 projectPath: projectB.path,
+                usageBuckets: [makeUsageBucket(project: projectB, externalSessionID: "b-1", totalTokens: 222)],
                 sessions: [makeSessionSummary(project: projectB, externalSessionID: "b-1", totalTokens: 222)],
                 dayUsage: [AIHeatmapDay(day: Calendar.autoupdatingCurrent.startOfDay(for: Date()), totalTokens: 222, requestCount: 1)],
                 timeBuckets: []
@@ -82,13 +84,93 @@ final class AIUsageServiceTests: XCTestCase {
 
         XCTAssertEqual(panelA.projectSummary?.projectID, projectA.id)
         XCTAssertEqual(panelA.projectSummary?.projectTotalTokens, 111)
+        XCTAssertEqual(panelA.projectSummary?.projectCachedInputTokens, 0)
         XCTAssertEqual(panelA.projectSummary?.todayTotalTokens, 111)
         XCTAssertEqual(panelA.sessions.map(\.totalTokens), [111])
 
         XCTAssertEqual(panelB.projectSummary?.projectID, projectB.id)
         XCTAssertEqual(panelB.projectSummary?.projectTotalTokens, 222)
+        XCTAssertEqual(panelB.projectSummary?.projectCachedInputTokens, 0)
         XCTAssertEqual(panelB.projectSummary?.todayTotalTokens, 222)
         XCTAssertEqual(panelB.sessions.map(\.totalTokens), [222])
+    }
+
+    func testLightweightLivePanelStateCarriesCachedOverlayTokensSeparately() {
+        let store = AIUsageStore(databaseURL: databaseURL)
+        let service = AIUsageService(wrapperStore: store)
+        let project = makeProject(name: "Project A", path: "/tmp/project-a")
+
+        let baselineState = AIStatsPanelState(
+            projectSummary: AIProjectUsageSummary(
+                projectID: project.id,
+                projectName: project.name,
+                currentSessionTokens: 0,
+                currentSessionCachedInputTokens: 0,
+                projectTotalTokens: 500,
+                projectCachedInputTokens: 120,
+                todayTotalTokens: 300,
+                todayCachedInputTokens: 80,
+                currentTool: nil,
+                currentModel: nil,
+                currentContextUsagePercent: nil,
+                currentContextUsedTokens: nil,
+                currentContextWindow: nil,
+                currentSessionUpdatedAt: nil
+            ),
+            currentSnapshot: nil,
+            liveSnapshots: [],
+            liveOverlayTokens: 0,
+            liveOverlayCachedInputTokens: 0,
+            sessions: [],
+            heatmap: [],
+            todayTimeBuckets: [],
+            toolBreakdown: [],
+            modelBreakdown: [],
+            indexedAt: nil,
+            indexingStatus: .completed(detail: "done")
+        )
+
+        let liveSnapshot = AITerminalSessionSnapshot(
+            sessionID: UUID(),
+            externalSessionID: "claude-1",
+            projectID: project.id,
+            projectName: project.name,
+            sessionTitle: "Live",
+            tool: "claude",
+            model: "claude-sonnet-4-6",
+            status: "running",
+            isRunning: true,
+            startedAt: nil,
+            updatedAt: Date(),
+            currentInputTokens: 40,
+            currentOutputTokens: 15,
+            currentTotalTokens: 55,
+            currentCachedInputTokens: 20,
+            baselineInputTokens: 10,
+            baselineOutputTokens: 5,
+            baselineTotalTokens: 15,
+            baselineCachedInputTokens: 8,
+            currentContextWindow: nil,
+            currentContextUsedTokens: nil,
+            currentContextUsagePercent: nil,
+            wasInterrupted: false,
+            hasCompletedTurn: false
+        )
+
+        let nextState = service.lightweightLivePanelState(
+            from: baselineState,
+            project: project,
+            liveSnapshots: [liveSnapshot],
+            currentSnapshot: liveSnapshot,
+            status: .completed(detail: "done")
+        )
+
+        XCTAssertEqual(nextState.projectSummary?.projectTotalTokens, 540)
+        XCTAssertEqual(nextState.projectSummary?.projectCachedInputTokens, 132)
+        XCTAssertEqual(nextState.projectSummary?.todayTotalTokens, 340)
+        XCTAssertEqual(nextState.projectSummary?.todayCachedInputTokens, 92)
+        XCTAssertEqual(nextState.currentSnapshot?.currentTotalTokens, 40)
+        XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 12)
     }
 
     private func makeProject(name: String, path: String) -> Project {
@@ -123,6 +205,30 @@ final class AIUsageServiceTests: XCTestCase {
             maxContextUsagePercent: nil,
             activeDurationSeconds: 60,
             todayTokens: totalTokens
+        )
+    }
+
+    private func makeUsageBucket(project: Project, externalSessionID: String, totalTokens: Int) -> AIUsageBucket {
+        let start = Calendar.autoupdatingCurrent.date(bySettingHour: 10, minute: 0, second: 0, of: Date()) ?? Date()
+        let end = Calendar.autoupdatingCurrent.date(byAdding: .hour, value: 1, to: start) ?? start
+        return AIUsageBucket(
+            source: "claude",
+            sessionKey: externalSessionID,
+            externalSessionID: externalSessionID,
+            sessionTitle: externalSessionID,
+            model: "claude-sonnet-4-6",
+            projectID: project.id,
+            projectName: project.name,
+            bucketStart: start,
+            bucketEnd: end,
+            inputTokens: totalTokens,
+            outputTokens: 0,
+            totalTokens: totalTokens,
+            cachedInputTokens: 0,
+            requestCount: 1,
+            activeDurationSeconds: 60,
+            firstSeenAt: start,
+            lastSeenAt: start.addingTimeInterval(60)
         )
     }
 

@@ -15,6 +15,7 @@ final class AIRuntimePollingService {
     private let logger = AppDebugLog.shared
     private let interval: TimeInterval
     private let hookSuppressionWindow: TimeInterval
+    private let sessionSilenceThreshold: TimeInterval
 
     private var runtimeBridgeObserver: NSObjectProtocol?
     private var timer: Timer?
@@ -27,13 +28,15 @@ final class AIRuntimePollingService {
         toolDriverFactory: AIToolDriverFactory = .shared,
         notificationCenter: NotificationCenter = .default,
         interval: TimeInterval = 6,
-        hookSuppressionWindow: TimeInterval = 1.25
+        hookSuppressionWindow: TimeInterval = 1.25,
+        sessionSilenceThreshold: TimeInterval = 18
     ) {
         self.aiSessionStore = aiSessionStore
         self.toolDriverFactory = toolDriverFactory
         self.notificationCenter = notificationCenter
         self.interval = interval
         self.hookSuppressionWindow = hookSuppressionWindow
+        self.sessionSilenceThreshold = max(interval, sessionSilenceThreshold)
     }
 
     func start() {
@@ -115,7 +118,7 @@ final class AIRuntimePollingService {
         let now = Date().timeIntervalSince1970
         pruneExpiredSuppressions(now: now)
         let trackedSessions = aiSessionStore.runtimeTrackedSessions()
-            .filter { !isSuppressed(terminalID: $0.terminalID, now: now) }
+            .filter { shouldPoll(session: $0, now: now) }
         guard !trackedSessions.isEmpty else {
             logger.log("runtime-refresh", "skip reason=\(reason) eligible=0")
             return
@@ -185,6 +188,17 @@ final class AIRuntimePollingService {
             return false
         }
         return suppression.deadline > now
+    }
+
+    private func shouldPoll(
+        session: AISessionStore.TerminalSessionState,
+        now: TimeInterval
+    ) -> Bool {
+        if isSuppressed(terminalID: session.terminalID, now: now) {
+            return false
+        }
+        let silence = max(0, now - session.updatedAt)
+        return silence >= sessionSilenceThreshold
     }
 
     private func shouldSkipSnapshot(terminalID: UUID, pollStartedAt: TimeInterval, now: TimeInterval) -> Bool {

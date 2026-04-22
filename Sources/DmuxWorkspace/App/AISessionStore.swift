@@ -21,6 +21,9 @@ final class AISessionStore {
     struct LogicalSessionState: Equatable, Sendable {
         var key: LogicalSessionKey
         var model: String?
+        var inputTokens: Int
+        var outputTokens: Int
+        var cachedInputTokens: Int
         var totalTokens: Int
         var updatedAt: Double
         var hasCompletedTurn: Bool
@@ -43,6 +46,12 @@ final class AISessionStore {
         var aiSessionID: String?
         var state: State
         var model: String?
+        var baselineInputTokens: Int
+        var committedInputTokens: Int
+        var baselineOutputTokens: Int
+        var committedOutputTokens: Int
+        var baselineCachedInputTokens: Int
+        var committedCachedInputTokens: Int
         var baselineTotalTokens: Int
         var committedTotalTokens: Int
         var updatedAt: Double
@@ -76,6 +85,61 @@ final class AISessionStore {
             !tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
 
+        init(
+            terminalID: UUID,
+            terminalInstanceID: String? = nil,
+            projectID: UUID,
+            projectName: String,
+            projectPath: String? = nil,
+            sessionTitle: String,
+            tool: String,
+            aiSessionID: String? = nil,
+            state: State,
+            model: String? = nil,
+            baselineInputTokens: Int = 0,
+            committedInputTokens: Int = 0,
+            baselineOutputTokens: Int = 0,
+            committedOutputTokens: Int = 0,
+            baselineCachedInputTokens: Int = 0,
+            committedCachedInputTokens: Int = 0,
+            baselineTotalTokens: Int = 0,
+            committedTotalTokens: Int = 0,
+            updatedAt: Double,
+            startedAt: Double? = nil,
+            wasInterrupted: Bool,
+            hasCompletedTurn: Bool,
+            transcriptPath: String? = nil,
+            notificationType: String? = nil,
+            targetToolName: String? = nil,
+            interactionMessage: String? = nil
+        ) {
+            self.terminalID = terminalID
+            self.terminalInstanceID = terminalInstanceID
+            self.projectID = projectID
+            self.projectName = projectName
+            self.projectPath = projectPath
+            self.sessionTitle = sessionTitle
+            self.tool = tool
+            self.aiSessionID = aiSessionID
+            self.state = state
+            self.model = model
+            self.baselineInputTokens = baselineInputTokens
+            self.committedInputTokens = committedInputTokens
+            self.baselineOutputTokens = baselineOutputTokens
+            self.committedOutputTokens = committedOutputTokens
+            self.baselineCachedInputTokens = baselineCachedInputTokens
+            self.committedCachedInputTokens = committedCachedInputTokens
+            self.baselineTotalTokens = baselineTotalTokens
+            self.committedTotalTokens = committedTotalTokens
+            self.updatedAt = updatedAt
+            self.startedAt = startedAt
+            self.wasInterrupted = wasInterrupted
+            self.hasCompletedTurn = hasCompletedTurn
+            self.transcriptPath = transcriptPath
+            self.notificationType = notificationType
+            self.targetToolName = targetToolName
+            self.interactionMessage = interactionMessage
+        }
     }
 
     private let logger = AppDebugLog.shared
@@ -251,6 +315,9 @@ final class AISessionStore {
                 tool: canonicalToolName(envelope.tool),
                 aiSessionID: envelope.externalSessionID,
                 model: envelope.model,
+                inputTokens: envelope.inputTokens,
+                outputTokens: envelope.outputTokens,
+                cachedInputTokens: envelope.cachedInputTokens,
                 totalTokens: envelope.totalTokens,
                 updatedAt: envelope.updatedAt,
                 metadata: nil
@@ -449,6 +516,9 @@ final class AISessionStore {
                 session.model = normalizedModel
             }
             session.updatedAt = max(session.updatedAt, snapshot.updatedAt)
+            session.committedInputTokens = max(session.committedInputTokens, snapshot.inputTokens)
+            session.committedOutputTokens = max(session.committedOutputTokens, snapshot.outputTokens)
+            session.committedCachedInputTokens = max(session.committedCachedInputTokens, snapshot.cachedInputTokens)
             session.committedTotalTokens = max(session.committedTotalTokens, snapshot.totalTokens)
 
             terminalSessionsByID[targetTerminalID] = session
@@ -471,6 +541,18 @@ final class AISessionStore {
     }
 
     private func seedSessionOnStart(_ session: inout TerminalSessionState, event: AIHookEvent) {
+        if let inputTokens = event.inputTokens {
+            session.committedInputTokens = max(session.committedInputTokens, inputTokens)
+            session.baselineInputTokens = min(session.baselineInputTokens, session.committedInputTokens)
+        }
+        if let outputTokens = event.outputTokens {
+            session.committedOutputTokens = max(session.committedOutputTokens, outputTokens)
+            session.baselineOutputTokens = min(session.baselineOutputTokens, session.committedOutputTokens)
+        }
+        if let cachedInputTokens = event.cachedInputTokens {
+            session.committedCachedInputTokens = max(session.committedCachedInputTokens, cachedInputTokens)
+            session.baselineCachedInputTokens = min(session.baselineCachedInputTokens, session.committedCachedInputTokens)
+        }
         if let totalTokens = event.totalTokens {
             session.committedTotalTokens = max(session.committedTotalTokens, totalTokens)
             session.baselineTotalTokens = min(session.baselineTotalTokens, session.committedTotalTokens)
@@ -484,6 +566,9 @@ final class AISessionStore {
     }
 
     private func applyPromptSubmitted(_ session: inout TerminalSessionState, event: AIHookEvent) {
+        let currentInput = resolvedCommittedInputTokens(for: session, incomingInputTokens: event.inputTokens)
+        let currentOutput = resolvedCommittedOutputTokens(for: session, incomingOutputTokens: event.outputTokens)
+        let currentCached = resolvedCommittedCachedInputTokens(for: session, incomingCachedInputTokens: event.cachedInputTokens)
         let currentTotal = resolvedCommittedTotalTokens(for: session, incomingTotalTokens: event.totalTokens)
         session.state = .responding
         session.wasInterrupted = false
@@ -491,11 +576,20 @@ final class AISessionStore {
         session.notificationType = nil
         session.targetToolName = nil
         session.interactionMessage = nil
+        session.committedInputTokens = currentInput
+        session.committedOutputTokens = currentOutput
+        session.committedCachedInputTokens = currentCached
         session.committedTotalTokens = currentTotal
+        session.baselineInputTokens = currentInput
+        session.baselineOutputTokens = currentOutput
+        session.baselineCachedInputTokens = currentCached
         session.baselineTotalTokens = currentTotal
     }
 
     private func applyTurnCompleted(_ session: inout TerminalSessionState, event: AIHookEvent) {
+        let committedInput = resolvedCommittedInputTokens(for: session, incomingInputTokens: event.inputTokens)
+        let committedOutput = resolvedCommittedOutputTokens(for: session, incomingOutputTokens: event.outputTokens)
+        let committedCached = resolvedCommittedCachedInputTokens(for: session, incomingCachedInputTokens: event.cachedInputTokens)
         let committedTotal = resolvedCommittedTotalTokens(for: session, incomingTotalTokens: event.totalTokens)
         let wasInterrupted = event.metadata?.wasInterrupted == true
         session.state = .idle
@@ -504,6 +598,9 @@ final class AISessionStore {
         session.notificationType = nil
         session.targetToolName = nil
         session.interactionMessage = nil
+        session.committedInputTokens = committedInput
+        session.committedOutputTokens = committedOutput
+        session.committedCachedInputTokens = committedCached
         session.committedTotalTokens = committedTotal
         if session.hasCompletedTurn, !wasInterrupted {
             let expiresAt = session.updatedAt + completedPhaseLifetime
@@ -519,14 +616,35 @@ final class AISessionStore {
         return max(session.committedTotalTokens, logicalTotal, incomingTotalTokens ?? 0)
     }
 
+    private func resolvedCommittedInputTokens(for session: TerminalSessionState, incomingInputTokens: Int?) -> Int {
+        let logicalTotal = session.logicalSessionKey.flatMap { logicalSessionsByKey[$0]?.inputTokens } ?? 0
+        return max(session.committedInputTokens, logicalTotal, incomingInputTokens ?? 0)
+    }
+
+    private func resolvedCommittedOutputTokens(for session: TerminalSessionState, incomingOutputTokens: Int?) -> Int {
+        let logicalTotal = session.logicalSessionKey.flatMap { logicalSessionsByKey[$0]?.outputTokens } ?? 0
+        return max(session.committedOutputTokens, logicalTotal, incomingOutputTokens ?? 0)
+    }
+
+    private func resolvedCommittedCachedInputTokens(for session: TerminalSessionState, incomingCachedInputTokens: Int?) -> Int {
+        let logicalTotal = session.logicalSessionKey.flatMap { logicalSessionsByKey[$0]?.cachedInputTokens } ?? 0
+        return max(session.committedCachedInputTokens, logicalTotal, incomingCachedInputTokens ?? 0)
+    }
+
     private func reconcileLogicalSession(for session: TerminalSessionState, previousLogicalKey: LogicalSessionKey?) {
         guard let logicalKey = session.logicalSessionKey else {
             return
         }
+        let inputTokens = max(session.committedInputTokens, session.baselineInputTokens)
+        let outputTokens = max(session.committedOutputTokens, session.baselineOutputTokens)
+        let cachedInputTokens = max(session.committedCachedInputTokens, session.baselineCachedInputTokens)
         let totalTokens = max(session.committedTotalTokens, session.baselineTotalTokens)
         let nextState = LogicalSessionState(
             key: logicalKey,
             model: session.model,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cachedInputTokens: cachedInputTokens,
             totalTokens: totalTokens,
             updatedAt: session.updatedAt,
             hasCompletedTurn: session.hasCompletedTurn
@@ -535,6 +653,9 @@ final class AISessionStore {
             logicalSessionsByKey[logicalKey] = LogicalSessionState(
                 key: logicalKey,
                 model: nextState.model ?? existing.model,
+                inputTokens: max(existing.inputTokens, nextState.inputTokens),
+                outputTokens: max(existing.outputTokens, nextState.outputTokens),
+                cachedInputTokens: max(existing.cachedInputTokens, nextState.cachedInputTokens),
                 totalTokens: max(existing.totalTokens, nextState.totalTokens),
                 updatedAt: max(existing.updatedAt, nextState.updatedAt),
                 hasCompletedTurn: existing.hasCompletedTurn || nextState.hasCompletedTurn
@@ -610,12 +731,14 @@ final class AISessionStore {
             isRunning: session.state == .responding,
             startedAt: session.startedAt.map { Date(timeIntervalSince1970: $0) },
             updatedAt: Date(timeIntervalSince1970: session.updatedAt),
-            currentInputTokens: session.committedTotalTokens,
-            currentOutputTokens: 0,
+            currentInputTokens: session.committedInputTokens,
+            currentOutputTokens: session.committedOutputTokens,
             currentTotalTokens: session.committedTotalTokens,
-            baselineInputTokens: session.baselineTotalTokens,
-            baselineOutputTokens: 0,
+            currentCachedInputTokens: session.committedCachedInputTokens,
+            baselineInputTokens: session.baselineInputTokens,
+            baselineOutputTokens: session.baselineOutputTokens,
             baselineTotalTokens: session.baselineTotalTokens,
+            baselineCachedInputTokens: session.baselineCachedInputTokens,
             currentContextWindow: nil,
             currentContextUsedTokens: nil,
             currentContextUsagePercent: nil,
@@ -642,6 +765,12 @@ final class AISessionStore {
             aiSessionID: aiSessionID,
             state: .idle,
             model: model,
+            baselineInputTokens: 0,
+            committedInputTokens: 0,
+            baselineOutputTokens: 0,
+            committedOutputTokens: 0,
+            baselineCachedInputTokens: 0,
+            committedCachedInputTokens: 0,
             baselineTotalTokens: 0,
             committedTotalTokens: 0,
             updatedAt: event.updatedAt,
