@@ -87,6 +87,10 @@
 		B10000000000000000000018 /* GitPanelHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000018 /* GitPanelHistoryView.swift */; };
 		B10000000000000000000019 /* GitPanelContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000019 /* GitPanelContextMenu.swift */; };
 		B10000000000000000000020 /* GitPanelStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000020 /* GitPanelStyles.swift */; };
+		B10000000000000000000021 /* GitStore+Refresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000021 /* GitStore+Refresh.swift */; };
+		B10000000000000000000022 /* GitStore+Selection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000022 /* GitStore+Selection.swift */; };
+		B10000000000000000000023 /* GitStore+Operations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000023 /* GitStore+Operations.swift */; };
+		B10000000000000000000024 /* GitStore+Remote.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000024 /* GitStore+Remote.swift */; };
 		A458177F176213CEE32928D8 /* AIUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0598FB11F350F43D5A39628A /* AIUsageService.swift */; };
 		A8B33C70370354EC1B39A24A /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6BB59CA2E305DD7DBA2C167 /* main.swift */; };
 		A9D536707C6623508B39B82C /* WorkspacePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E565A0971373275B0012B0 /* WorkspacePaths.swift */; };
@@ -181,6 +185,10 @@
 		C10000000000000000000018 /* GitPanelHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitPanelHistoryView.swift; sourceTree = "<group>"; };
 		C10000000000000000000019 /* GitPanelContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitPanelContextMenu.swift; sourceTree = "<group>"; };
 		C10000000000000000000020 /* GitPanelStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitPanelStyles.swift; sourceTree = "<group>"; };
+		C10000000000000000000021 /* GitStore+Refresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitStore+Refresh.swift"; sourceTree = "<group>"; };
+		C10000000000000000000022 /* GitStore+Selection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitStore+Selection.swift"; sourceTree = "<group>"; };
+		C10000000000000000000023 /* GitStore+Operations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitStore+Operations.swift"; sourceTree = "<group>"; };
+		C10000000000000000000024 /* GitStore+Remote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitStore+Remote.swift"; sourceTree = "<group>"; };
 		8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiRuntimeProbeService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeProbeService.swift; sourceTree = "<group>"; };
 		A2EEF0E8297855B7EA05302D /* GitStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStore.swift; sourceTree = "<group>"; };
@@ -425,6 +433,10 @@
 				C10000000000000000000010 /* AppShortcutSettings.swift */,
 				5F0A9C1D7E2B4A5C8D9E0F16 /* PetStore.swift */,
 				A2EEF0E8297855B7EA05302D /* GitStore.swift */,
+				C10000000000000000000021 /* GitStore+Refresh.swift */,
+				C10000000000000000000022 /* GitStore+Selection.swift */,
+				C10000000000000000000023 /* GitStore+Operations.swift */,
+				C10000000000000000000024 /* GitStore+Remote.swift */,
 				E0E565A0971373275B0012B0 /* WorkspacePaths.swift */,
 			);
 			path = App;
@@ -645,6 +657,10 @@
 				B10000000000000000000020 /* GitPanelStyles.swift in Sources */,
 				71BFF4A14483F673CAE0510F /* GitService.swift in Sources */,
 				C9C006044B9B560E30181FAB /* GitStore.swift in Sources */,
+				B10000000000000000000021 /* GitStore+Refresh.swift in Sources */,
+				B10000000000000000000022 /* GitStore+Selection.swift in Sources */,
+				B10000000000000000000023 /* GitStore+Operations.swift in Sources */,
+				B10000000000000000000024 /* GitStore+Remote.swift in Sources */,
 				BCB26675EA2CC890F29674A0 /* PersistenceService.swift in Sources */,
 				151B69EF643EA9CF5E6975C2 /* ProjectActivityService.swift in Sources */,
 				3BE284778A63A397792D1E4E /* ProjectEditorDialog.swift in Sources */,
