@@ -618,6 +618,9 @@ private final class GhosttyPTYProcessBridge: @unchecked Sendable {
     private var launchDate = Date()
     private var hasObservedOutput = false
     private var lastViewport = InMemoryTerminalViewport(columns: 80, rows: 24)
+    private var lastAppliedViewport: InMemoryTerminalViewport?
+    private var pendingResizeWorkItem: DispatchWorkItem?
+    private let resizeDebounceDelay: TimeInterval = 0.05
 
     init(sessionID: UUID) {
         self.sessionID = sessionID
@@ -709,13 +712,17 @@ private final class GhosttyPTYProcessBridge: @unchecked Sendable {
         shouldCloseOnCancel = closeMasterFDOnCancel
         readSource = self.readSource
         processSource = self.processSource
+        let pendingResizeWorkItem = self.pendingResizeWorkItem
         shellPID = 0
         masterFD = -1
         closeMasterFDOnCancel = false
         self.readSource = nil
         self.processSource = nil
+        self.pendingResizeWorkItem = nil
+        lastAppliedViewport = nil
         lock.unlock()
 
+        pendingResizeWorkItem?.cancel()
         readSource?.cancel()
         processSource?.cancel()
         if fd >= 0, shouldCloseOnCancel {
@@ -776,6 +783,7 @@ private final class GhosttyPTYProcessBridge: @unchecked Sendable {
         closeMasterFDOnCancel = true
         shellPID = childPID
         launchDate = Date()
+        lastAppliedViewport = nil
         readSource = DispatchSource.makeReadSource(fileDescriptor: masterFD, queue: ioQueue)
         processSource = DispatchSource.makeProcessSource(identifier: childPID, eventMask: .exit, queue: ioQueue)
         let readSource = self.readSource
@@ -941,24 +949,50 @@ private final class GhosttyPTYProcessBridge: @unchecked Sendable {
         lock.lock()
         lastViewport = viewport
         let fd = masterFD
-        let pid = shellPID
+        pendingResizeWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.applyPendingResize()
+        }
+        pendingResizeWorkItem = workItem
         lock.unlock()
         guard fd >= 0 else {
             return
         }
 
-        ioQueue.async {
-            var winsizeValue = winsize(
-                ws_row: viewport.rows,
-                ws_col: viewport.columns,
-                ws_xpixel: UInt16(min(viewport.widthPixels, UInt32(UInt16.max))),
-                ws_ypixel: UInt16(min(viewport.heightPixels, UInt32(UInt16.max)))
-            )
-            _ = ioctl(fd, TIOCSWINSZ, &winsizeValue)
-            if pid > 0 {
-                kill(pid, SIGWINCH)
-                kill(-pid, SIGWINCH)
-            }
+        ioQueue.asyncAfter(deadline: .now() + resizeDebounceDelay, execute: workItem)
+    }
+
+    private func applyPendingResize() {
+        let viewport: InMemoryTerminalViewport
+        let fd: Int32
+        let pid: Int32
+
+        lock.lock()
+        pendingResizeWorkItem = nil
+        viewport = lastViewport
+        fd = masterFD
+        pid = shellPID
+        if lastAppliedViewport == viewport {
+            lock.unlock()
+            return
+        }
+        lastAppliedViewport = viewport
+        lock.unlock()
+
+        guard fd >= 0, viewport.columns > 0, viewport.rows > 0 else {
+            return
+        }
+
+        var winsizeValue = winsize(
+            ws_row: viewport.rows,
+            ws_col: viewport.columns,
+            ws_xpixel: UInt16(min(viewport.widthPixels, UInt32(UInt16.max))),
+            ws_ypixel: UInt16(min(viewport.heightPixels, UInt32(UInt16.max)))
+        )
+        _ = ioctl(fd, TIOCSWINSZ, &winsizeValue)
+        if pid > 0 {
+            kill(pid, SIGWINCH)
+            kill(-pid, SIGWINCH)
         }
     }
 
@@ -1370,9 +1404,16 @@ private final class GhosttyWindowPortal {
         guard var entry = entries[hostedId] else { return }
         entry.anchorView = nil
         entry.visibleInUI = false
-        // Do NOT hide hostedView — it will be rebound by the next bind() call.
-        // Only hide mountedView so the overlay stops showing a stale frame.
+        // Do NOT remove hostedView from mountedView here. We only detach the
+        // mounted wrapper from the overlay so temporary rebinds keep the
+        // terminal/surface alive without leaving stale pixels behind.
         entry.mountedView.isHidden = true
+        if entry.mountedView.superview != nil {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            entry.mountedView.removeFromSuperview()
+            CATransaction.commit()
+        }
         entries[hostedId] = entry
     }
 
@@ -1408,6 +1449,13 @@ private final class GhosttyWindowPortal {
               !anchorView.dmuxHasHiddenAncestor else {
             entry.hostedView.isHidden = true
             entry.mountedView.isHidden = true
+            if entry.mountedView.superview != nil {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                entry.mountedView.removeFromSuperview()
+                CATransaction.commit()
+                hostView.setNeedsDisplay(hostView.bounds)
+            }
             return
         }
 
@@ -1415,6 +1463,13 @@ private final class GhosttyWindowPortal {
         guard frameInHost.width > 1, frameInHost.height > 1 else {
             entry.hostedView.isHidden = true
             entry.mountedView.isHidden = true
+            if entry.mountedView.superview != nil {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                entry.mountedView.removeFromSuperview()
+                CATransaction.commit()
+                hostView.setNeedsDisplay(hostView.bounds)
+            }
             return
         }
 
@@ -1424,6 +1479,7 @@ private final class GhosttyWindowPortal {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
+        let previousFrame = entry.mountedView.frame
         if entry.mountedView.superview !== overlayView {
             overlayView.addSubview(entry.mountedView)
         }
@@ -1438,6 +1494,10 @@ private final class GhosttyWindowPortal {
         entry.hostedView.isHidden = false
 
         CATransaction.commit()
+
+        if previousFrame != frameInHost {
+            hostView.setNeedsDisplay(previousFrame.union(frameInHost))
+        }
     }
 }
 

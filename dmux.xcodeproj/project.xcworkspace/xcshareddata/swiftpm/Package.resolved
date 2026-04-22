@@ -4,10 +4,10 @@
     {
       "identity" : "libghostty-spm",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/duxphp/libghostty-spm.git",
+      "location" : "file:///Volumes/Web/未命名文件夹/Vendor/libghostty-spm",
       "state" : {
         "branch" : "pr/appkit-input-alignment",
-        "revision" : "11c6ab226f16c973fcbf694a0172a8f0fa941f12"
+        "revision" : "65149f9f1ad891f4b4cd366c3aa1c65724ea265f"
       }
     },
     {

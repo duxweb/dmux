@@ -1,15 +1,6 @@
 {
-  "originHash" : "1779b2d2318607badc8b5c944203810d2c54c16355fe3b06f21b86c1cc87f7ad",
+  "originHash" : "95d2e818a2845f3f2155201cfe6f505aa4c0b9a88b251afe712b27603a1e047d",
   "pins" : [
-    {
-      "identity" : "libghostty-spm",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/duxphp/libghostty-spm.git",
-      "state" : {
-        "branch" : "pr/appkit-input-alignment",
-        "revision" : "11c6ab226f16c973fcbf694a0172a8f0fa941f12"
-      }
-    },
     {
       "identity" : "msdisplaylink",
       "kind" : "remoteSourceControl",

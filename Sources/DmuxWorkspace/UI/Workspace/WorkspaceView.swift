@@ -136,7 +136,6 @@ private struct TopPaneSplitContainer: NSViewControllerRepresentable {
 
 private final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
     private let model: AppModel
-    private let logger = AppDebugLog.shared
     private let paneSplitView = DividerStyledHorizontalSplitView()
     private var paneHosts: [UUID: NSHostingController<TerminalPaneView>] = [:]
     private var lastRenderedSessionByID: [UUID: TerminalSession] = [:]
@@ -158,10 +157,6 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         self.lastRenderedShowsInactiveOverlay = showsInactiveOverlay
         self.dividerColor = dividerColor
         super.init(nibName: nil, bundle: nil)
-        logger.log(
-            "startup-ui",
-            "top-pane init project=\(workspace.projectID.uuidString) topSessions=\(workspace.topSessionIDs.count) bottomTabs=\(workspace.bottomTabSessionIDs.count)"
-        )
         paneSplitView.dividerStyle = NSSplitView.DividerStyle.thin
         paneSplitView.isVertical = true
         paneSplitView.delegate = self
@@ -213,16 +208,18 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
         guard currentSessionIDs != workspace.topSessionIDs else { return }
         currentSessionIDs = workspace.topSessionIDs
         needsEqualDistribution = true
-        logger.log(
-            "startup-ui",
-            "top-pane rebuild project=\(workspace.projectID.uuidString) sessions=\(workspace.topSessionIDs.count)"
-        )
 
         let activeSessionIDs = Set(workspace.topSessionIDs)
-        let staleSessionIDs = Set(paneHosts.keys).subtracting(activeSessionIDs)
-        for sessionID in staleSessionIDs {
-            if let host = paneHosts.removeValue(forKey: sessionID) {
+        let inactiveSessionIDs = Set(paneHosts.keys).subtracting(activeSessionIDs)
+        for sessionID in inactiveSessionIDs {
+            if let host = paneHosts[sessionID] {
                 detachPaneHostView(host.view)
+            }
+        }
+
+        let obsoleteSessionIDs = inactiveSessionIDs.filter { model.terminalSession(for: $0) == nil }
+        for sessionID in obsoleteSessionIDs {
+            if let host = paneHosts.removeValue(forKey: sessionID) {
                 host.removeFromParent()
             }
             lastRenderedSessionByID.removeValue(forKey: sessionID)
@@ -232,10 +229,6 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
 
         for (index, sessionID) in workspace.topSessionIDs.enumerated() {
             guard let session = sessionsByID[sessionID] else { continue }
-            logger.log(
-                "startup-ui",
-                "top-pane prepare-host session=\(session.id.uuidString) project=\(session.projectID.uuidString)"
-            )
 
             let host: NSHostingController<TerminalPaneView>
             if let existing = paneHosts[sessionID] {
@@ -248,22 +241,17 @@ private final class TopPaneSplitController: NSViewController, NSSplitViewDelegat
                 )
                 paneHosts[sessionID] = host
                 lastRenderedSessionByID[sessionID] = session
-                logger.log("startup-ui", "top-pane create-host session=\(session.id.uuidString)")
             }
 
             if host.parent == nil {
                 addChild(host)
-                logger.log("startup-ui", "top-pane add-child session=\(session.id.uuidString)")
             }
 
-            logger.log("startup-ui", "top-pane access-host-view session=\(session.id.uuidString)")
             if paneSplitView.arrangedSubviews.contains(host.view) == false {
                 paneSplitView.insertArrangedSubview(host.view, at: min(index, paneSplitView.arrangedSubviews.count))
-                logger.log("startup-ui", "top-pane attached-host-view session=\(session.id.uuidString)")
             } else if index >= paneSplitView.arrangedSubviews.count || paneSplitView.arrangedSubviews[index] !== host.view {
                 detachPaneHostView(host.view)
                 paneSplitView.insertArrangedSubview(host.view, at: index)
-                logger.log("startup-ui", "top-pane reordered-host-view session=\(session.id.uuidString) index=\(index)")
             }
             host.view.translatesAutoresizingMaskIntoConstraints = true
             host.view.autoresizingMask = [.width, .height]
@@ -698,7 +686,6 @@ struct TerminalPaneView: View {
     let showsCloseButton: Bool
 
     @State private var isHovered = false
-    @State private var hasLoggedMount = false
 
     private let terminalEnvironmentService = AIRuntimeBridgeService()
     private var recoveryIssue: AppModel.TerminalRecoveryIssue? {
@@ -790,16 +777,6 @@ struct TerminalPaneView: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .onAppear {
-            guard hasLoggedMount == false else {
-                return
-            }
-            hasLoggedMount = true
-            AppDebugLog.shared.log(
-                "startup-ui",
-                "terminal-pane appear session=\(session.id.uuidString) project=\(session.projectID.uuidString)"
-            )
-        }
     }
 
     @ViewBuilder
@@ -823,19 +800,7 @@ struct TerminalPaneView: View {
     }
 
     private func terminalEnvironment() -> [(String, String)] {
-        let logger = AppDebugLog.shared
-        let resolution = terminalEnvironmentService.environmentResolution(for: session)
-        if resolution.isCacheHit == false {
-            logger.log(
-                "startup-ui",
-                "terminal-pane host-build-start session=\(session.id.uuidString) project=\(session.projectID.uuidString)"
-            )
-            logger.log(
-                "startup-ui",
-                "terminal-pane host-build-env-ready session=\(session.id.uuidString) envCount=\(resolution.pairs.count)"
-            )
-        }
-        return resolution.pairs
+        terminalEnvironmentService.environmentResolution(for: session).pairs
     }
 }
 
