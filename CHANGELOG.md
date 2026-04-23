@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-23
+
+### Changed
+
+- Replaced the terminal backend with the Ghostty stack and completed the follow-up workspace integration work so split panes, detached terminal windows, project switching, and restored terminal sessions now run on one consistent rendering path.
+- Split several oversized app, terminal, AI stats, Git, settings, history-indexing, and pet modules into smaller focused units to keep the codebase easier to maintain and reduce future regression risk.
+- Tuned AI history indexing profiles and Ghostty appearance handling, including curated bundled Ghostty themes and lower-overhead background indexing behavior.
+- Refined pet progression, trait scoring, localized trait tooltips, and realtime refresh flow so pet state follows post-claim activity more consistently and remains easier to reason about.
+
+### Fixed
+
+- Fixed Ghostty terminal lifecycle issues across project switching, floating windows, restored terminals, bridge refreshes, and detached terminal handoff so terminal content, input, and scrolling stay stable during workspace transitions.
+- Fixed live AI runtime accounting so tool switching, completed turns, indexed-history overlays, and realtime project totals no longer leak old session totals, double-count overlays, or drift between live and indexed views.
+- Fixed historical AI session queries used by pet progression and statistics so post-cutoff session buckets are counted with the correct time boundary semantics instead of dropping ongoing sessions or mixing in the wrong totals.
+- Fixed bundled Ghostty theme color parsing so selected built-in themes now resolve and apply correctly after relaunch.
+- Fixed pet progression bookkeeping, stale session-watermark cleanup, and trait refresh edge cases so egg, XP, and trait state no longer drift or get inflated by orphaned realtime session state.
+
 ## [0.3.2] - 2026-04-20
 
 ### Fixed
