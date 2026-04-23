@@ -530,7 +530,9 @@ final class PetStoreLifecycleTests: XCTestCase {
         let fileURL = tempDir.appendingPathComponent("pet-state.dat")
         let storage = PetStore.Storage(
             fileURL: fileURL,
-            cryptoNamespace: "tests-roundtrip"
+            cryptoNamespace: "tests-roundtrip",
+            legacyFileURLs: [],
+            legacyCryptoNamespaces: []
         )
 
         do {
@@ -568,6 +570,52 @@ final class PetStoreLifecycleTests: XCTestCase {
         XCTAssertTrue(dev.fileURL?.path.contains("/Codux-dev/") ?? false)
         XCTAssertEqual(release.cryptoNamespace, "codux")
         XCTAssertEqual(dev.cryptoNamespace, "codux-dev")
+        XCTAssertTrue(release.legacyFileURLs.first?.path.contains("/dmux/") ?? false)
+        XCTAssertTrue(dev.legacyFileURLs.first?.path.contains("/dmux-dev/") ?? false)
+        XCTAssertEqual(release.legacyCryptoNamespaces, ["prod"])
+        XCTAssertEqual(dev.legacyCryptoNamespaces, ["dev"])
+    }
+
+    func testReleaseStorageMigratesLegacyFileAndNamespace() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let newRootURL = rootURL.appendingPathComponent("Codux", isDirectory: true)
+        let legacyRootURL = rootURL.appendingPathComponent("dmux", isDirectory: true)
+        let newFileURL = newRootURL.appendingPathComponent("pet-state.dat")
+        let legacyFileURL = legacyRootURL.appendingPathComponent("pet-state.dat")
+
+        let legacyStorage = PetStore.Storage(
+            fileURL: legacyFileURL,
+            cryptoNamespace: "prod",
+            legacyFileURLs: [],
+            legacyCryptoNamespaces: []
+        )
+        let migratedStorage = PetStore.Storage(
+            fileURL: newFileURL,
+            cryptoNamespace: "codux",
+            legacyFileURLs: [legacyFileURL],
+            legacyCryptoNamespaces: ["prod"]
+        )
+
+        let legacyStore = PetStore(storage: legacyStorage)
+        legacyStore.claim(option: .goose, customName: "旧宠物", totalNormalizedTokens: 123_456)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFileURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: newFileURL.path))
+
+        let migratedStore = PetStore(storage: migratedStorage)
+
+        XCTAssertTrue(migratedStore.isClaimed)
+        XCTAssertEqual(migratedStore.species, .goose)
+        XCTAssertEqual(migratedStore.customName, "旧宠物")
+        XCTAssertEqual(migratedStore.globalNormalizedTotalWatermark, 123_456)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newFileURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFileURL.path))
+
+        let reloadedStore = PetStore(storage: migratedStorage)
+        XCTAssertTrue(reloadedStore.isClaimed)
+        XCTAssertEqual(reloadedStore.species, .goose)
+        XCTAssertEqual(reloadedStore.customName, "旧宠物")
     }
 
     func testInheritArchivesCurrentPetAndResetsClaimState() {

@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Fixed multi-build hook coexistence for Codex, Claude, and Gemini by making injected dmux hook commands owner-aware, preserving other active app owners, and aggressively removing legacy ownerless hook entries from older helper paths.
 - Fixed Codex config installation so `suppress_unstable_features_warning = true` is enforced as a real top-level TOML key instead of being written into nested notice tables, preventing startup warnings and invalid config structure after app bootstrap.
 - Fixed runtime bootstrap path partitioning so `claude-session-map`, runtime socket files, and agent status state are now treated as temporary runtime artifacts instead of leaking into persistent support storage.
+- Fixed pet storage migration for existing installs by auto-moving legacy `Application Support/dmux*/pet-state.dat` files into the new app-owned container and re-encrypting them under the current runtime namespace on first load.
 - Fixed release cleanup metadata so the generated Homebrew cask zap path now matches the real Application Support directory used by current builds.
 
 ## [0.4.1] - 2026-04-23

@@ -16,6 +16,7 @@
 - 修复 Codex、Claude、Gemini 的多版本 hook 共存问题，dmux 注入命令现在带有 owner 标识，会保留其他正在使用的应用 owner，同时会自动清理旧版本遗留的无 owner hook 条目和旧 helper 路径注入。
 - 修复 Codex 配置注入逻辑，`suppress_unstable_features_warning = true` 现在会作为真正的 TOML 顶层键写入，不会再落进嵌套的 `notice` 表结构里，从而避免启动 warning 持续出现或配置结构被写坏。
 - 修复 runtime bootstrap 的临时/持久路径划分，`claude-session-map`、runtime socket 和 agent status 现在都被视为临时运行态产物，不再落入持久 support 目录。
+- 修复已有安装的宠物存档迁移问题，应用首次加载时会自动把旧版 `Application Support/dmux*/pet-state.dat` 搬到新的应用私有目录，并按当前运行时命名空间重新加密写回，避免正式版老用户升级后出现宠物档案读不到。
 - 修复 Homebrew cask 生成脚本中的清理路径，使 zap 的 `Application Support` 目录与当前正式版真实使用的目录保持一致。
 
 ## [0.4.1] - 2026-04-23

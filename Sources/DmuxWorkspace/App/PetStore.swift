@@ -13,16 +13,21 @@ final class PetStore {
     struct Storage: Sendable {
         var fileURL: URL?
         var cryptoNamespace: String
+        var legacyFileURLs: [URL]
+        var legacyCryptoNamespaces: [String]
 
         static let live = Self.makeLive(bundle: .main)
 
         static func makeLive(bundle: Bundle = .main) -> Storage {
             let rootURL = AppRuntimePaths.appSupportRootURL(bundle: bundle)
             let cryptoNamespace = AppRuntimePaths.runtimeOwnerID(bundle: bundle)
+            let legacyLayout = legacyLayout(bundleIdentifier: bundle.bundleIdentifier ?? "")
 
             return Storage(
                 fileURL: rootURL?.appendingPathComponent("pet-state.dat"),
-                cryptoNamespace: cryptoNamespace
+                cryptoNamespace: cryptoNamespace,
+                legacyFileURLs: legacyLayout.fileURLs,
+                legacyCryptoNamespaces: legacyLayout.cryptoNamespaces
             )
         }
 
@@ -39,16 +44,21 @@ final class PetStore {
                 appDisplayName: resolvedDisplayName,
                 bundleIdentifier: bundleIdentifier
             )
+            let legacyLayout = legacyLayout(bundleIdentifier: bundleIdentifier)
 
             return Storage(
                 fileURL: rootURL?.appendingPathComponent("pet-state.dat"),
-                cryptoNamespace: cryptoNamespace
+                cryptoNamespace: cryptoNamespace,
+                legacyFileURLs: legacyLayout.fileURLs,
+                legacyCryptoNamespaces: legacyLayout.cryptoNamespaces
             )
         }
 
         static let inMemory = Storage(
             fileURL: nil,
-            cryptoNamespace: "tests"
+            cryptoNamespace: "tests",
+            legacyFileURLs: [],
+            legacyCryptoNamespaces: []
         )
 
         private static func inferredDisplayName(bundleIdentifier: String) -> String {
@@ -62,6 +72,28 @@ final class PetStore {
                 return "Codux-debug"
             }
             return "Codux"
+        }
+
+        private static func legacyLayout(bundleIdentifier: String) -> (fileURLs: [URL], cryptoNamespaces: [String]) {
+            guard let appSupportURL = FileManager.default
+                .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+                .first else {
+                return ([], [])
+            }
+
+            let normalizedBundleIdentifier = bundleIdentifier
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let isDeveloperVariant = normalizedBundleIdentifier.hasSuffix(".dev")
+                || normalizedBundleIdentifier.hasSuffix(".debug")
+
+            let legacyRootName = isDeveloperVariant ? "dmux-dev" : "dmux"
+            let legacyNamespace = isDeveloperVariant ? "dev" : "prod"
+
+            return (
+                [appSupportURL.appendingPathComponent(legacyRootName, isDirectory: true).appendingPathComponent("pet-state.dat")],
+                [legacyNamespace]
+            )
         }
     }
 
@@ -310,9 +342,10 @@ final class PetStore {
     }
 
     private func load() {
-        guard let resolvedState = loadStateFile() else {
+        guard let loadedState = loadStateFile() else {
             return
         }
+        let resolvedState = loadedState.state
 
         claimedAt = resolvedState.claimedAt
         species = resolvedState.species ?? .voidcat
@@ -330,6 +363,12 @@ final class PetStore {
                 debugLog.log(
                     Self.ledgerLogCategory,
                     "invalidate-stats-cache from=\(resolvedState.statsModelVersion ?? 0) to=\(Self.statsModelVersion)"
+                )
+                save()
+            } else if loadedState.needsRewrite {
+                debugLog.log(
+                    "pet-state",
+                    "rewrite current-format path=\(storage.fileURL?.path ?? "nil") reason=legacy-layout"
                 )
                 save()
             }
@@ -410,15 +449,29 @@ final class PetStore {
         saveStateFile(state)
     }
 
-    private func loadStateFile() -> PersistedPetState? {
+    private struct LoadedStateFile {
+        var state: PersistedPetState
+        var needsRewrite: Bool
+    }
+
+    private struct DecryptedStateData {
+        var data: Data
+        var usedLegacyCryptoNamespace: Bool
+    }
+
+    private func loadStateFile() -> LoadedStateFile? {
+        let migratedLegacyFile = migrateLegacyStateFileIfNeeded()
         guard let fileURL = stateFileURL(),
               fileManager.fileExists(atPath: fileURL.path),
               let rawData = try? Data(contentsOf: fileURL),
               let data = decryptedStateData(from: rawData),
-              let state = try? JSONDecoder().decode(PersistedPetState.self, from: data) else {
+              let state = try? JSONDecoder().decode(PersistedPetState.self, from: data.data) else {
             return nil
         }
-        return state
+        return LoadedStateFile(
+            state: state,
+            needsRewrite: migratedLegacyFile || data.usedLegacyCryptoNamespace
+        )
     }
 
     private func saveStateFile(_ state: PersistedPetState) {
@@ -441,26 +494,66 @@ final class PetStore {
         storage.fileURL
     }
 
-    private func cipherKey() -> SymmetricKey {
-        let material = "dmux.pet.state.v2|\(storage.cryptoNamespace)|codux".data(using: .utf8) ?? Data()
+    private func cipherKey(namespace: String) -> SymmetricKey {
+        let material = "dmux.pet.state.v2|\(namespace)|codux".data(using: .utf8) ?? Data()
         let digest = SHA256.hash(data: material)
         return SymmetricKey(data: Data(digest))
     }
 
     private func encryptedStateData(from data: Data) throws -> Data {
-        let sealed = try AES.GCM.seal(data, using: cipherKey())
+        let sealed = try AES.GCM.seal(data, using: cipherKey(namespace: storage.cryptoNamespace))
         guard let combined = sealed.combined else {
             throw CocoaError(.coderInvalidValue)
         }
         return combined
     }
 
-    private func decryptedStateData(from data: Data) -> Data? {
+    private func decryptedStateData(from data: Data) -> DecryptedStateData? {
+        if let opened = openedStateData(from: data, namespace: storage.cryptoNamespace) {
+            return DecryptedStateData(data: opened, usedLegacyCryptoNamespace: false)
+        }
+
+        for legacyNamespace in storage.legacyCryptoNamespaces {
+            if let opened = openedStateData(from: data, namespace: legacyNamespace) {
+                return DecryptedStateData(data: opened, usedLegacyCryptoNamespace: true)
+            }
+        }
+
+        return DecryptedStateData(data: data, usedLegacyCryptoNamespace: false)
+    }
+
+    private func openedStateData(from data: Data, namespace: String) -> Data? {
         if let sealed = try? AES.GCM.SealedBox(combined: data),
-           let opened = try? AES.GCM.open(sealed, using: cipherKey()) {
+           let opened = try? AES.GCM.open(sealed, using: cipherKey(namespace: namespace)) {
             return opened
         }
-        return data
+        return nil
+    }
+
+    private func migrateLegacyStateFileIfNeeded() -> Bool {
+        guard let fileURL = stateFileURL(),
+              !fileManager.fileExists(atPath: fileURL.path) else {
+            return false
+        }
+
+        for legacyURL in storage.legacyFileURLs where fileManager.fileExists(atPath: legacyURL.path) {
+            do {
+                try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fileManager.moveItem(at: legacyURL, to: fileURL)
+                debugLog.log(
+                    "pet-state",
+                    "migrated legacy file from=\(legacyURL.path) to=\(fileURL.path)"
+                )
+                return true
+            } catch {
+                debugLog.log(
+                    "pet-state",
+                    "migrate legacy file failed from=\(legacyURL.path) to=\(fileURL.path) error=\(error.localizedDescription)"
+                )
+            }
+        }
+
+        return false
     }
 }
 
