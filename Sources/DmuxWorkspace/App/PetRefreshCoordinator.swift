@@ -13,7 +13,7 @@ final class PetRefreshCoordinator {
 
     private let petStore: PetStore
     private let logger = AppDebugLog.shared
-    private var liveSnapshotsProvider: (@MainActor () -> [AITerminalSessionSnapshot])?
+    private var totalNormalizedTokensProvider: (@MainActor () -> Int)?
     private var computedStatsProvider: (@MainActor () -> PetStats)?
     private var pendingRefreshTask: Task<Void, Never>?
     private var periodicRefreshTimer: Timer?
@@ -23,10 +23,10 @@ final class PetRefreshCoordinator {
     }
 
     func configure(
-        liveSnapshots: @escaping @MainActor () -> [AITerminalSessionSnapshot],
+        totalNormalizedTokens: @escaping @MainActor () -> Int,
         computedStats: @escaping @MainActor () -> PetStats
     ) {
-        liveSnapshotsProvider = liveSnapshots
+        totalNormalizedTokensProvider = totalNormalizedTokens
         computedStatsProvider = computedStats
     }
 
@@ -61,40 +61,25 @@ final class PetRefreshCoordinator {
 
     func refreshNow(reason: Reason, now: Date = .init()) {
         guard petStore.isClaimed,
-              let liveSnapshotsProvider,
+              let totalNormalizedTokensProvider,
               let computedStatsProvider else {
             return
         }
 
-        let liveSnapshots = liveSnapshotsProvider()
-        let realtimeSessionTotals = Dictionary(
-            uniqueKeysWithValues: liveSnapshots.map {
-                (Self.realtimeSessionKey(for: $0), max(0, $0.currentTotalTokens - $0.baselineTotalTokens))
-            }
-        )
+        let totalNormalizedTokens = max(0, totalNormalizedTokensProvider())
         let computedStats = petStore.shouldRefreshStats(now: now)
             ? computedStatsProvider()
             : nil
 
         petStore.refreshDerivedState(
-            realtimeSessionTotals: realtimeSessionTotals,
+            totalNormalizedTokens: totalNormalizedTokens,
             computedStats: computedStats,
             now: now
         )
 
         logger.log(
             "pet-refresh",
-            "reason=\(reason.rawValue) liveSessions=\(realtimeSessionTotals.count) applied=\(realtimeSessionTotals.values.reduce(0, +)) hatch=\(petStore.currentHatchTokens) xp=\(petStore.currentExperienceTokens)"
+            "reason=\(reason.rawValue) total=\(totalNormalizedTokens) watermark=\(petStore.globalNormalizedTotalWatermark ?? 0) hatch=\(petStore.currentHatchTokens) xp=\(petStore.currentExperienceTokens)"
         )
-    }
-
-    private static func realtimeSessionKey(for snapshot: AITerminalSessionSnapshot) -> String {
-        if let tool = snapshot.tool?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-           let externalSessionID = snapshot.externalSessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !tool.isEmpty,
-           !externalSessionID.isEmpty {
-            return "\(tool)|\(externalSessionID)"
-        }
-        return "terminal|\(snapshot.sessionID.uuidString.lowercased())"
     }
 }

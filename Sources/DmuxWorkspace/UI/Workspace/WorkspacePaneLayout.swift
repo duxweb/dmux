@@ -57,7 +57,6 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
     private var dividerColor: NSColor
     private let minimumPaneWidth: CGFloat = 220
     private var isApplyingLayout = false
-    private var needsEqualDistribution = false
     init(model: AppModel, workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
         self.model = model
         self.currentWorkspace = workspace
@@ -97,6 +96,10 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
     }
 
     func update(workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
+        let shouldResetPaneDistribution = Self.shouldResetTopPaneDistribution(
+            from: currentWorkspace,
+            to: workspace
+        )
         let sessionIDsChanged = workspace.topSessionIDs != currentWorkspace.topSessionIDs
         currentWorkspace = workspace
         self.activeTerminalSessionID = activeTerminalSessionID
@@ -104,6 +107,10 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
         self.dividerColor = dividerColor
         paneSplitView.customDividerColor = dividerColor
         if sessionIDsChanged {
+            if shouldResetPaneDistribution {
+                let equal = 1 / CGFloat(max(workspace.topSessionIDs.count, 1))
+                model.updateTopPaneRatios(Array(repeating: equal, count: workspace.topSessionIDs.count))
+            }
             rebuildPanes(for: workspace)
         }
         updatePaneViews(for: workspace)
@@ -116,7 +123,6 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
     private func rebuildPanes(for workspace: ProjectWorkspace) {
         guard currentSessionIDs != workspace.topSessionIDs else { return }
         currentSessionIDs = workspace.topSessionIDs
-        needsEqualDistribution = true
 
         let activeSessionIDs = Set(workspace.topSessionIDs)
         let inactiveSessionIDs = Set(paneHosts.keys).subtracting(activeSessionIDs)
@@ -225,13 +231,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
 
     private func applyRatiosIfNeeded() {
         guard !isApplyingLayout, paneSplitView.bounds.width > 0, currentSessionIDs.count > 1 else { return }
-        let ratios: [CGFloat]
-        if needsEqualDistribution {
-            let equal = 1 / CGFloat(currentSessionIDs.count)
-            ratios = Array(repeating: equal, count: currentSessionIDs.count)
-        } else {
-            ratios = currentWorkspace.resolvedTopPaneRatios()
-        }
+        let ratios = currentWorkspace.resolvedTopPaneRatios()
         guard ratios.count == currentSessionIDs.count else { return }
 
         isApplyingLayout = true
@@ -248,10 +248,11 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
         }
 
         paneSplitView.adjustSubviews()
-        if needsEqualDistribution {
-            model.updateTopPaneRatios(ratios)
-            needsEqualDistribution = false
-        }
+    }
+
+    static func shouldResetTopPaneDistribution(from currentWorkspace: ProjectWorkspace, to nextWorkspace: ProjectWorkspace) -> Bool {
+        currentWorkspace.projectID == nextWorkspace.projectID &&
+            currentWorkspace.topSessionIDs != nextWorkspace.topSessionIDs
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {

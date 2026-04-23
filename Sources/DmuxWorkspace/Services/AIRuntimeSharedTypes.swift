@@ -120,8 +120,8 @@ struct AIRuntimeSourceLocator {
         return urls
     }
 
-    static func codexRolloutPath(projectPath: String, externalSessionID: String, homeURL: URL? = nil) -> URL? {
-        let databaseURL = codexDatabaseURL(homeURL: homeURL)
+    static func codexRolloutPath(projectPath: String, externalSessionID: String, databaseURL: URL? = nil, homeURL: URL? = nil) -> URL? {
+        let databaseURL = databaseURL ?? codexDatabaseURL(homeURL: homeURL)
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
             return nil
         }

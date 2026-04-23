@@ -150,7 +150,6 @@ final class AIRuntimePollingService {
         startedAt: TimeInterval
     ) {
         let now = Date().timeIntervalSince1970
-        pruneExpiredSuppressions(now: now)
         var didChange = false
         for (terminalID, snapshot) in updates {
             if shouldSkipSnapshot(terminalID: terminalID, pollStartedAt: startedAt, now: now) {
@@ -181,6 +180,8 @@ final class AIRuntimePollingService {
             self.pendingPollReason = nil
             schedulePoll(reason: pendingPollReason)
         }
+
+        pruneExpiredSuppressions(now: now)
     }
 
     private func isSuppressed(terminalID: UUID, now: TimeInterval) -> Bool {
@@ -195,6 +196,12 @@ final class AIRuntimePollingService {
         now: TimeInterval
     ) -> Bool {
         if isSuppressed(terminalID: session.terminalID, now: now) {
+            return true
+        }
+        if session.state == .responding {
+            return true
+        }
+        if session.state == .idle && session.hasCompletedTurn {
             return false
         }
         let silence = max(0, now - session.updatedAt)
@@ -205,7 +212,8 @@ final class AIRuntimePollingService {
         guard let suppression = hookPollSuppressionByTerminalID[terminalID] else {
             return false
         }
-        return suppression.deadline > now || suppression.recordedAt > pollStartedAt
+        _ = now
+        return suppression.recordedAt > pollStartedAt
     }
 
     private func pruneExpiredSuppressions(now: TimeInterval) {

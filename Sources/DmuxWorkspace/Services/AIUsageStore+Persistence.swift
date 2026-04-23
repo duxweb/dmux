@@ -60,6 +60,26 @@ extension AIUsageStore {
         }) ?? 0
     }
 
+    func globalAllTimeNormalizedTokens() -> Int {
+        (try? withDatabase { db in
+            let sql = """
+            SELECT COALESCE(SUM(total_tokens), 0)
+            FROM ai_history_file_usage_bucket;
+            """
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                return 0
+            }
+            defer { sqlite3_finalize(statement) }
+
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+                return 0
+            }
+            return columnInt(statement, index: 0)
+        }) ?? 0
+    }
+
     func indexedSessions(since cutoff: Date?) -> [AISessionSummary] {
         let calendar = Calendar.autoupdatingCurrent
         let startOfDay = calendar.startOfDay(for: Date())

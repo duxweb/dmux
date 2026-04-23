@@ -8,7 +8,6 @@ final class PetStore {
     private static let stateVersion = 7
     private static let statsModelVersion = 3
     private static let statsRefreshInterval: TimeInterval = 3600
-    static let realtimeSessionRetentionInterval: TimeInterval = 7 * 86_400
     private static let ledgerLogCategory = "pet-ledger"
 
     struct Storage: Sendable {
@@ -50,9 +49,7 @@ final class PetStore {
     private(set) var statsUpdatedDay: Date?
     private(set) var lockedEvoPath: PetEvoPath?
     private(set) var legacy: [PetLegacyRecord] = []
-
-    private var realtimeSessionTotals: [String: Int] = [:]
-    private var realtimeSessionObservedAt: [String: Date] = [:]
+    private(set) var globalNormalizedTotalWatermark: Int?
     private let fileManager = FileManager.default
     private let debugLog = AppDebugLog.shared
     private let storage: Storage
@@ -74,14 +71,13 @@ final class PetStore {
     func claim(
         option: PetClaimOption,
         customName: String,
-        realtimeSessionTotals: [String: Int] = [:],
+        totalNormalizedTokens: Int = 0,
         hiddenSpeciesChance: Double = 0.15
     ) {
         guard !isClaimed else {
             return
         }
-        let claimTime = Date()
-        claimedAt = claimTime
+        claimedAt = Date()
         species = option.resolveSpecies(hiddenSpeciesChance: hiddenSpeciesChance)
         self.customName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
         currentHatchTokens = 0
@@ -89,10 +85,7 @@ final class PetStore {
         currentStats = .neutral
         statsUpdatedDay = nil
         lockedEvoPath = nil
-        self.realtimeSessionTotals = sanitizeRealtimeSessionTotals(realtimeSessionTotals)
-        realtimeSessionObservedAt = Dictionary(
-            uniqueKeysWithValues: self.realtimeSessionTotals.keys.map { ($0, claimTime) }
-        )
+        globalNormalizedTotalWatermark = max(0, totalNormalizedTokens)
         save()
     }
 
@@ -136,8 +129,7 @@ final class PetStore {
         currentStats = .neutral
         statsUpdatedDay = nil
         lockedEvoPath = nil
-        realtimeSessionTotals = [:]
-        realtimeSessionObservedAt = [:]
+        globalNormalizedTotalWatermark = nil
         save()
     }
 
@@ -168,7 +160,7 @@ final class PetStore {
     }
 
     func refreshDerivedState(
-        realtimeSessionTotals nextRealtimeSessionTotals: [String: Int],
+        totalNormalizedTokens nextTotalNormalizedTokens: Int,
         computedStats: PetStats?,
         now: Date = .init()
     ) {
@@ -177,36 +169,23 @@ final class PetStore {
         }
 
         var didChange = false
-        let sanitizedTotals = sanitizeRealtimeSessionTotals(nextRealtimeSessionTotals)
+        let sanitizedTotal = max(0, nextTotalNormalizedTokens)
 
-        if realtimeSessionTotals.isEmpty,
-           (currentHatchTokens > 0 || currentExperienceTokens > 0),
-           !sanitizedTotals.isEmpty {
-            realtimeSessionTotals = sanitizedTotals
-            for key in sanitizedTotals.keys {
-                realtimeSessionObservedAt[key] = now
-            }
+        if globalNormalizedTotalWatermark == nil {
+            globalNormalizedTotalWatermark = sanitizedTotal
             didChange = true
             debugLog.log(
                 Self.ledgerLogCategory,
-                "bootstrap-watermarks sessions=\(sanitizedTotals.count) hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
+                "bootstrap-watermark total=\(sanitizedTotal) hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
             )
         }
 
-        var deltaTokens = 0
-        for (sessionKey, sessionTotal) in sanitizedTotals {
-            let previousTotal = realtimeSessionTotals[sessionKey] ?? 0
-            guard sessionTotal > previousTotal else {
-                realtimeSessionObservedAt[sessionKey] = now
-                continue
-            }
-            deltaTokens += sessionTotal - previousTotal
-            realtimeSessionTotals[sessionKey] = sessionTotal
-            realtimeSessionObservedAt[sessionKey] = now
+        let previousTotal = globalNormalizedTotalWatermark ?? sanitizedTotal
+        let deltaTokens = max(0, sanitizedTotal - previousTotal)
+        if sanitizedTotal > previousTotal {
+            globalNormalizedTotalWatermark = sanitizedTotal
             didChange = true
         }
-
-        pruneStaleRealtimeSessions(activeKeys: Set(sanitizedTotals.keys), now: now, didChange: &didChange)
 
         if deltaTokens > 0 {
             let hatchRemaining = max(0, PetProgressInfo.hatchThreshold - currentHatchTokens)
@@ -217,7 +196,7 @@ final class PetStore {
             didChange = true
             debugLog.log(
                 Self.ledgerLogCategory,
-                "apply-delta delta=\(deltaTokens) hatchDelta=\(hatchDelta) xpDelta=\(experienceDelta) hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
+                "apply-delta delta=\(deltaTokens) total=\(sanitizedTotal) hatchDelta=\(hatchDelta) xpDelta=\(experienceDelta) hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
             )
         }
 
@@ -257,8 +236,7 @@ final class PetStore {
         }
         currentHatchTokens = PetProgressInfo.hatchThreshold
         currentExperienceTokens = max(0, experienceTokens)
-        realtimeSessionTotals = [:]
-        realtimeSessionObservedAt = [:]
+        globalNormalizedTotalWatermark = nil
         if statsUpdatedDay == nil {
             statsUpdatedDay = now
         }
@@ -276,8 +254,7 @@ final class PetStore {
         }
         currentHatchTokens = PetProgressInfo.hatchThreshold
         currentExperienceTokens = 0
-        realtimeSessionTotals = [:]
-        realtimeSessionObservedAt = [:]
+        globalNormalizedTotalWatermark = nil
         if statsUpdatedDay == nil {
             statsUpdatedDay = now
         }
@@ -292,8 +269,7 @@ final class PetStore {
             currentExperienceTokens = 0
             currentStats = .neutral
             statsUpdatedDay = nil
-            realtimeSessionTotals = [:]
-            realtimeSessionObservedAt = [:]
+            globalNormalizedTotalWatermark = nil
         }
         species = nextSpecies
         customName = ""
@@ -304,16 +280,6 @@ final class PetStore {
             lockedEvoPath = nil
         }
         save()
-    }
-
-    private func sanitizeRealtimeSessionTotals(_ totals: [String: Int]) -> [String: Int] {
-        totals.reduce(into: [:]) { partial, item in
-            let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else {
-                return
-            }
-            partial[key] = max(partial[key] ?? 0, max(0, item.value))
-        }
     }
 
     private func load() {
@@ -364,8 +330,7 @@ final class PetStore {
         currentStats = .neutral
         statsUpdatedDay = nil
         lockedEvoPath = nil
-        realtimeSessionTotals = [:]
-        realtimeSessionObservedAt = [:]
+        globalNormalizedTotalWatermark = nil
         debugLog.log(
             Self.ledgerLogCategory,
             "migrate-reset version=\(resolvedState.stateVersion ?? 0) hatched=\(legacyWasHatched) resetClaimedAt=true hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
@@ -379,19 +344,14 @@ final class PetStore {
         currentStats = state.currentStats ?? .neutral
         statsUpdatedDay = state.statsUpdatedDay
         lockedEvoPath = state.lockedEvoPath
-        realtimeSessionTotals = sanitizeRealtimeSessionTotals(state.realtimeSessionTotals ?? [:])
-        let persistedObservedAt = state.realtimeSessionObservedAt ?? [:]
-        realtimeSessionObservedAt = realtimeSessionTotals.reduce(into: [:]) { partial, item in
-            partial[item.key] = persistedObservedAt[item.key] ?? Date()
-        }
+        globalNormalizedTotalWatermark = state.globalNormalizedTotalWatermark
     }
 
     private func shouldPreserveLedgerState(for state: PersistedPetState) -> Bool {
         guard state.stateVersion == 4 else {
             return false
         }
-        let realtimeTotals = sanitizeRealtimeSessionTotals(state.realtimeSessionTotals ?? [:])
-        return !realtimeTotals.isEmpty
+        return (state.currentHatchTokens ?? 0) > 0 || (state.currentExperienceTokens ?? 0) > 0
     }
 
     private func legacyStateWasHatched(_ state: PersistedPetState) -> Bool {
@@ -418,37 +378,9 @@ final class PetStore {
             statsUpdatedDay: statsUpdatedDay,
             lockedEvoPath: lockedEvoPath,
             legacy: legacy,
-            realtimeSessionTotals: realtimeSessionTotals,
-            realtimeSessionObservedAt: realtimeSessionObservedAt
+            globalNormalizedTotalWatermark: globalNormalizedTotalWatermark
         )
         saveStateFile(state)
-    }
-
-    private func pruneStaleRealtimeSessions(activeKeys: Set<String>, now: Date, didChange: inout Bool) {
-        guard !realtimeSessionTotals.isEmpty else {
-            realtimeSessionObservedAt = [:]
-            return
-        }
-
-        var staleKeys: [String] = []
-        for key in realtimeSessionTotals.keys where !activeKeys.contains(key) {
-            let observedAt = realtimeSessionObservedAt[key] ?? now
-            guard now.timeIntervalSince(observedAt) >= Self.realtimeSessionRetentionInterval else {
-                continue
-            }
-            staleKeys.append(key)
-        }
-
-        guard !staleKeys.isEmpty else {
-            return
-        }
-
-        for key in staleKeys {
-            realtimeSessionTotals.removeValue(forKey: key)
-            realtimeSessionObservedAt.removeValue(forKey: key)
-        }
-        didChange = true
-        debugLog.log(Self.ledgerLogCategory, "prune-watermarks removed=\(staleKeys.count)")
     }
 
     private func loadStateFile() -> PersistedPetState? {
@@ -517,10 +449,9 @@ private struct PersistedPetState: Codable, Equatable {
     var statsUpdatedDay: Date?
     var lockedEvoPath: PetEvoPath?
     var legacy: [PetLegacyRecord]?
-    var realtimeSessionTotals: [String: Int]?
-    var realtimeSessionObservedAt: [String: Date]?
+    var globalNormalizedTotalWatermark: Int?
 
-    // Legacy fields kept for one-way migration.
+    // Legacy fields kept only while older hatch-state inference still reads them.
     var progressionVersion: Int?
     var dailyPaceVersion: Int?
     var baselineAllTimeTokens: Int?

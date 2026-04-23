@@ -391,4 +391,92 @@ final class AIHistoryAggregationServiceTests: XCTestCase {
         XCTAssertEqual(summary.sessions.count, 1)
         XCTAssertEqual(summary.sessions.first?.activeDurationSeconds, 120)
     }
+
+    func testBuildProjectSummarySaturatesCorruptedTokenAggregates() {
+        let service = AIHistoryAggregationService()
+        let project = Project(
+            id: UUID(),
+            name: "Workspace",
+            path: "/tmp/workspace",
+            shell: "/bin/zsh",
+            defaultCommand: "",
+            badgeText: nil,
+            badgeSymbol: nil,
+            badgeColorHex: nil,
+            gitDefaultPushRemoteName: nil
+        )
+        let bucketStart = Calendar.autoupdatingCurrent.startOfDay(for: Date()).addingTimeInterval(1800)
+        let bucketEnd = bucketStart.addingTimeInterval(1800)
+
+        let summary = service.buildProjectSummary(
+            project: project,
+            fileSummaries: [
+                AIExternalFileSummary(
+                    source: "codex",
+                    filePath: "/tmp/corrupted-totals.jsonl",
+                    fileModifiedAt: bucketEnd.timeIntervalSince1970,
+                    projectPath: project.path,
+                    usageBuckets: [
+                        AIUsageBucket(
+                            source: "codex",
+                            sessionKey: "corrupted-session",
+                            externalSessionID: "corrupted-session",
+                            sessionTitle: "Corrupted Session",
+                            model: "gpt-5.4",
+                            projectID: project.id,
+                            projectName: project.name,
+                            bucketStart: bucketStart,
+                            bucketEnd: bucketEnd,
+                            inputTokens: Int.max,
+                            outputTokens: Int.max,
+                            totalTokens: Int.max,
+                            cachedInputTokens: Int.max,
+                            requestCount: Int.max,
+                            activeDurationSeconds: 60,
+                            firstSeenAt: bucketStart,
+                            lastSeenAt: bucketEnd
+                        ),
+                        AIUsageBucket(
+                            source: "codex",
+                            sessionKey: "corrupted-session",
+                            externalSessionID: "corrupted-session",
+                            sessionTitle: "Corrupted Session",
+                            model: "gpt-5.4",
+                            projectID: project.id,
+                            projectName: project.name,
+                            bucketStart: bucketStart,
+                            bucketEnd: bucketEnd,
+                            inputTokens: 1,
+                            outputTokens: 1,
+                            totalTokens: 1,
+                            cachedInputTokens: 1,
+                            requestCount: 1,
+                            activeDurationSeconds: 60,
+                            firstSeenAt: bucketStart,
+                            lastSeenAt: bucketEnd
+                        )
+                    ],
+                    sessions: [],
+                    dayUsage: [],
+                    timeBuckets: []
+                )
+            ]
+        )
+
+        XCTAssertEqual(summary.sessions.count, 1)
+        XCTAssertEqual(summary.sessions.first?.totalInputTokens, Int.max)
+        XCTAssertEqual(summary.sessions.first?.totalOutputTokens, Int.max)
+        XCTAssertEqual(summary.sessions.first?.totalTokens, Int.max)
+        XCTAssertEqual(summary.sessions.first?.cachedInputTokens, Int.max)
+        XCTAssertEqual(summary.sessions.first?.requestCount, Int.max)
+        XCTAssertEqual(summary.heatmap.first?.totalTokens, Int.max)
+        XCTAssertEqual(summary.heatmap.first?.cachedInputTokens, Int.max)
+        XCTAssertEqual(summary.heatmap.first?.requestCount, Int.max)
+        XCTAssertEqual(summary.todayTimeBuckets.reduce(0) { max($0, $1.totalTokens) }, Int.max)
+        XCTAssertEqual(summary.todayTimeBuckets.reduce(0) { max($0, $1.cachedInputTokens) }, Int.max)
+        XCTAssertEqual(summary.todayTimeBuckets.reduce(0) { max($0, $1.requestCount) }, Int.max)
+        XCTAssertEqual(summary.toolBreakdown.first?.totalTokens, Int.max)
+        XCTAssertEqual(summary.toolBreakdown.first?.cachedInputTokens, Int.max)
+        XCTAssertEqual(summary.toolBreakdown.first?.requestCount, Int.max)
+    }
 }

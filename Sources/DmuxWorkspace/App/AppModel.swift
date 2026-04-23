@@ -145,11 +145,11 @@ final class AppModel {
             background: appSettings.aiBackgroundRefreshInterval
         )
         petRefreshCoordinator.configure(
-            liveSnapshots: { [weak self] in
+            totalNormalizedTokens: { [weak self] in
                 guard let self else {
-                    return []
+                    return 0
                 }
-                return self.aiSessionStore.globalLiveAggregationSnapshots()
+                return self.aiStatsStore.totalAllTimeNormalizedTokensForPet(self.projects)
             },
             computedStats: { [weak self] in
                 guard let self else {

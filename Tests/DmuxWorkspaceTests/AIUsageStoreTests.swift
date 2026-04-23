@@ -129,6 +129,54 @@ final class AIUsageStoreTests: XCTestCase {
         XCTAssertEqual(snapshot?.indexedAt.timeIntervalSince1970, indexedAt.timeIntervalSince1970)
     }
 
+    func testGlobalAllTimeNormalizedTokensSumsNormalizedBuckets() {
+        let store = makeStore()
+        let projectID = UUID()
+        let projectPath = "/tmp/global-normalized-project"
+
+        store.deleteExternalSummaries(projectPath: projectPath)
+
+        store.saveExternalSummary(
+            AIExternalFileSummary(
+                source: "codex",
+                filePath: "/tmp/codex-rollout.jsonl",
+                fileModifiedAt: 1_713_690_000,
+                projectPath: projectPath,
+                usageBuckets: [
+                    makeUsageBucket(
+                        source: "codex",
+                        sessionKey: "codex-1",
+                        externalSessionID: "codex-1",
+                        projectID: projectID,
+                        projectName: "Global Project",
+                        sessionTitle: "First",
+                        model: "gpt-5.4",
+                        totalTokens: 120,
+                        requestCount: 1,
+                        activeDurationSeconds: 10
+                    ),
+                    makeUsageBucket(
+                        source: "codex",
+                        sessionKey: "codex-2",
+                        externalSessionID: "codex-2",
+                        projectID: projectID,
+                        projectName: "Global Project",
+                        sessionTitle: "Second",
+                        model: "gpt-5.4",
+                        totalTokens: 340,
+                        requestCount: 1,
+                        activeDurationSeconds: 10
+                    ),
+                ],
+                sessions: [],
+                dayUsage: [],
+                timeBuckets: []
+            )
+        )
+
+        XCTAssertEqual(store.globalAllTimeNormalizedTokens(), 460)
+    }
+
     func testStoredExternalSummaryIsScopedByProjectPathForSharedFilePath() {
         let store = makeStore()
         let sharedFilePath = "/tmp/shared-opencode.db"

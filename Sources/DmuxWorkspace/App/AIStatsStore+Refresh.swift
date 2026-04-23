@@ -271,18 +271,10 @@ extension AIStatsStore {
 
     func resolvedTodayTotalTokens(summary: Int, timeBuckets: [AITimeBucket], heatmap: [AIHeatmapDay]) -> Int {
         let bucketTotal = timeBuckets.reduce(0) { $0 + $1.totalTokens }
-        if bucketTotal > 0 {
-            return bucketTotal
-        }
-
         let calendar = Calendar.autoupdatingCurrent
         let today = calendar.startOfDay(for: Date())
-        if let heatmapToday = heatmap.first(where: { calendar.isDate($0.day, inSameDayAs: today) })?.totalTokens,
-           heatmapToday > 0 {
-            return heatmapToday
-        }
-
-        return max(0, summary)
+        let heatmapToday = heatmap.first(where: { calendar.isDate($0.day, inSameDayAs: today) })?.totalTokens ?? 0
+        return max(max(0, summary), max(bucketTotal, heatmapToday))
     }
 
     func resolvedDisplayedTodayTotalTokens(for state: AIStatsPanelState) -> Int {
@@ -301,20 +293,16 @@ extension AIStatsStore {
         heatmap: [AIHeatmapDay]
     ) -> Int {
         let bucketTotal = timeBuckets.reduce(0) { $0 + $1.totalTokens + $1.cachedInputTokens }
-        if bucketTotal > 0 {
-            return bucketTotal
-        }
-
         let calendar = Calendar.autoupdatingCurrent
         let today = calendar.startOfDay(for: Date())
-        if let heatmapToday = heatmap.first(where: { calendar.isDate($0.day, inSameDayAs: today) }) {
-            let total = heatmapToday.totalTokens + heatmapToday.cachedInputTokens
-            if total > 0 {
-                return total
+        let heatmapTotal: Int = {
+            guard let heatmapToday = heatmap.first(where: { calendar.isDate($0.day, inSameDayAs: today) }) else {
+                return 0
             }
-        }
+            return heatmapToday.totalTokens + heatmapToday.cachedInputTokens
+        }()
 
-        return max(0, summary) + max(0, summaryCached)
+        return max(max(0, summary) + max(0, summaryCached), max(bucketTotal, heatmapTotal))
     }
 
     func clearCurrentState() {

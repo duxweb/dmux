@@ -56,12 +56,12 @@ struct AIStatsLiveSessionsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(String(localized: "ai.live_sessions", defaultValue: "Live Sessions", bundle: .module))
+            Text(String(localized: "ai.live_sessions", defaultValue: "Current Session Totals", bundle: .module))
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
 
             if snapshots.isEmpty {
-                Text(String(localized: "ai.live_sessions.empty", defaultValue: "There are no active AI sessions right now", bundle: .module))
+                Text(String(localized: "ai.live_sessions.empty", defaultValue: "There are no current AI sessions right now", bundle: .module))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .center)
@@ -88,7 +88,7 @@ struct AIStatsLiveSessionsCard: View {
                                 .font(.system(size: 16, weight: .bold, design: .rounded))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
-                            Text(String(localized: "ai.metric.token", defaultValue: "Token", bundle: .module))
+                            Text(String(localized: "ai.metric.session_total", defaultValue: "Session Total", bundle: .module))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)

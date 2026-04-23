@@ -4,7 +4,17 @@ import Foundation
 @MainActor
 extension AIStatsStore {
     func titlebarTodayLevelTokens() -> Int {
-        aiUsageStore.globalTodayNormalizedTokens()
+        if !currentProjects.isEmpty {
+            return totalTodayNormalizedTokensAcrossProjects(currentProjects)
+        }
+        return aiUsageStore.globalTodayNormalizedTokens()
+    }
+
+    func totalAllTimeNormalizedTokensForPet(_ projects: [Project]) -> Int {
+        if !projects.isEmpty {
+            return totalAllTimeNormalizedTokensAcrossProjects(projects)
+        }
+        return aiUsageStore.globalAllTimeNormalizedTokens()
     }
 
     func petStatsSinceClaimedAt(_ claimedAt: Date?) -> PetStats {

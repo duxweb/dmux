@@ -373,13 +373,14 @@ final class PetStoreLifecycleTests: XCTestCase {
     func testClaimUsesBaselineAndOptionalCustomName() {
         let store = PetStore(storage: .inMemory)
 
-        store.claim(option: .voidcat, customName: "  奶盖  ")
+        store.claim(option: .voidcat, customName: "  奶盖  ", totalNormalizedTokens: 432_100)
 
         XCTAssertTrue(store.isClaimed)
         XCTAssertEqual(store.species, .voidcat)
         XCTAssertEqual(store.customName, "奶盖")
         XCTAssertEqual(store.currentExperienceTokens, 0)
         XCTAssertEqual(store.currentHatchTokens, 0)
+        XCTAssertEqual(store.globalNormalizedTotalWatermark, 432_100)
     }
 
     func testRefreshDerivedStateLocksEvolutionPathOnceUnlocked() {
@@ -391,7 +392,7 @@ final class PetStoreLifecycleTests: XCTestCase {
         store.debugCompleteHatch()
         store.debugForceExperienceTokens(unlockXP)
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 0,
             computedStats: targetStats,
             now: Date(timeIntervalSince1970: 1_700_000_000)
         )
@@ -400,7 +401,7 @@ final class PetStoreLifecycleTests: XCTestCase {
 
         let oppositeStats = PetStats(wisdom: 5, chaos: 10, night: 10, stamina: 95, empathy: 3)
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 0,
             computedStats: oppositeStats,
             now: Date(timeIntervalSince1970: 1_700_086_400)
         )
@@ -415,7 +416,7 @@ final class PetStoreLifecycleTests: XCTestCase {
 
         let traits = PetStats(wisdom: 88, chaos: 12, night: 44, stamina: 10, empathy: 9)
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 0,
             computedStats: traits,
             now: claimTime
         )
@@ -438,7 +439,7 @@ final class PetStoreLifecycleTests: XCTestCase {
 
         let initial = PetStats(wisdom: 80, chaos: 10, night: 20, stamina: 5, empathy: 3)
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 0,
             computedStats: initial,
             now: claimTime.addingTimeInterval(60)
         )
@@ -446,14 +447,14 @@ final class PetStoreLifecycleTests: XCTestCase {
 
         let next = PetStats(wisdom: 20, chaos: 90, night: 10, stamina: 15, empathy: 8)
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 0,
             computedStats: next,
             now: claimTime.addingTimeInterval(1800)
         )
         XCTAssertEqual(store.currentStats, initial)
 
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 0,
             computedStats: next,
             now: claimTime.addingTimeInterval(3660)
         )
@@ -467,13 +468,13 @@ final class PetStoreLifecycleTests: XCTestCase {
 
         let initial = PetStats(wisdom: 80, chaos: 10, night: 20, stamina: 5, empathy: 3)
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 0,
             computedStats: initial,
             now: claimTime
         )
 
         store.refreshDerivedState(
-            realtimeSessionTotals: ["session": 123_456],
+            totalNormalizedTokens: 123_456,
             computedStats: nil,
             now: claimTime.addingTimeInterval(120)
         )
@@ -483,41 +484,44 @@ final class PetStoreLifecycleTests: XCTestCase {
         XCTAssertEqual(store.currentExperienceTokens, 0)
     }
 
-    func testRefreshDerivedStatePrunesInactiveWatermarksOnlyAfterRetentionWindow() {
+    func testRefreshDerivedStateUsesMonotonicGlobalWatermark() {
         let store = PetStore(storage: .inMemory)
         let claimTime = Date(timeIntervalSince1970: 1_700_000_000)
         store.claim(option: .voidcat, customName: "")
 
         store.refreshDerivedState(
-            realtimeSessionTotals: ["session": 100],
+            totalNormalizedTokens: 100,
             computedStats: nil,
             now: claimTime
         )
         XCTAssertEqual(store.currentHatchTokens, 100)
+        XCTAssertEqual(store.globalNormalizedTotalWatermark, 100)
 
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 80,
             computedStats: nil,
-            now: claimTime.addingTimeInterval(PetStore.realtimeSessionRetentionInterval - 1)
+            now: claimTime.addingTimeInterval(60)
         )
         store.refreshDerivedState(
-            realtimeSessionTotals: ["session": 120],
+            totalNormalizedTokens: 120,
             computedStats: nil,
-            now: claimTime.addingTimeInterval(PetStore.realtimeSessionRetentionInterval)
+            now: claimTime.addingTimeInterval(120)
         )
         XCTAssertEqual(store.currentHatchTokens, 120)
+        XCTAssertEqual(store.globalNormalizedTotalWatermark, 120)
 
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 90,
             computedStats: nil,
-            now: claimTime.addingTimeInterval(PetStore.realtimeSessionRetentionInterval * 2)
+            now: claimTime.addingTimeInterval(180)
         )
         store.refreshDerivedState(
-            realtimeSessionTotals: ["session": 140],
+            totalNormalizedTokens: 140,
             computedStats: nil,
-            now: claimTime.addingTimeInterval(PetStore.realtimeSessionRetentionInterval * 2 + 1)
+            now: claimTime.addingTimeInterval(240)
         )
-        XCTAssertEqual(store.currentHatchTokens, 120)
+        XCTAssertEqual(store.currentHatchTokens, 140)
+        XCTAssertEqual(store.globalNormalizedTotalWatermark, 140)
     }
 
     func testEncryptedDatStorageRoundTripsWithoutKeychain() {
@@ -567,7 +571,7 @@ final class PetStoreLifecycleTests: XCTestCase {
         store.debugCompleteHatch()
         store.debugForceExperienceTokens(maxXP)
         store.refreshDerivedState(
-            realtimeSessionTotals: [:],
+            totalNormalizedTokens: 0,
             computedStats: stats,
             now: Date(timeIntervalSince1970: 1_700_000_000)
         )
@@ -615,7 +619,7 @@ final class PetStoreLifecycleTests: XCTestCase {
         store.claim(option: .voidcat, customName: "")
 
         store.refreshDerivedState(
-            realtimeSessionTotals: ["session": PetProgressInfo.hatchThreshold],
+            totalNormalizedTokens: PetProgressInfo.hatchThreshold,
             computedStats: .neutral,
             now: Date(timeIntervalSince1970: 1_700_000_000)
         )
@@ -634,7 +638,7 @@ final class PetStoreLifecycleTests: XCTestCase {
 
         let overflow = PetProgressInfo.xpForLevel(1) * 2
         store.refreshDerivedState(
-            realtimeSessionTotals: ["session": PetProgressInfo.hatchThreshold + overflow],
+            totalNormalizedTokens: PetProgressInfo.hatchThreshold + overflow,
             computedStats: .neutral,
             now: Date(timeIntervalSince1970: 1_700_000_000)
         )
@@ -647,7 +651,7 @@ final class PetStoreLifecycleTests: XCTestCase {
         )
 
         store.refreshDerivedState(
-            realtimeSessionTotals: ["session": PetProgressInfo.hatchThreshold + overflow + 123],
+            totalNormalizedTokens: PetProgressInfo.hatchThreshold + overflow + 123,
             computedStats: .neutral,
             now: Date(timeIntervalSince1970: 1_700_000_100)
         )

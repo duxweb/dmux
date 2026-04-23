@@ -449,8 +449,7 @@ extension AppModel {
             aiSessionStore.registerExpectedLogicalSession(
                 terminalID: selectedSessionID,
                 tool: tool,
-                aiSessionID: externalSessionID,
-                indexedSummary: session
+                aiSessionID: externalSessionID
             )
         }
         if tryReuseSelectedTopTerminalForCommand(command) {
@@ -472,8 +471,7 @@ extension AppModel {
         aiSessionStore.registerExpectedLogicalSession(
             terminalID: newSessionID,
             tool: tool,
-            aiSessionID: externalSessionID,
-            indexedSummary: session
+            aiSessionID: externalSessionID
         )
         debugLog.log(
             "ai-session-open",

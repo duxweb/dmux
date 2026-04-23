@@ -92,8 +92,8 @@ struct AIUsageService: Sendable {
             summary.projectCachedInputTokens = baseProjectCached + nextLiveOverlayCachedInputTokens + preservedCompletedOverlayCachedInputTokens
             summary.todayTotalTokens = baseTodayTotal + nextLiveOverlayTokens + preservedCompletedOverlayTokens
             summary.todayCachedInputTokens = baseTodayCached + nextLiveOverlayCachedInputTokens + preservedCompletedOverlayCachedInputTokens
-            summary.currentSessionTokens = currentSnapshot?.currentTotalTokens ?? 0
-            summary.currentSessionCachedInputTokens = currentSnapshot?.currentCachedInputTokens ?? 0
+            summary.currentSessionTokens = displayedCurrentSessionTokens(from: currentSnapshot)
+            summary.currentSessionCachedInputTokens = displayedCurrentSessionCachedInputTokens(from: currentSnapshot)
             summary.currentTool = currentSnapshot?.tool
             summary.currentModel = currentSnapshot?.model
             summary.currentContextUsagePercent = currentSnapshot?.currentContextUsagePercent
@@ -237,8 +237,8 @@ struct AIUsageService: Sendable {
             timeBuckets: indexed?.todayTimeBuckets ?? [],
             heatmap: indexed?.heatmap ?? []
         ) + totalLiveCachedDelta
-        summary.currentSessionTokens = currentSnapshot?.currentTotalTokens ?? 0
-        summary.currentSessionCachedInputTokens = currentSnapshot?.currentCachedInputTokens ?? 0
+        summary.currentSessionTokens = displayedCurrentSessionTokens(from: currentSnapshot)
+        summary.currentSessionCachedInputTokens = displayedCurrentSessionCachedInputTokens(from: currentSnapshot)
         summary.currentTool = currentSnapshot?.tool
         summary.currentModel = currentSnapshot?.model
         summary.currentContextUsagePercent = currentSnapshot?.currentContextUsagePercent
@@ -285,8 +285,8 @@ struct AIUsageService: Sendable {
         AIProjectUsageSummary(
             projectID: project.id,
             projectName: project.name,
-            currentSessionTokens: liveSnapshot?.currentTotalTokens ?? 0,
-            currentSessionCachedInputTokens: liveSnapshot?.currentCachedInputTokens ?? 0,
+            currentSessionTokens: displayedCurrentSessionTokens(from: liveSnapshot),
+            currentSessionCachedInputTokens: displayedCurrentSessionCachedInputTokens(from: liveSnapshot),
             projectTotalTokens: sessions.reduce(0) { $0 + $1.totalTokens } + liveOverlayTokens,
             projectCachedInputTokens: sessions.reduce(0) { $0 + $1.cachedInputTokens } + liveOverlayCachedInputTokens,
             todayTotalTokens: todayTotalTokens + liveOverlayTokens,
@@ -309,6 +309,20 @@ struct AIUsageService: Sendable {
             return 0
         }
         return current - next
+    }
+
+    private func displayedCurrentSessionTokens(from snapshot: AITerminalSessionSnapshot?) -> Int {
+        guard let snapshot else {
+            return 0
+        }
+        return snapshot.currentTotalTokens
+    }
+
+    private func displayedCurrentSessionCachedInputTokens(from snapshot: AITerminalSessionSnapshot?) -> Int {
+        guard let snapshot else {
+            return 0
+        }
+        return snapshot.currentCachedInputTokens
     }
 
     private func todayTotalTokens(timeBuckets: [AITimeBucket], heatmap: [AIHeatmapDay]) -> Int {

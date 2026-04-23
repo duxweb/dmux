@@ -53,7 +53,7 @@ final class AIStatsStoreLiveTests: XCTestCase {
 
         XCTAssertEqual(snapshots.count, 1)
         XCTAssertEqual(snapshots.first?.sessionID, terminalID)
-        XCTAssertEqual(snapshots.first?.currentTotalTokens, 42)
+        XCTAssertEqual(snapshots.first?.currentTotalTokens, 0)
         XCTAssertEqual(snapshots.first?.status, "idle")
         XCTAssertEqual(snapshots.first?.hasCompletedTurn, true)
     }

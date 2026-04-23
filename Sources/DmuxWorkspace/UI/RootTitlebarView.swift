@@ -103,21 +103,8 @@ private struct TitlebarPetButtonContainer: View {
     var body: some View {
         TitlebarPetButton(
             model: model,
-            realtimeSessionTotalsProvider: {
-                Dictionary(
-                    uniqueKeysWithValues: model.aiSessionStore.globalLiveAggregationSnapshots().map { snapshot in
-                        let key: String
-                        if let tool = snapshot.tool?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                           let externalSessionID = snapshot.externalSessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
-                           !tool.isEmpty,
-                           !externalSessionID.isEmpty {
-                            key = "\(tool)|\(externalSessionID)"
-                        } else {
-                            key = "terminal|\(snapshot.sessionID.uuidString.lowercased())"
-                        }
-                        return (key, max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens))
-                    }
-                )
+            totalNormalizedTokensProvider: {
+                model.aiStatsStore.totalAllTimeNormalizedTokensForPet(model.projects)
             },
             isShowingPopover: $isShowingPopover
         )

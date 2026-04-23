@@ -6,6 +6,7 @@ struct CodexParsedRuntimeState {
     var outputTokens: Int?
     var cachedInputTokens: Int?
     var totalTokens: Int?
+    var origin: AIRuntimeSessionOrigin
     var updatedAt: Double?
     var startedAt: Double?
     var completedAt: Double?
@@ -66,6 +67,9 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
     var outputTokens: Int?
     var cachedInputTokens: Int?
     var totalTokens: Int?
+    var latestCumulativeUsage: CodexUsageTotals?
+    var cumulativeUsageAtTurnStart: CodexUsageTotals?
+    var latestResolvedUsage: CodexUsageTotals?
     var latestTurnWasInterrupted = false
     var latestTurnCompleted = false
 
@@ -126,6 +130,8 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
             } else if let timestamp {
                 latestStartedAt = timestamp
             }
+            cumulativeUsageAtTurnStart = latestCumulativeUsage
+            latestResolvedUsage = latestCumulativeUsage
             latestTurnWasInterrupted = false
             latestTurnCompleted = false
         case "task_complete":
@@ -147,11 +153,21 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
         case "token_count":
             let info = payload["info"] as? [String: Any] ?? [:]
             let totalUsage = info["total_token_usage"] as? [String: Any] ?? [:]
-            if let parsedUsage = parseCodexUsageTotals(totalUsage) {
-                inputTokens = parsedUsage.inputTokens
-                outputTokens = parsedUsage.outputTokens
-                cachedInputTokens = parsedUsage.cachedInputTokens
-                totalTokens = parsedUsage.totalTokens
+            let lastUsage = parseCodexUsageTotals(info["last_token_usage"] as? [String: Any] ?? [:])
+            let parsedTotalUsage = parseCodexUsageTotals(totalUsage)
+            if let parsedTotalUsage {
+                latestCumulativeUsage = parsedTotalUsage
+            }
+            if let resolvedUsage = resolveCodexRuntimeUsage(
+                totalUsage: parsedTotalUsage,
+                baseUsage: cumulativeUsageAtTurnStart ?? latestCumulativeUsage,
+                lastUsage: lastUsage
+            ) {
+                latestResolvedUsage = resolvedUsage
+                inputTokens = resolvedUsage.inputTokens
+                outputTokens = resolvedUsage.outputTokens
+                cachedInputTokens = resolvedUsage.cachedInputTokens
+                totalTokens = resolvedUsage.totalTokens
             }
         default:
             continue
@@ -168,12 +184,33 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
         return .responding
     }()
 
+    let finalUsage: CodexUsageTotals? = {
+        switch responseState {
+        case .idle:
+            return latestCumulativeUsage ?? latestResolvedUsage
+        case .responding:
+            return latestResolvedUsage ?? latestCumulativeUsage
+        case nil:
+            return latestCumulativeUsage ?? latestResolvedUsage
+        }
+    }()
+
+    let origin: AIRuntimeSessionOrigin = {
+        guard responseState == .responding else {
+            return .unknown
+        }
+        let baseUsage = cumulativeUsageAtTurnStart ?? latestCumulativeUsage
+        let historicalTotal = (baseUsage?.totalTokens ?? 0) + (baseUsage?.cachedInputTokens ?? 0)
+        return historicalTotal > 0 ? .restored : .fresh
+    }()
+
     return CodexParsedRuntimeState(
         model: latestModel,
-        inputTokens: inputTokens,
-        outputTokens: outputTokens,
-        cachedInputTokens: cachedInputTokens,
-        totalTokens: totalTokens,
+        inputTokens: finalUsage?.inputTokens ?? inputTokens,
+        outputTokens: finalUsage?.outputTokens ?? outputTokens,
+        cachedInputTokens: finalUsage?.cachedInputTokens ?? cachedInputTokens,
+        totalTokens: finalUsage?.totalTokens ?? totalTokens,
+        origin: origin,
         updatedAt: latestUpdatedAt,
         startedAt: latestStartedAt,
         completedAt: latestCompletedAt,
@@ -183,7 +220,60 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
     )
 }
 
-private func parseCodexUsageTotals(_ usage: [String: Any]) -> (inputTokens: Int, outputTokens: Int, cachedInputTokens: Int, totalTokens: Int)? {
+private struct CodexUsageTotals {
+    var inputTokens: Int
+    var outputTokens: Int
+    var cachedInputTokens: Int
+    var totalTokens: Int
+
+    static func + (lhs: CodexUsageTotals, rhs: CodexUsageTotals) -> CodexUsageTotals {
+        CodexUsageTotals(
+            inputTokens: lhs.inputTokens + rhs.inputTokens,
+            outputTokens: lhs.outputTokens + rhs.outputTokens,
+            cachedInputTokens: lhs.cachedInputTokens + rhs.cachedInputTokens,
+            totalTokens: lhs.totalTokens + rhs.totalTokens
+        )
+    }
+}
+
+private func resolveCodexRuntimeUsage(
+    totalUsage: CodexUsageTotals?,
+    baseUsage: CodexUsageTotals?,
+    lastUsage: CodexUsageTotals?
+) -> CodexUsageTotals? {
+    guard totalUsage != nil || lastUsage != nil else {
+        return nil
+    }
+
+    guard let lastUsage else {
+        return totalUsage
+    }
+
+    let baseUsage = baseUsage ?? CodexUsageTotals(
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 0
+    )
+
+    if let totalUsage {
+        let totalWithCache = totalUsage.totalTokens + totalUsage.cachedInputTokens
+        let baseWithCache = baseUsage.totalTokens + baseUsage.cachedInputTokens
+        if totalWithCache > baseWithCache {
+            return totalUsage
+        }
+        if totalWithCache == baseWithCache {
+            let lastWithCache = lastUsage.totalTokens + lastUsage.cachedInputTokens
+            if lastWithCache == totalWithCache {
+                return totalUsage
+            }
+        }
+    }
+
+    return baseUsage + lastUsage
+}
+
+private func parseCodexUsageTotals(_ usage: [String: Any]) -> CodexUsageTotals? {
     if usage.isEmpty {
         return nil
     }
@@ -197,7 +287,12 @@ private func parseCodexUsageTotals(_ usage: [String: Any]) -> (inputTokens: Int,
        rawOutputTokens == 0,
        let rawTotalTokens = (usage["total_tokens"] as? NSNumber)?.intValue,
        rawTotalTokens > 0 {
-        return (rawTotalTokens, 0, cachedInputTokens, rawTotalTokens)
+        return CodexUsageTotals(
+            inputTokens: rawTotalTokens,
+            outputTokens: 0,
+            cachedInputTokens: cachedInputTokens,
+            totalTokens: rawTotalTokens
+        )
     }
     let inputTokens = max(0, rawInputTokens - cachedInputTokens)
     let outputTokens = max(0, rawOutputTokens - reasoningOutputTokens)
@@ -205,5 +300,10 @@ private func parseCodexUsageTotals(_ usage: [String: Any]) -> (inputTokens: Int,
     guard inputTokens > 0 || outputTokens > 0 || cachedInputTokens > 0 || totalTokens > 0 else {
         return nil
     }
-    return (inputTokens, outputTokens, cachedInputTokens, totalTokens)
+    return CodexUsageTotals(
+        inputTokens: inputTokens,
+        outputTokens: outputTokens,
+        cachedInputTokens: cachedInputTokens,
+        totalTokens: totalTokens
+    )
 }

@@ -233,6 +233,54 @@ final class AIRuntimeIngressHookEventTests: XCTestCase {
         XCTAssertEqual(resolved.totalTokens, 321)
     }
 
+    func testCodexPromptSubmittedDoesNotBackfillFallbackTotals() async throws {
+        let projectPath = "/tmp/dmux-codex-driver-fast-\(UUID().uuidString)"
+        let sessionID = UUID().uuidString.lowercased()
+
+        let resolved = await CodexToolDriver().resolveHookEvent(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: UUID(),
+                terminalInstanceID: "instance-1",
+                projectID: UUID(),
+                projectName: "Codux",
+                projectPath: projectPath,
+                sessionTitle: "Codex",
+                tool: "codex",
+                aiSessionID: sessionID,
+                model: nil,
+                totalTokens: nil,
+                updatedAt: 200,
+                metadata: nil
+            ),
+            currentSession: AISessionStore.TerminalSessionState(
+                terminalID: UUID(),
+                terminalInstanceID: "instance-1",
+                projectID: UUID(),
+                projectName: "Codux",
+                projectPath: projectPath,
+                sessionTitle: "Codex",
+                tool: "codex",
+                aiSessionID: sessionID,
+                state: .idle,
+                model: "gpt-5.4",
+                baselineTotalTokens: 0,
+                committedTotalTokens: 321,
+                updatedAt: 199,
+                startedAt: 198,
+                wasInterrupted: false,
+                hasCompletedTurn: true,
+                transcriptPath: nil,
+                notificationType: nil,
+                targetToolName: nil,
+                interactionMessage: nil
+            )
+        )
+
+        XCTAssertEqual(resolved.model, "gpt-5.4")
+        XCTAssertNil(resolved.totalTokens)
+    }
+
     func testAIHookPromptSubmittedUpdatesSessionStore() async throws {
         let terminalID = UUID()
         let projectID = UUID()
@@ -304,7 +352,7 @@ final class AIRuntimeIngressHookEventTests: XCTestCase {
 
         let session = try XCTUnwrap(store.session(for: terminalID))
         XCTAssertEqual(session.state, .idle)
-        XCTAssertEqual(session.committedTotalTokens, 44)
+        XCTAssertEqual(session.committedTotalTokens, 0)
         guard case .completed(let tool, _, let exitCode) = store.projectPhase(projectID: projectID) else {
             return XCTFail("expected completed project phase")
         }
@@ -369,7 +417,7 @@ final class AIRuntimeIngressHookEventTests: XCTestCase {
         XCTAssertEqual(session.state, .idle)
         XCTAssertTrue(session.wasInterrupted)
         XCTAssertFalse(session.hasCompletedTurn)
-        XCTAssertEqual(session.committedTotalTokens, 77)
+        XCTAssertEqual(session.committedTotalTokens, 0)
         XCTAssertEqual(session.model, "gpt-5.4")
     }
 

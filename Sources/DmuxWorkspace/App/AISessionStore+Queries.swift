@@ -99,7 +99,7 @@ extension AISessionStore {
         case .responding, .needsInput:
             return true
         case .idle:
-            return session.wasInterrupted == false && session.hasCompletedTurn == false
+            return session.wasInterrupted == false
         }
     }
 

@@ -267,10 +267,10 @@ struct AIHistoryAggregationService: Sendable {
             let bucketEnd = calendar.date(byAdding: .minute, value: timeBucketIntervalMinutes, to: bucketStart) ?? bucketStart
 
             if var bucket = map[key] {
-                bucket.inputTokens += entry.inputTokens
-                bucket.outputTokens += entry.outputTokens
-                bucket.totalTokens += entry.totalTokens
-                bucket.cachedInputTokens += entry.cachedInputTokens
+                bucket.inputTokens = saturatingAdd(bucket.inputTokens, entry.inputTokens)
+                bucket.outputTokens = saturatingAdd(bucket.outputTokens, entry.outputTokens)
+                bucket.totalTokens = saturatingAdd(bucket.totalTokens, entry.totalTokens)
+                bucket.cachedInputTokens = saturatingAdd(bucket.cachedInputTokens, entry.cachedInputTokens)
                 bucket.firstSeenAt = min(bucket.firstSeenAt, entry.timestamp)
                 bucket.lastSeenAt = max(bucket.lastSeenAt, entry.timestamp)
                 map[key] = bucket
@@ -312,7 +312,7 @@ struct AIHistoryAggregationService: Sendable {
 
             if var bucket = map[key] {
                 if event.role == .user {
-                    bucket.requestCount += 1
+                    bucket.requestCount = saturatingAdd(bucket.requestCount, 1)
                 }
                 bucket.firstSeenAt = min(bucket.firstSeenAt, event.timestamp)
                 bucket.lastSeenAt = max(bucket.lastSeenAt, event.timestamp)
@@ -354,7 +354,7 @@ struct AIHistoryAggregationService: Sendable {
             let bucketEnd = calendar.date(byAdding: .minute, value: timeBucketIntervalMinutes, to: bucketStart) ?? bucketStart
 
             if var bucket = map[key] {
-                bucket.activeDurationSeconds += activity.activeSeconds
+                bucket.activeDurationSeconds = saturatingAdd(bucket.activeDurationSeconds, activity.activeSeconds)
                 bucket.firstSeenAt = min(bucket.firstSeenAt, activity.firstMessageAt)
                 bucket.lastSeenAt = max(bucket.lastSeenAt, activity.lastMessageAt)
                 map[key] = bucket
@@ -497,9 +497,9 @@ struct AIHistoryAggregationService: Sendable {
         for bucket in usageBuckets {
             let day = calendar.startOfDay(for: bucket.bucketStart)
             if var existing = map[day] {
-                existing.totalTokens += bucket.totalTokens
-                existing.cachedInputTokens += bucket.cachedInputTokens
-                existing.requestCount += bucket.requestCount
+                existing.totalTokens = saturatingAdd(existing.totalTokens, bucket.totalTokens)
+                existing.cachedInputTokens = saturatingAdd(existing.cachedInputTokens, bucket.cachedInputTokens)
+                existing.requestCount = saturatingAdd(existing.requestCount, bucket.requestCount)
                 map[day] = existing
             } else {
                 map[day] = AIHeatmapDay(
@@ -519,9 +519,9 @@ struct AIHistoryAggregationService: Sendable {
 
         for bucket in usageBuckets where calendar.startOfDay(for: bucket.bucketStart) == startOfToday {
             if var existing = bucketMap[bucket.bucketStart] {
-                existing.totalTokens += bucket.totalTokens
-                existing.cachedInputTokens += bucket.cachedInputTokens
-                existing.requestCount += bucket.requestCount
+                existing.totalTokens = saturatingAdd(existing.totalTokens, bucket.totalTokens)
+                existing.cachedInputTokens = saturatingAdd(existing.cachedInputTokens, bucket.cachedInputTokens)
+                existing.requestCount = saturatingAdd(existing.requestCount, bucket.requestCount)
                 bucketMap[bucket.bucketStart] = existing
             } else {
                 bucketMap[bucket.bucketStart] = AITimeBucket(
@@ -551,9 +551,9 @@ struct AIHistoryAggregationService: Sendable {
         var map: [String: AIUsageBreakdownItem] = [:]
         for item in items {
             if var existing = map[item.0] {
-                existing.totalTokens += item.1
-                existing.cachedInputTokens += item.2
-                existing.requestCount += item.3
+                existing.totalTokens = saturatingAdd(existing.totalTokens, item.1)
+                existing.cachedInputTokens = saturatingAdd(existing.cachedInputTokens, item.2)
+                existing.requestCount = saturatingAdd(existing.requestCount, item.3)
                 map[item.0] = existing
             } else {
                 map[item.0] = AIUsageBreakdownItem(

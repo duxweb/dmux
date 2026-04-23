@@ -105,7 +105,7 @@ struct PetSpriteView: View {
 
 struct TitlebarPetButton: View {
     let model: AppModel
-    let realtimeSessionTotalsProvider: () -> [String: Int]
+    let totalNormalizedTokensProvider: () -> Int
     @Binding var isShowingPopover: Bool
     @AppStorage("pet.last_level") private var lastLevel: Int = 0
     @AppStorage("pet.did_first_open_bubble") private var didFirstOpenBubble: Bool = false
@@ -505,7 +505,7 @@ struct TitlebarPetButton: View {
             petStore.claim(
                 option: result.option,
                 customName: result.customName,
-                realtimeSessionTotals: realtimeSessionTotalsProvider(),
+                totalNormalizedTokens: totalNormalizedTokensProvider(),
                 hiddenSpeciesChance: hiddenSpeciesChance
             )
             model.petRefreshCoordinator.refreshNow(reason: .claim)

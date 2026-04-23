@@ -77,10 +77,17 @@ private final class AppDebugLogBackend: @unchecked Sendable {
         return directoryURL
     }
 
+    private func logChannel() -> String {
+        let bundleIdentifier = (Bundle.main.bundleIdentifier ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let isDeveloperVariant = bundleIdentifier.hasSuffix(".dev")
+            || bundleIdentifier.hasSuffix(".debug")
+        return isDeveloperVariant ? "dev" : "release"
+    }
+
     private func logFileName(kind: String, ext: String) -> String {
-        let bundleName = Bundle.main.bundleURL.deletingPathExtension().lastPathComponent.lowercased()
-        let channel = bundleName.contains("dev") ? "dev" : "release"
-        return "dmux-\(kind).\(channel).\(ext)"
+        "dmux-\(kind).\(logChannel()).\(ext)"
     }
 
     func runtimeLogFileURL() -> URL {

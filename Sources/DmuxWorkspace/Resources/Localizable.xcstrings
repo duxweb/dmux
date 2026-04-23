@@ -1913,61 +1913,61 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Live Sessions"
+            "value": "Current Session Totals"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "实时会话"
+            "value": "当前会话累计"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "即時會話"
+            "value": "目前會話累計"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktive Sitzungen"
+            "value": "Aktuelle Sitzungswerte"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sesiones activas"
+            "value": "Totales de la sesión actual"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions en cours"
+            "value": "Totaux de la session actuelle"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "進行中のセッション"
+            "value": "現在のセッション累計"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "진행 중 세션"
+            "value": "현재 세션 누적"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessões ativas"
+            "value": "Totais da sessão atual"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Активные сессии"
+            "value": "Текущая сессия: итоги"
           }
         }
       }
@@ -1978,61 +1978,126 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no active AI sessions right now"
+            "value": "There are no current AI sessions right now"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当前没有运行中的 AI 会话"
+            "value": "当前没有可显示的 AI 会话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "目前沒有活動的 AI 會話"
+            "value": "目前沒有可顯示的 AI 會話"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Derzeit gibt es keine aktiven KI-Sitzungen"
+            "value": "Derzeit gibt es keine KI-Sitzungen zur Anzeige"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay sesiones de IA activas en este momento"
+            "value": "No hay sesiones de IA actuales para mostrar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune session IA active pour le moment"
+            "value": "Aucune session IA en cours à afficher"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在アクティブな AI セッションはありません"
+            "value": "現在表示できる AI セッションはありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 활성 AI 세션이 없습니다."
+            "value": "현재 표시할 AI 세션이 없습니다."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não há sessões de IA ativas no momento"
+            "value": "Não há sessões de IA atuais para mostrar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сейчас нет активных сессий ИИ."
+            "value": "Сейчас нет текущих сессий ИИ для показа."
+          }
+        }
+      }
+    },
+    "ai.metric.session_total": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Total"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话总量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "會話總量"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung gesamt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total de la sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total de la session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション合計"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 총량"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total da sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всего по сессии"
           }
         }
       }

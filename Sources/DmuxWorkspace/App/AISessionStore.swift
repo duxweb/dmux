@@ -32,7 +32,14 @@ final class AISessionStore {
     struct ExpectedLogicalSession: Equatable, Sendable {
         var tool: String
         var aiSessionID: String
-        var indexedSummary: AISessionSummary?
+    }
+
+    struct RuntimeTokenObservation: Equatable, Sendable {
+        var inputTokens: Int
+        var outputTokens: Int
+        var cachedInputTokens: Int
+        var totalTokens: Int
+        var observedAt: Double
     }
 
     struct TerminalSessionState: Equatable, Sendable {
@@ -54,8 +61,11 @@ final class AISessionStore {
         var committedCachedInputTokens: Int
         var baselineTotalTokens: Int
         var committedTotalTokens: Int
+        var baselineResolved: Bool
         var updatedAt: Double
+        var attachedAt: Double
         var startedAt: Double?
+        var needsCachedBaseline: Bool
         var wasInterrupted: Bool
         var hasCompletedTurn: Bool
         var transcriptPath: String?
@@ -104,8 +114,11 @@ final class AISessionStore {
             committedCachedInputTokens: Int = 0,
             baselineTotalTokens: Int = 0,
             committedTotalTokens: Int = 0,
+            baselineResolved: Bool = false,
             updatedAt: Double,
+            attachedAt: Double? = nil,
             startedAt: Double? = nil,
+            needsCachedBaseline: Bool = false,
             wasInterrupted: Bool,
             hasCompletedTurn: Bool,
             transcriptPath: String? = nil,
@@ -131,8 +144,11 @@ final class AISessionStore {
             self.committedCachedInputTokens = committedCachedInputTokens
             self.baselineTotalTokens = baselineTotalTokens
             self.committedTotalTokens = committedTotalTokens
+            self.baselineResolved = baselineResolved
             self.updatedAt = updatedAt
+            self.attachedAt = attachedAt ?? updatedAt
             self.startedAt = startedAt
+            self.needsCachedBaseline = needsCachedBaseline
             self.wasInterrupted = wasInterrupted
             self.hasCompletedTurn = hasCompletedTurn
             self.transcriptPath = transcriptPath
@@ -148,6 +164,7 @@ final class AISessionStore {
     private(set) var terminalSessionsByID: [UUID: TerminalSessionState] = [:]
     private(set) var logicalSessionsByKey: [LogicalSessionKey: LogicalSessionState] = [:]
     private var expectedLogicalSessionsByTerminalID: [UUID: ExpectedLogicalSession] = [:]
+    private var runtimeTokenObservationsByLogicalKey: [LogicalSessionKey: RuntimeTokenObservation] = [:]
     var renderVersion: UInt64 = 0 {
         didSet {
             onRenderVersionChange?()
@@ -161,6 +178,7 @@ final class AISessionStore {
         terminalSessionsByID.removeAll()
         logicalSessionsByKey.removeAll()
         expectedLogicalSessionsByTerminalID.removeAll()
+        runtimeTokenObservationsByLogicalKey.removeAll()
         renderVersion &+= 1
         logger.log("ai-session-store", "reset")
     }
@@ -168,8 +186,7 @@ final class AISessionStore {
     func registerExpectedLogicalSession(
         terminalID: UUID,
         tool: String,
-        aiSessionID: String,
-        indexedSummary: AISessionSummary? = nil
+        aiSessionID: String
     ) {
         let normalizedTool = canonicalToolName(tool)
         let normalizedSessionID = normalizedNonEmptyString(aiSessionID)
@@ -178,8 +195,7 @@ final class AISessionStore {
         }
         expectedLogicalSessionsByTerminalID[terminalID] = ExpectedLogicalSession(
             tool: normalizedTool,
-            aiSessionID: normalizedSessionID,
-            indexedSummary: indexedSummary
+            aiSessionID: normalizedSessionID
         )
     }
 
@@ -189,8 +205,10 @@ final class AISessionStore {
 
     func apply(_ event: AIHookEvent) -> Bool {
         let normalizedTool = canonicalToolName(event.tool)
-        let normalizedAISessionID = normalizedNonEmptyString(event.aiSessionID)
-            ?? resolvedExpectedLogicalSessionID(for: event.terminalID, tool: normalizedTool)
+        let directAISessionID = normalizedNonEmptyString(event.aiSessionID)
+        let expectedAISessionID = resolvedExpectedLogicalSessionID(for: event.terminalID, tool: normalizedTool)
+        let normalizedAISessionID = directAISessionID ?? expectedAISessionID
+        let needsCachedBaseline = directAISessionID == nil && expectedAISessionID != nil
         let normalizedModel = normalizedNonEmptyString(event.model)
         let normalizedInstanceID = normalizedNonEmptyString(event.terminalInstanceID)
 
@@ -210,7 +228,8 @@ final class AISessionStore {
             tool: normalizedTool,
             aiSessionID: normalizedAISessionID,
             model: normalizedModel,
-            terminalInstanceID: normalizedInstanceID
+            terminalInstanceID: normalizedInstanceID,
+            needsCachedBaseline: needsCachedBaseline
         )
 
         if let existing = previousState,
@@ -225,7 +244,8 @@ final class AISessionStore {
                 tool: normalizedTool,
                 aiSessionID: normalizedAISessionID,
                 model: normalizedModel,
-                terminalInstanceID: normalizedInstanceID
+                terminalInstanceID: normalizedInstanceID,
+                needsCachedBaseline: needsCachedBaseline
             )
         }
 
@@ -238,6 +258,7 @@ final class AISessionStore {
         session.updatedAt = max(session.updatedAt, event.updatedAt)
         session.startedAt = min(session.startedAt ?? event.updatedAt, event.updatedAt)
         session.model = normalizedModel ?? session.model
+        session.needsCachedBaseline = session.needsCachedBaseline || needsCachedBaseline
         if let transcriptPath = normalizedNonEmptyString(event.metadata?.transcriptPath) {
             session.transcriptPath = transcriptPath
         }
@@ -256,7 +277,7 @@ final class AISessionStore {
 
         switch event.kind {
         case .sessionStarted:
-            seedSessionOnStart(&session, event: event)
+            applySessionStarted(&session)
         case .promptSubmitted:
             applyPromptSubmitted(&session, event: event)
         case .needsInput:
@@ -496,21 +517,34 @@ final class AISessionStore {
             if let normalizedModel {
                 session.model = normalizedModel
             }
-            if snapshot.responseState == .responding,
-               session.wasInterrupted == false,
-               session.hasCompletedTurn == false {
-                session.state = .responding
+            switch snapshot.responseState {
+            case .responding:
+                if session.wasInterrupted == false,
+                   session.hasCompletedTurn == false {
+                    session.state = .responding
+                    session.notificationType = nil
+                    session.targetToolName = nil
+                    session.interactionMessage = nil
+                }
+            case .idle:
+                session.state = .idle
+                session.wasInterrupted = snapshot.wasInterrupted
+                session.hasCompletedTurn = snapshot.hasCompletedTurn || snapshot.wasInterrupted == false
                 session.notificationType = nil
                 session.targetToolName = nil
                 session.interactionMessage = nil
+            case nil:
+                break
             }
             session.updatedAt = max(session.updatedAt, snapshot.updatedAt)
+            resolveBaselineIfNeeded(&session, snapshot: snapshot)
             session.committedInputTokens = max(session.committedInputTokens, snapshot.inputTokens)
             session.committedOutputTokens = max(session.committedOutputTokens, snapshot.outputTokens)
             session.committedCachedInputTokens = max(session.committedCachedInputTokens, snapshot.cachedInputTokens)
             session.committedTotalTokens = max(session.committedTotalTokens, snapshot.totalTokens)
 
             terminalSessionsByID[targetTerminalID] = session
+            recordRuntimeObservation(for: session, snapshot: snapshot)
             reconcileLogicalSession(for: session, previousLogicalKey: previousLogicalKey)
             pruneLogicalSessionIfUnused(previousLogicalKey)
 
@@ -529,44 +563,7 @@ final class AISessionStore {
         return didChange
     }
 
-    private func seedSessionOnStart(_ session: inout TerminalSessionState, event: AIHookEvent) {
-        let previousCommittedInputTokens = session.committedInputTokens
-        let previousCommittedOutputTokens = session.committedOutputTokens
-        let previousCommittedCachedInputTokens = session.committedCachedInputTokens
-        let previousCommittedTotalTokens = session.committedTotalTokens
-
-        if let inputTokens = event.inputTokens {
-            session.committedInputTokens = max(session.committedInputTokens, inputTokens)
-            if previousCommittedInputTokens == 0, session.baselineInputTokens == 0 {
-                session.baselineInputTokens = session.committedInputTokens
-            } else {
-                session.baselineInputTokens = min(session.baselineInputTokens, session.committedInputTokens)
-            }
-        }
-        if let outputTokens = event.outputTokens {
-            session.committedOutputTokens = max(session.committedOutputTokens, outputTokens)
-            if previousCommittedOutputTokens == 0, session.baselineOutputTokens == 0 {
-                session.baselineOutputTokens = session.committedOutputTokens
-            } else {
-                session.baselineOutputTokens = min(session.baselineOutputTokens, session.committedOutputTokens)
-            }
-        }
-        if let cachedInputTokens = event.cachedInputTokens {
-            session.committedCachedInputTokens = max(session.committedCachedInputTokens, cachedInputTokens)
-            if previousCommittedCachedInputTokens == 0, session.baselineCachedInputTokens == 0 {
-                session.baselineCachedInputTokens = session.committedCachedInputTokens
-            } else {
-                session.baselineCachedInputTokens = min(session.baselineCachedInputTokens, session.committedCachedInputTokens)
-            }
-        }
-        if let totalTokens = event.totalTokens {
-            session.committedTotalTokens = max(session.committedTotalTokens, totalTokens)
-            if previousCommittedTotalTokens == 0, session.baselineTotalTokens == 0 {
-                session.baselineTotalTokens = session.committedTotalTokens
-            } else {
-                session.baselineTotalTokens = min(session.baselineTotalTokens, session.committedTotalTokens)
-            }
-        }
+    private func applySessionStarted(_ session: inout TerminalSessionState) {
         session.state = .idle
         session.wasInterrupted = false
         session.hasCompletedTurn = false
@@ -576,31 +573,16 @@ final class AISessionStore {
     }
 
     private func applyPromptSubmitted(_ session: inout TerminalSessionState, event: AIHookEvent) {
-        let currentInput = resolvedCommittedInputTokens(for: session, incomingInputTokens: event.inputTokens)
-        let currentOutput = resolvedCommittedOutputTokens(for: session, incomingOutputTokens: event.outputTokens)
-        let currentCached = resolvedCommittedCachedInputTokens(for: session, incomingCachedInputTokens: event.cachedInputTokens)
-        let currentTotal = resolvedCommittedTotalTokens(for: session, incomingTotalTokens: event.totalTokens)
+        _ = event
         session.state = .responding
         session.wasInterrupted = false
         session.hasCompletedTurn = false
         session.notificationType = nil
         session.targetToolName = nil
         session.interactionMessage = nil
-        session.committedInputTokens = currentInput
-        session.committedOutputTokens = currentOutput
-        session.committedCachedInputTokens = currentCached
-        session.committedTotalTokens = currentTotal
-        session.baselineInputTokens = currentInput
-        session.baselineOutputTokens = currentOutput
-        session.baselineCachedInputTokens = currentCached
-        session.baselineTotalTokens = currentTotal
     }
 
     private func applyTurnCompleted(_ session: inout TerminalSessionState, event: AIHookEvent) {
-        let committedInput = resolvedCommittedInputTokens(for: session, incomingInputTokens: event.inputTokens)
-        let committedOutput = resolvedCommittedOutputTokens(for: session, incomingOutputTokens: event.outputTokens)
-        let committedCached = resolvedCommittedCachedInputTokens(for: session, incomingCachedInputTokens: event.cachedInputTokens)
-        let committedTotal = resolvedCommittedTotalTokens(for: session, incomingTotalTokens: event.totalTokens)
         let wasInterrupted = event.metadata?.wasInterrupted == true
         session.state = .idle
         session.wasInterrupted = wasInterrupted
@@ -608,51 +590,95 @@ final class AISessionStore {
         session.notificationType = nil
         session.targetToolName = nil
         session.interactionMessage = nil
-        session.committedInputTokens = committedInput
-        session.committedOutputTokens = committedOutput
-        session.committedCachedInputTokens = committedCached
-        session.committedTotalTokens = committedTotal
-        session.baselineInputTokens = committedInput
-        session.baselineOutputTokens = committedOutput
-        session.baselineCachedInputTokens = committedCached
-        session.baselineTotalTokens = committedTotal
     }
 
-    private func resolvedCommittedTotalTokens(for session: TerminalSessionState, incomingTotalTokens: Int?) -> Int {
-        let logicalTotal = session.logicalSessionKey.flatMap { logicalSessionsByKey[$0]?.totalTokens } ?? 0
-        return max(session.committedTotalTokens, logicalTotal, incomingTotalTokens ?? 0)
+    private func resolveBaselineIfNeeded(
+        _ session: inout TerminalSessionState,
+        snapshot: AIRuntimeContextSnapshot
+    ) {
+        guard session.baselineResolved == false else {
+            return
+        }
+
+        if let observation = runtimeObservationForBaseline(of: session, snapshot: snapshot) {
+            session.baselineInputTokens = observation.inputTokens
+            session.baselineOutputTokens = observation.outputTokens
+            session.baselineCachedInputTokens = observation.cachedInputTokens
+            session.baselineTotalTokens = observation.totalTokens
+        } else if session.needsCachedBaseline || snapshot.sessionOrigin == .restored {
+            session.baselineInputTokens = snapshot.inputTokens
+            session.baselineOutputTokens = snapshot.outputTokens
+            session.baselineCachedInputTokens = snapshot.cachedInputTokens
+            session.baselineTotalTokens = snapshot.totalTokens
+        } else {
+            session.baselineInputTokens = 0
+            session.baselineOutputTokens = 0
+            session.baselineCachedInputTokens = 0
+            session.baselineTotalTokens = 0
+        }
+
+        session.baselineResolved = true
     }
 
-    private func resolvedCommittedInputTokens(for session: TerminalSessionState, incomingInputTokens: Int?) -> Int {
-        let logicalTotal = session.logicalSessionKey.flatMap { logicalSessionsByKey[$0]?.inputTokens } ?? 0
-        return max(session.committedInputTokens, logicalTotal, incomingInputTokens ?? 0)
+    private func runtimeObservationForBaseline(
+        of session: TerminalSessionState,
+        snapshot: AIRuntimeContextSnapshot
+    ) -> RuntimeTokenObservation? {
+        guard let logicalKey = runtimeLogicalKey(for: session, snapshot: snapshot),
+              let observation = runtimeTokenObservationsByLogicalKey[logicalKey] else {
+            return nil
+        }
+        return observation.observedAt <= session.attachedAt ? observation : nil
     }
 
-    private func resolvedCommittedOutputTokens(for session: TerminalSessionState, incomingOutputTokens: Int?) -> Int {
-        let logicalTotal = session.logicalSessionKey.flatMap { logicalSessionsByKey[$0]?.outputTokens } ?? 0
-        return max(session.committedOutputTokens, logicalTotal, incomingOutputTokens ?? 0)
+    private func recordRuntimeObservation(
+        for session: TerminalSessionState,
+        snapshot: AIRuntimeContextSnapshot
+    ) {
+        guard let logicalKey = runtimeLogicalKey(for: session, snapshot: snapshot) else {
+            return
+        }
+
+        let observation = RuntimeTokenObservation(
+            inputTokens: snapshot.inputTokens,
+            outputTokens: snapshot.outputTokens,
+            cachedInputTokens: snapshot.cachedInputTokens,
+            totalTokens: snapshot.totalTokens,
+            observedAt: snapshot.updatedAt
+        )
+
+        if let existing = runtimeTokenObservationsByLogicalKey[logicalKey],
+           existing.observedAt > observation.observedAt {
+            return
+        }
+
+        runtimeTokenObservationsByLogicalKey[logicalKey] = observation
     }
 
-    private func resolvedCommittedCachedInputTokens(for session: TerminalSessionState, incomingCachedInputTokens: Int?) -> Int {
-        let logicalTotal = session.logicalSessionKey.flatMap { logicalSessionsByKey[$0]?.cachedInputTokens } ?? 0
-        return max(session.committedCachedInputTokens, logicalTotal, incomingCachedInputTokens ?? 0)
+    private func runtimeLogicalKey(
+        for session: TerminalSessionState,
+        snapshot: AIRuntimeContextSnapshot
+    ) -> LogicalSessionKey? {
+        guard let aiSessionID = normalizedNonEmptyString(snapshot.externalSessionID ?? session.aiSessionID) else {
+            return nil
+        }
+        return LogicalSessionKey(
+            tool: canonicalToolName(snapshot.tool.isEmpty ? session.tool : snapshot.tool),
+            aiSessionID: aiSessionID
+        )
     }
 
     private func reconcileLogicalSession(for session: TerminalSessionState, previousLogicalKey: LogicalSessionKey?) {
         guard let logicalKey = session.logicalSessionKey else {
             return
         }
-        let inputTokens = max(session.committedInputTokens, session.baselineInputTokens)
-        let outputTokens = max(session.committedOutputTokens, session.baselineOutputTokens)
-        let cachedInputTokens = max(session.committedCachedInputTokens, session.baselineCachedInputTokens)
-        let totalTokens = max(session.committedTotalTokens, session.baselineTotalTokens)
         let nextState = LogicalSessionState(
             key: logicalKey,
             model: session.model,
-            inputTokens: inputTokens,
-            outputTokens: outputTokens,
-            cachedInputTokens: cachedInputTokens,
-            totalTokens: totalTokens,
+            inputTokens: session.committedInputTokens,
+            outputTokens: session.committedOutputTokens,
+            cachedInputTokens: session.committedCachedInputTokens,
+            totalTokens: session.committedTotalTokens,
             updatedAt: session.updatedAt,
             hasCompletedTurn: session.hasCompletedTurn
         )
@@ -717,9 +743,10 @@ final class AISessionStore {
         tool: String,
         aiSessionID: String?,
         model: String?,
-        terminalInstanceID: String?
+        terminalInstanceID: String?,
+        needsCachedBaseline: Bool
     ) -> TerminalSessionState {
-        TerminalSessionState(
+        return TerminalSessionState(
             terminalID: event.terminalID,
             terminalInstanceID: terminalInstanceID,
             projectID: event.projectID,
@@ -738,8 +765,11 @@ final class AISessionStore {
             committedCachedInputTokens: 0,
             baselineTotalTokens: 0,
             committedTotalTokens: 0,
+            baselineResolved: false,
             updatedAt: event.updatedAt,
+            attachedAt: event.updatedAt,
             startedAt: event.updatedAt,
+            needsCachedBaseline: needsCachedBaseline,
             wasInterrupted: false,
             hasCompletedTurn: false,
             transcriptPath: normalizedNonEmptyString(event.metadata?.transcriptPath),
