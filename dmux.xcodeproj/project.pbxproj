@@ -987,7 +987,7 @@
 /* Begin XCRemoteSwiftPackageReference section */
 		A7B8C9D0E1F2031425364766 /* XCRemoteSwiftPackageReference "libghostty-spm" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "file:///Volumes/Web/未命名文件夹/Vendor/libghostty-spm";
+			repositoryURL = "https://github.com/duxphp/libghostty-spm";
 			requirement = {
 				branch = "pr/appkit-input-alignment";
 				kind = branch;
