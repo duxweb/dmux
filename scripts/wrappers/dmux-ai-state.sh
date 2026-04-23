@@ -4,10 +4,20 @@ set -uo pipefail
 zmodload zsh/datetime 2>/dev/null || true
 
 action="${1:-}"
-tool_name="${2:-${DMUX_ACTIVE_AI_TOOL:-}}"
+hook_owner=""
+if [[ "$#" -ge 3 ]]; then
+  hook_owner="${2:-}"
+  tool_name="${3:-${DMUX_ACTIVE_AI_TOOL:-}}"
+else
+  tool_name="${2:-${DMUX_ACTIVE_AI_TOOL:-}}"
+fi
 hook_payload="$(cat)"
 notification_type=""
 should_send_response_event=1
+
+if [[ -n "${hook_owner:-}" && "${DMUX_RUNTIME_OWNER:-}" != "${hook_owner}" ]]; then
+  exit 0
+fi
 
 if [[ -z "${DMUX_SESSION_ID:-}" || -z "${DMUX_PROJECT_ID:-}" || -z "${tool_name:-}" ]]; then
   exit 0

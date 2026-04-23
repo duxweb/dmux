@@ -117,8 +117,7 @@ struct AIRuntimeBridgeService {
     let debugLog = AppDebugLog.shared
 
     func runtimeSupportRootURL(createIfNeeded: Bool = true) -> URL {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let url = appSupport.appendingPathComponent(runtimeSupportDirectoryName(), isDirectory: true)
+        let url = AppRuntimePaths.runtimeSupportRootURL(fileManager: fileManager)!
         if createIfNeeded {
             try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         }
@@ -126,7 +125,7 @@ struct AIRuntimeBridgeService {
     }
 
     func claudeSessionMapDirectoryURL(createIfNeeded: Bool = true) -> URL {
-        let url = runtimeSupportRootURL(createIfNeeded: createIfNeeded)
+        let url = runtimeTemporaryRootURL(createIfNeeded: createIfNeeded)
             .appendingPathComponent("claude-session-map", isDirectory: true)
         if createIfNeeded {
             try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
@@ -139,10 +138,9 @@ struct AIRuntimeBridgeService {
     }
 
     func runtimeEventSocketURL() -> URL {
-        URL(
-            fileURLWithPath: "/tmp/\(runtimeSocketFileName())",
-            isDirectory: false
-        )
+        let rootURL = AppRuntimePaths.temporaryRootURL(fileManager: fileManager)
+        try? fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        return rootURL.appendingPathComponent("runtime-events.sock", isDirectory: false)
     }
 
     func environmentResolution(for session: TerminalSession) -> EnvironmentResolution {
@@ -154,6 +152,8 @@ struct AIRuntimeBridgeService {
         let claudeSessionMapDirectoryPath = preparedClaudeSessionMapDirectoryPath()
         let shellHookPaths = preparedShellHookPaths()
         let logFilePath = AppDebugLog.shared.logFileURL().path
+        let runtimeOwner = runtimeOwnerID()
+        let toolPermissionSettingsFilePath = toolPermissionSettingsFileURL().path
         let signature = environmentCacheSignature(
             session: session,
             processEnvironment: processEnvironment,
@@ -162,7 +162,9 @@ struct AIRuntimeBridgeService {
             statusDirectoryPath: statusDirectoryPath,
             claudeSessionMapDirectoryPath: claudeSessionMapDirectoryPath,
             shellHookPaths: shellHookPaths,
-            logFilePath: logFilePath
+            logFilePath: logFilePath,
+            runtimeOwner: runtimeOwner,
+            toolPermissionSettingsFilePath: toolPermissionSettingsFilePath
         )
 
         if let cached = Self.environmentCacheCoordinator.value(for: session.id, signature: signature) {
@@ -196,6 +198,8 @@ struct AIRuntimeBridgeService {
         }
         debugLog.log("startup-ui", "terminal-env step=runtime-paths session=\(session.id.uuidString)")
         merged["DMUX_LOG_FILE"] = logFilePath
+        merged["DMUX_RUNTIME_OWNER"] = runtimeOwner
+        merged["DMUX_TOOL_PERMISSION_SETTINGS_FILE"] = toolPermissionSettingsFilePath
         merged["DMUX_PROJECT_ID"] = session.projectID.uuidString
         merged["DMUX_PROJECT_NAME"] = session.projectName
         merged["DMUX_PROJECT_PATH"] = session.cwd
@@ -241,7 +245,7 @@ struct AIRuntimeBridgeService {
             service.debugLog.log("runtime-hooks", "bootstrap start")
             service.debugLog.log(
                 "runtime-hooks",
-                "bootstrap namespace channel=\(service.runtimeChannel()) root=\(service.runtimeSupportRootURL().path) socket=\(service.runtimeEventSocketURL().path)"
+                "bootstrap namespace owner=\(service.runtimeOwnerID()) supportRoot=\(service.runtimeSupportRootURL().path) tempRoot=\(service.runtimeTemporaryRootURL().path) socket=\(service.runtimeEventSocketURL().path)"
             )
             service.debugLog.log("runtime-hooks", "bootstrap step=status-directory")
             _ = service.statusDirectoryURL()
@@ -283,7 +287,7 @@ struct AIRuntimeBridgeService {
     }
 
     func statusDirectoryURL() -> URL {
-        let url = runtimeSupportRootURL()
+        let url = runtimeTemporaryRootURL()
             .appendingPathComponent("agent-status", isDirectory: true)
         try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         return url
@@ -319,7 +323,7 @@ struct AIRuntimeBridgeService {
 
     private func preparedStatusDirectoryPath() -> String? {
         optionalExistingDirectoryPath(
-            runtimeSupportRootURL(createIfNeeded: false)
+            runtimeTemporaryRootURL(createIfNeeded: false)
                 .appendingPathComponent("agent-status", isDirectory: true)
         )
     }
@@ -328,46 +332,21 @@ struct AIRuntimeBridgeService {
         optionalExistingDirectoryPath(claudeSessionMapDirectoryURL(createIfNeeded: false))
     }
 
-    private func runtimeSupportDirectoryName() -> String {
-        let channel = runtimeChannel()
-        if channel == "release" {
-            return "dmux"
+    private func runtimeTemporaryRootURL(createIfNeeded: Bool = true) -> URL {
+        let url = AppRuntimePaths.temporaryRootURL(fileManager: fileManager)
+        if createIfNeeded {
+            try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         }
-        return "dmux-\(channel)"
+        return url
     }
 
-    private func runtimeSocketFileName() -> String {
-        let channel = runtimeChannel()
-        if channel == "release" {
-            return "dmux-runtime-events.sock"
-        }
-        return "dmux-runtime-events-\(channel).sock"
+    private func runtimeOwnerID() -> String {
+        AppRuntimePaths.runtimeOwnerID()
     }
 
-    private func runtimeChannel() -> String {
-        if let override = ProcessInfo.processInfo.environment["DMUX_RUNTIME_CHANNEL"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-           !override.isEmpty {
-            return sanitizeRuntimeChannel(override)
-        }
-
-        let bundleName = Bundle.main.bundleURL
-            .deletingPathExtension()
-            .lastPathComponent
-            .lowercased()
-        if bundleName.contains("dev") {
-            return "dev"
-        }
-        if bundleName.contains("beta") {
-            return "beta"
-        }
-        return "release"
-    }
-
-    private func sanitizeRuntimeChannel(_ value: String) -> String {
-        let filtered = value.filter { $0.isLetter || $0.isNumber || $0 == "-" }
-        return filtered.isEmpty ? "release" : filtered
+    private func toolPermissionSettingsFileURL() -> URL {
+        AppRuntimePaths.appSupportRootURL(fileManager: fileManager)!
+            .appendingPathComponent("tool-permissions.json", isDirectory: false)
     }
 
     private func environmentCacheSignature(
@@ -378,7 +357,9 @@ struct AIRuntimeBridgeService {
         statusDirectoryPath: String?,
         claudeSessionMapDirectoryPath: String?,
         shellHookPaths: (zdotdirPath: String, scriptPath: String)?,
-        logFilePath: String
+        logFilePath: String,
+        runtimeOwner: String,
+        toolPermissionSettingsFilePath: String
     ) -> String {
         let processSignature = Self.passthroughEnvironmentKeys
             .map { key in "\(key)=\(processEnvironment[key] ?? "")" }
@@ -398,6 +379,8 @@ struct AIRuntimeBridgeService {
             shellHookPaths?.zdotdirPath ?? "",
             shellHookPaths?.scriptPath ?? "",
             logFilePath,
+            runtimeOwner,
+            toolPermissionSettingsFilePath,
             runtimeEventSocketURL().path,
             processSignature,
         ].joined(separator: "\u{1F}")

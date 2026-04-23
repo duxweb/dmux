@@ -119,7 +119,8 @@ log_line() {
 }
 
 tool_permission_settings_path() {
-  print -r -- "${HOME}/Library/Application Support/dmux/tool-permissions.json"
+  [[ -n "${DMUX_TOOL_PERMISSION_SETTINGS_FILE:-}" ]] || return 0
+  print -r -- "${DMUX_TOOL_PERMISSION_SETTINGS_FILE}"
 }
 
 configured_permission_mode() {

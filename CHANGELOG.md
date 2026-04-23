@@ -4,11 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-04-23
+
+### Changed
+
+- Reworked app-owned runtime path resolution so logs, pet state, runtime support files, and tool-permission state now live under the active app's own Application Support directory, while transient runtime sockets and status files live under an owner-scoped temp root.
+- Simplified debug/runtime log naming so release and development builds no longer rely on extra `.dev` or `.release` filename suffixes for separation; build identity now comes entirely from the app container path.
+
+### Fixed
+
+- Fixed multi-build hook coexistence for Codex, Claude, and Gemini by making injected dmux hook commands owner-aware, preserving other active app owners, and aggressively removing legacy ownerless hook entries from older helper paths.
+- Fixed Codex config installation so `suppress_unstable_features_warning = true` is enforced as a real top-level TOML key instead of being written into nested notice tables, preventing startup warnings and invalid config structure after app bootstrap.
+- Fixed runtime bootstrap path partitioning so `claude-session-map`, runtime socket files, and agent status state are now treated as temporary runtime artifacts instead of leaking into persistent support storage.
+- Fixed release cleanup metadata so the generated Homebrew cask zap path now matches the real Application Support directory used by current builds.
+
 ## [0.4.1] - 2026-04-23
 
 ### Fixed
 
-- Fixed Codex runtime config installation so `suppress_unstable_features_warning` is now written into the top-level `[notice]` section instead of corrupting `[notice.model_migrations]`, which previously caused Codex startup failures on updated user configs.
+- Fixed Codex runtime config installation so `suppress_unstable_features_warning` is now written as a top-level config key instead of corrupting `[notice.model_migrations]`, which previously caused Codex startup failures on updated user configs.
 - Fixed live AI session presentation and aggregation edge cases so completed sessions remain visible in the realtime panel, current-session token cards stay bound to raw live totals, and overlay-only math no longer leaks into the per-session display path.
 - Fixed runtime and historical AI accounting edge cases across completed-turn baselines, post-cutoff indexed session buckets, corrupted active-duration history rows, and stale managed-session cleanup so project totals, pet progression inputs, and live overlays stay aligned more reliably.
 - Fixed runtime hook/bootstrap support for release builds by tightening socket/config handling and adding regression coverage around Codex config generation, runtime socket reconnectability, and live stats/session retention behavior.

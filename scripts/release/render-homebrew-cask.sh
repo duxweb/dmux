@@ -37,7 +37,7 @@ cask "codux" do
   app "Codux.app"
 
   zap trash: [
-    "~/Library/Application Support/dmux",
+    "~/Library/Application Support/Codux",
     "~/Library/Caches/com.duxweb.dmux",
     "~/Library/HTTPStorages/com.duxweb.dmux",
     "~/Library/Preferences/com.duxweb.dmux.plist",

@@ -133,13 +133,78 @@ enum AppSupportLinks {
 }
 
 enum AppRuntimePaths {
-    static func isDeveloperVariant(bundle: Bundle = .main) -> Bool {
-        let bundleIdentifier = (bundle.bundleIdentifier ?? "").lowercased()
-        return bundleIdentifier.hasSuffix(".dev") || bundleIdentifier.hasSuffix(".debug")
+    static func appDisplayName(bundle: Bundle = .main) -> String {
+        if let displayName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String {
+            let sanitized = appSupportFolderName(appDisplayName: displayName)
+            if !sanitized.isEmpty {
+                return sanitized
+            }
+        }
+
+        if let bundleName = bundle.object(forInfoDictionaryKey: kCFBundleNameKey as String) as? String {
+            let sanitized = appSupportFolderName(appDisplayName: bundleName)
+            if !sanitized.isEmpty {
+                return sanitized
+            }
+        }
+
+        let fallbackName = bundle.bundleURL
+            .deletingPathExtension()
+            .lastPathComponent
+        let sanitizedFallback = appSupportFolderName(appDisplayName: fallbackName)
+        return sanitizedFallback.isEmpty ? "Codux" : sanitizedFallback
     }
 
     static func appSupportFolderName(bundle: Bundle = .main) -> String {
-        isDeveloperVariant(bundle: bundle) ? "dmux-dev" : "dmux"
+        appDisplayName(bundle: bundle)
+    }
+
+    static func appSupportFolderName(appDisplayName: String) -> String {
+        let sanitized = appDisplayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        return sanitized.isEmpty ? "Codux" : sanitized
+    }
+
+    static func runtimeOwnerID(bundle: Bundle = .main) -> String {
+        runtimeOwnerID(
+            appDisplayName: appDisplayName(bundle: bundle),
+            bundleIdentifier: bundle.bundleIdentifier
+        )
+    }
+
+    static func runtimeOwnerID(appDisplayName: String, bundleIdentifier: String? = nil) -> String {
+        let base = appSupportFolderName(appDisplayName: appDisplayName)
+        let mapped = base.lowercased().map { character -> Character in
+            if character.isLetter || character.isNumber {
+                return character
+            }
+            return "-"
+        }
+        let collapsed = String(mapped)
+            .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        if !collapsed.isEmpty {
+            return collapsed
+        }
+
+        if let bundleIdentifier,
+           let lastComponent = bundleIdentifier.split(separator: ".").last {
+            let fallback = String(lastComponent)
+                .lowercased()
+                .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+            let normalized = String(fallback)
+                .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            if !normalized.isEmpty {
+                return normalized
+            }
+        }
+
+        return "codux"
     }
 
     static func appSupportRootURL(
@@ -150,6 +215,40 @@ enum AppRuntimePaths {
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first?
             .appendingPathComponent(appSupportFolderName(bundle: bundle), isDirectory: true)
+    }
+
+    static func temporaryRootURL(
+        fileManager: FileManager = .default,
+        bundle: Bundle = .main
+    ) -> URL {
+        temporaryRootURL(
+            fileManager: fileManager,
+            appDisplayName: appDisplayName(bundle: bundle),
+            bundleIdentifier: bundle.bundleIdentifier
+        )
+    }
+
+    static func temporaryRootURL(
+        fileManager: FileManager = .default,
+        appDisplayName: String,
+        bundleIdentifier: String? = nil
+    ) -> URL {
+        fileManager.temporaryDirectory
+            .appendingPathComponent(
+                runtimeOwnerID(
+                    appDisplayName: appDisplayName,
+                    bundleIdentifier: bundleIdentifier
+                ),
+                isDirectory: true
+            )
+    }
+
+    static func runtimeSupportRootURL(
+        fileManager: FileManager = .default,
+        bundle: Bundle = .main
+    ) -> URL? {
+        appSupportRootURL(fileManager: fileManager, bundle: bundle)?
+            .appendingPathComponent("runtime-support", isDirectory: true)
     }
 }
 

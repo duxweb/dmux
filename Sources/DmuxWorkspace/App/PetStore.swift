@@ -14,17 +14,31 @@ final class PetStore {
         var fileURL: URL?
         var cryptoNamespace: String
 
-        static let live = Self.makeLive(bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+        static let live = Self.makeLive(bundle: .main)
 
-        static func makeLive(bundleIdentifier: String) -> Storage {
-            let normalizedBundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let isDeveloperVariant = normalizedBundleIdentifier.hasSuffix(".dev")
-                || normalizedBundleIdentifier.hasSuffix(".debug")
+        static func makeLive(bundle: Bundle = .main) -> Storage {
+            let rootURL = AppRuntimePaths.appSupportRootURL(bundle: bundle)
+            let cryptoNamespace = AppRuntimePaths.runtimeOwnerID(bundle: bundle)
+
+            return Storage(
+                fileURL: rootURL?.appendingPathComponent("pet-state.dat"),
+                cryptoNamespace: cryptoNamespace
+            )
+        }
+
+        static func makeLive(bundleIdentifier: String, appDisplayName: String? = nil) -> Storage {
+            let resolvedDisplayName = appDisplayName ?? inferredDisplayName(bundleIdentifier: bundleIdentifier)
             let rootURL = FileManager.default
                 .urls(for: .applicationSupportDirectory, in: .userDomainMask)
                 .first?
-                .appendingPathComponent(isDeveloperVariant ? "dmux-dev" : "dmux", isDirectory: true)
-            let cryptoNamespace = isDeveloperVariant ? "dev" : "prod"
+                .appendingPathComponent(
+                    AppRuntimePaths.appSupportFolderName(appDisplayName: resolvedDisplayName),
+                    isDirectory: true
+                )
+            let cryptoNamespace = AppRuntimePaths.runtimeOwnerID(
+                appDisplayName: resolvedDisplayName,
+                bundleIdentifier: bundleIdentifier
+            )
 
             return Storage(
                 fileURL: rootURL?.appendingPathComponent("pet-state.dat"),
@@ -36,6 +50,19 @@ final class PetStore {
             fileURL: nil,
             cryptoNamespace: "tests"
         )
+
+        private static func inferredDisplayName(bundleIdentifier: String) -> String {
+            let normalizedBundleIdentifier = bundleIdentifier
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if normalizedBundleIdentifier.hasSuffix(".dev") {
+                return "Codux-dev"
+            }
+            if normalizedBundleIdentifier.hasSuffix(".debug") {
+                return "Codux-debug"
+            }
+            return "Codux"
+        }
     }
 
     static let shared = PetStore()

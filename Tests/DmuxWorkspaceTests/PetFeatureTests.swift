@@ -552,14 +552,22 @@ final class PetStoreLifecycleTests: XCTestCase {
     }
 
     func testLiveStorageSeparatesDeveloperAndReleaseData() {
-        let release = PetStore.Storage.makeLive(bundleIdentifier: "com.duxweb.dmux")
-        let dev = PetStore.Storage.makeLive(bundleIdentifier: "com.duxweb.dmux.dev")
+        let release = PetStore.Storage.makeLive(
+            bundleIdentifier: "com.duxweb.dmux",
+            appDisplayName: "Codux"
+        )
+        let dev = PetStore.Storage.makeLive(
+            bundleIdentifier: "com.duxweb.dmux.dev",
+            appDisplayName: "Codux-dev"
+        )
 
         XCTAssertEqual(release.fileURL?.lastPathComponent, "pet-state.dat")
         XCTAssertEqual(dev.fileURL?.lastPathComponent, "pet-state.dat")
         XCTAssertNotEqual(release.fileURL?.path, dev.fileURL?.path)
-        XCTAssertTrue(release.fileURL?.path.contains("/dmux/") ?? false)
-        XCTAssertTrue(dev.fileURL?.path.contains("/dmux-dev/") ?? false)
+        XCTAssertTrue(release.fileURL?.path.contains("/Codux/") ?? false)
+        XCTAssertTrue(dev.fileURL?.path.contains("/Codux-dev/") ?? false)
+        XCTAssertEqual(release.cryptoNamespace, "codux")
+        XCTAssertEqual(dev.cryptoNamespace, "codux-dev")
     }
 
     func testInheritArchivesCurrentPetAndResetsClaimState() {

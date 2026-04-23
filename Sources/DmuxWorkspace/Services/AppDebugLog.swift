@@ -2,11 +2,6 @@ import AppKit
 import Foundation
 import Logging
 
-private enum AppLogFileKind {
-    case runtime
-    case live
-}
-
 private final class AppDebugLogBackend: @unchecked Sendable {
     static let shared = AppDebugLogBackend()
 
@@ -77,37 +72,24 @@ private final class AppDebugLogBackend: @unchecked Sendable {
         return directoryURL
     }
 
-    private func logChannel() -> String {
-        let bundleIdentifier = (Bundle.main.bundleIdentifier ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let isDeveloperVariant = bundleIdentifier.hasSuffix(".dev")
-            || bundleIdentifier.hasSuffix(".debug")
-        return isDeveloperVariant ? "dev" : "release"
-    }
-
-    private func logFileName(kind: String, ext: String) -> String {
-        "dmux-\(kind).\(logChannel()).\(ext)"
-    }
-
     func runtimeLogFileURL() -> URL {
-        logsDirectoryURL().appendingPathComponent(logFileName(kind: "runtime", ext: "log"), isDirectory: false)
+        logsDirectoryURL().appendingPathComponent("runtime.log", isDirectory: false)
     }
 
     func previousRuntimeLogFileURL() -> URL {
-        logsDirectoryURL().appendingPathComponent(logFileName(kind: "runtime.previous", ext: "log"), isDirectory: false)
+        logsDirectoryURL().appendingPathComponent("runtime.previous.log", isDirectory: false)
     }
 
     func liveLogFileURL() -> URL {
-        logsDirectoryURL().appendingPathComponent(logFileName(kind: "live", ext: "log"), isDirectory: false)
+        logsDirectoryURL().appendingPathComponent("live.log", isDirectory: false)
     }
 
     func previousLiveLogFileURL() -> URL {
-        logsDirectoryURL().appendingPathComponent(logFileName(kind: "live.previous", ext: "log"), isDirectory: false)
+        logsDirectoryURL().appendingPathComponent("live.previous.log", isDirectory: false)
     }
 
     func performanceSummaryFileURL() -> URL {
-        logsDirectoryURL().appendingPathComponent(logFileName(kind: "performance-summary", ext: "json"), isDirectory: false)
+        logsDirectoryURL().appendingPathComponent("performance-summary.json", isDirectory: false)
     }
 
     func write(

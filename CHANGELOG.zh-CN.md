@@ -4,11 +4,25 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-04-23
+
+### Changed
+
+- 重构应用自身运行时路径解析，日志、宠物状态、runtime support 文件以及工具权限设置现在统一落到当前应用自己的 `Application Support` 目录；runtime socket、状态目录等临时产物则统一落到按 owner 隔离的 tmp 根目录。
+- 简化调试与运行时日志命名，正式版和开发版不再依赖额外的 `.dev` / `.release` 文件名后缀做区分，版本隔离完全由应用容器目录承担。
+
+### Fixed
+
+- 修复 Codex、Claude、Gemini 的多版本 hook 共存问题，dmux 注入命令现在带有 owner 标识，会保留其他正在使用的应用 owner，同时会自动清理旧版本遗留的无 owner hook 条目和旧 helper 路径注入。
+- 修复 Codex 配置注入逻辑，`suppress_unstable_features_warning = true` 现在会作为真正的 TOML 顶层键写入，不会再落进嵌套的 `notice` 表结构里，从而避免启动 warning 持续出现或配置结构被写坏。
+- 修复 runtime bootstrap 的临时/持久路径划分，`claude-session-map`、runtime socket 和 agent status 现在都被视为临时运行态产物，不再落入持久 support 目录。
+- 修复 Homebrew cask 生成脚本中的清理路径，使 zap 的 `Application Support` 目录与当前正式版真实使用的目录保持一致。
+
 ## [0.4.1] - 2026-04-23
 
 ### Fixed
 
-- 修复 Codex 运行时配置写入逻辑，`suppress_unstable_features_warning` 现在会写入顶层 `[notice]` 段，而不会再污染 `[notice.model_migrations]`，从而避免更新后用户因配置结构损坏而无法启动 Codex。
+- 修复 Codex 运行时配置写入逻辑，`suppress_unstable_features_warning` 现在会写入真正的顶层配置，而不会再污染 `[notice.model_migrations]`，从而避免更新后用户因配置结构损坏而无法启动 Codex。
 - 修复实时 AI 会话展示与聚合链路的边界问题，已完成会话现在会继续保留在实时面板中，当前会话 token 卡片始终绑定原始实时 totals，overlay 差值计算不再串入单会话显示路径。
 - 修复完成态 baseline、cutoff 之后的 indexed 历史 bucket、损坏的 active-duration 历史行以及托管会话清理等多处统计边界问题，让项目总量、宠物成长输入和实时 overlay 的结果保持更稳定一致。
 - 修复正式版运行时 hook/bootstrap 支撑链路，收紧 socket 与配置生成处理，并补充 Codex 配置生成、runtime socket 重连能力以及实时 stats / 会话保留行为的回归测试。

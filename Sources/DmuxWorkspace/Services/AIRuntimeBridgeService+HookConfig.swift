@@ -55,7 +55,6 @@ extension AIRuntimeBridgeService {
     }
 
     func updatedCodexConfigText(from existingText: String) -> String {
-        let targetHeader = "[notice]"
         let targetLine = "suppress_unstable_features_warning = true"
 
         func normalized(_ line: String) -> String {
@@ -66,13 +65,9 @@ extension AIRuntimeBridgeService {
             normalized(line).hasPrefix("suppress_unstable_features_warning")
         }
 
-        func isNoticeHeader(_ line: String) -> Bool {
-            normalized(line) == targetHeader
-        }
-
-        func isNoticeChildHeader(_ line: String) -> Bool {
+        func isTableHeader(_ line: String) -> Bool {
             let trimmed = normalized(line)
-            return trimmed.hasPrefix("[notice.") && trimmed.hasSuffix("]")
+            return trimmed.hasPrefix("[") && trimmed.hasSuffix("]")
         }
 
         var lines = existingText
@@ -85,18 +80,25 @@ extension AIRuntimeBridgeService {
             lines.removeLast()
         }
 
-        if let noticeIndex = lines.firstIndex(where: isNoticeHeader) {
-            lines.insert(targetLine, at: noticeIndex + 1)
-        } else if let noticeChildIndex = lines.firstIndex(where: isNoticeChildHeader) {
-            lines.insert("", at: noticeChildIndex)
-            lines.insert(targetLine, at: noticeChildIndex)
-            lines.insert(targetHeader, at: noticeChildIndex)
-        } else if lines.isEmpty {
-            lines = [targetHeader, targetLine]
+        if lines.isEmpty {
+            lines = [targetLine]
         } else {
-            lines.append("")
-            lines.append(targetHeader)
-            lines.append(targetLine)
+            let firstTableIndex = lines.firstIndex(where: isTableHeader)
+            var insertionIndex = firstTableIndex ?? lines.count
+
+            while insertionIndex > 0,
+                  normalized(lines[insertionIndex - 1]).isEmpty {
+                insertionIndex -= 1
+            }
+
+            lines.insert(targetLine, at: insertionIndex)
+
+            if let firstTableIndex,
+               insertionIndex < firstTableIndex,
+               insertionIndex + 1 < lines.count,
+               normalized(lines[insertionIndex + 1]).isEmpty == false {
+                lines.insert("", at: insertionIndex + 1)
+            }
         }
 
         return lines.joined(separator: "\n") + "\n"
@@ -200,6 +202,7 @@ extension AIRuntimeBridgeService {
             let notificationHookGroups = strippedManagedHookGroups(
                 existingValue: hooksObject["Notification"],
                 action: notificationActionToStrip,
+                owner: AppRuntimePaths.runtimeOwnerID(),
                 helperScriptURL: helperScriptURL,
                 statusMessage: statusMessage
             )
@@ -234,13 +237,15 @@ extension AIRuntimeBridgeService {
         helperScriptURL: URL,
         definitions: [(eventKey: String, action: String, timeout: Int, async: Bool)]
     ) -> [ManagedHookSpec] {
-        definitions.map { definition in
+        let owner = AppRuntimePaths.runtimeOwnerID()
+        return definitions.map { definition in
             ManagedHookSpec(
                 eventKey: definition.eventKey,
                 action: definition.action,
                 command: hookCommand(
                     helperScriptURL: helperScriptURL,
                     action: definition.action,
+                    owner: owner,
                     tool: tool
                 ),
                 statusMessage: statusMessage,
@@ -255,9 +260,11 @@ extension AIRuntimeBridgeService {
         spec: ManagedHookSpec,
         helperScriptURL: URL
     ) -> [[String: Any]] {
+        let owner = AppRuntimePaths.runtimeOwnerID()
         let nextGroups = strippedManagedHookGroups(
             existingValue: existingValue,
             action: spec.action,
+            owner: owner,
             helperScriptURL: helperScriptURL,
             statusMessage: spec.statusMessage
         )
@@ -281,6 +288,7 @@ extension AIRuntimeBridgeService {
     func strippedManagedHookGroups(
         existingValue: Any?,
         action: String,
+        owner: String,
         helperScriptURL: URL,
         statusMessage: String
     ) -> [[String: Any]] {
@@ -291,6 +299,7 @@ extension AIRuntimeBridgeService {
                 !isManagedHook(
                     hook,
                     action: action,
+                    owner: owner,
                     helperScriptURL: helperScriptURL,
                     statusMessage: statusMessage
                 )
@@ -309,27 +318,47 @@ extension AIRuntimeBridgeService {
     func isManagedHook(
         _ hook: [String: Any],
         action: String,
+        owner: String,
         helperScriptURL: URL,
         statusMessage expectedStatusMessage: String
     ) -> Bool {
-        if let statusMessage = hook["statusMessage"] as? String,
-           statusMessage == expectedStatusMessage {
-            return true
-        }
-
+        _ = expectedStatusMessage
         guard let type = hook["type"] as? String,
               type == "command",
               let command = hook["command"] as? String else {
             return false
         }
 
-        return command.contains(helperScriptURL.path) && command.contains(action)
+        guard command.contains(action) else {
+            return false
+        }
+
+        let singleQuoteCount = command.reduce(into: 0) { count, character in
+            if character == "'" {
+                count += 1
+            }
+        }
+        if singleQuoteCount < 8, command.contains("dmux-ai-state.sh") {
+            return true
+        }
+
+        guard command.contains(helperScriptURL.path) else {
+            return false
+        }
+
+        let ownerToken = shellQuoted(owner)
+        if command.contains(" \(ownerToken) ") || command.hasSuffix(" \(ownerToken)") {
+            return true
+        }
+
+        return false
     }
 
-    func hookCommand(helperScriptURL: URL, action: String, tool: String) -> String {
+    func hookCommand(helperScriptURL: URL, action: String, owner: String, tool: String) -> String {
         [
             shellQuoted(helperScriptURL.path),
             shellQuoted(action),
+            shellQuoted(owner),
             shellQuoted(tool),
         ].joined(separator: " ")
     }

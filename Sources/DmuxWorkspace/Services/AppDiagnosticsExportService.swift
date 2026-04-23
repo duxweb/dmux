@@ -120,16 +120,30 @@ struct AppDiagnosticsExportService {
         )
 
         let codexConfigRoot = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(".codex", isDirectory: true)
+        let claudeConfigRoot = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(".claude", isDirectory: true)
         let geminiConfigRoot = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(".gemini", isDirectory: true)
 
         copyIfExists(
             from: codexConfigRoot.appendingPathComponent("hooks.json", isDirectory: false),
             to: externalConfigDirectoryURL.appendingPathComponent("codex-hooks.json", isDirectory: false)
         )
+        copyIfExists(
+            from: codexConfigRoot.appendingPathComponent("config.toml", isDirectory: false),
+            to: externalConfigDirectoryURL.appendingPathComponent("codex-config.toml", isDirectory: false)
+        )
         copyMatchingFiles(
             in: codexConfigRoot,
             to: externalConfigDirectoryURL,
             matching: { $0.lastPathComponent.hasPrefix("hooks.invalid-") && $0.pathExtension == "json" }
+        )
+        copyIfExists(
+            from: claudeConfigRoot.appendingPathComponent("settings.json", isDirectory: false),
+            to: externalConfigDirectoryURL.appendingPathComponent("claude-settings.json", isDirectory: false)
+        )
+        copyMatchingFiles(
+            in: claudeConfigRoot,
+            to: externalConfigDirectoryURL,
+            matching: { $0.lastPathComponent.hasPrefix("settings.invalid-") && $0.pathExtension == "json" }
         )
         copyIfExists(
             from: geminiConfigRoot.appendingPathComponent("settings.json", isDirectory: false),
@@ -240,7 +254,7 @@ struct AppDiagnosticsExportService {
     }
 
     private func appSupportDirectoryURL() -> URL {
-        AIRuntimeBridgeService().runtimeSupportRootURL(createIfNeeded: false)
+        AppRuntimePaths.appSupportRootURL(fileManager: fileManager)!
     }
 
     private func diagnosticReportsDirectoryURL() -> URL {
