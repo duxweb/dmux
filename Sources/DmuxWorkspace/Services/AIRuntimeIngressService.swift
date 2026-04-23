@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 
+private let runtimeSocketReadTimeoutSeconds: Int = 3
+
 extension Notification.Name {
     static let dmuxAIRuntimeBridgeDidChange = Notification.Name("dmuxAIRuntimeBridgeDidChange")
 }
@@ -150,6 +152,7 @@ final class AIRuntimeIngressService {
                 return
             }
 
+            configureRuntimeSocketReadTimeout(connectionFD)
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 var data = Data()
                 var buffer = [UInt8](repeating: 0, count: 4096)
@@ -158,6 +161,9 @@ final class AIRuntimeIngressService {
                     if count > 0 {
                         data.append(buffer, count: count)
                         continue
+                    }
+                    if count < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                        self?.logger.log("runtime-socket", "read timeout fd=\(connectionFD)")
                     }
                     break
                 }
@@ -169,6 +175,20 @@ final class AIRuntimeIngressService {
                     self?.processRuntimeSocketEvent(data)
                 }
             }
+        }
+    }
+
+    nonisolated private func configureRuntimeSocketReadTimeout(_ connectionFD: Int32) {
+        var timeout = timeval(tv_sec: runtimeSocketReadTimeoutSeconds, tv_usec: 0)
+        let timeoutSize = socklen_t(MemoryLayout<timeval>.size)
+        withUnsafePointer(to: &timeout) { pointer in
+            _ = setsockopt(
+                connectionFD,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                pointer,
+                timeoutSize
+            )
         }
     }
 
