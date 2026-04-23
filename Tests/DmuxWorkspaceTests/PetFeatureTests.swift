@@ -483,6 +483,43 @@ final class PetStoreLifecycleTests: XCTestCase {
         XCTAssertEqual(store.currentExperienceTokens, 0)
     }
 
+    func testRefreshDerivedStatePrunesInactiveWatermarksOnlyAfterRetentionWindow() {
+        let store = PetStore(storage: .inMemory)
+        let claimTime = Date(timeIntervalSince1970: 1_700_000_000)
+        store.claim(option: .voidcat, customName: "")
+
+        store.refreshDerivedState(
+            realtimeSessionTotals: ["session": 100],
+            computedStats: nil,
+            now: claimTime
+        )
+        XCTAssertEqual(store.currentHatchTokens, 100)
+
+        store.refreshDerivedState(
+            realtimeSessionTotals: [:],
+            computedStats: nil,
+            now: claimTime.addingTimeInterval(PetStore.realtimeSessionRetentionInterval - 1)
+        )
+        store.refreshDerivedState(
+            realtimeSessionTotals: ["session": 120],
+            computedStats: nil,
+            now: claimTime.addingTimeInterval(PetStore.realtimeSessionRetentionInterval)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 120)
+
+        store.refreshDerivedState(
+            realtimeSessionTotals: [:],
+            computedStats: nil,
+            now: claimTime.addingTimeInterval(PetStore.realtimeSessionRetentionInterval * 2)
+        )
+        store.refreshDerivedState(
+            realtimeSessionTotals: ["session": 140],
+            computedStats: nil,
+            now: claimTime.addingTimeInterval(PetStore.realtimeSessionRetentionInterval * 2 + 1)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 260)
+    }
+
     func testEncryptedDatStorageRoundTripsWithoutKeychain() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -8,6 +8,7 @@ final class PetStore {
     private static let stateVersion = 7
     private static let statsModelVersion = 3
     private static let statsRefreshInterval: TimeInterval = 3600
+    static let realtimeSessionRetentionInterval: TimeInterval = 7 * 86_400
 
     struct Storage: Sendable {
         var fileURL: URL?
@@ -44,6 +45,7 @@ final class PetStore {
     private(set) var legacy: [PetLegacyRecord] = []
 
     private var realtimeSessionTotals: [String: Int] = [:]
+    private var realtimeSessionObservedAt: [String: Date] = [:]
     private let fileManager = FileManager.default
     private let debugLog = AppDebugLog.shared
     private let storage: Storage
@@ -71,7 +73,8 @@ final class PetStore {
         guard !isClaimed else {
             return
         }
-        claimedAt = Date()
+        let claimTime = Date()
+        claimedAt = claimTime
         species = option.resolveSpecies(hiddenSpeciesChance: hiddenSpeciesChance)
         self.customName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
         currentHatchTokens = 0
@@ -80,6 +83,9 @@ final class PetStore {
         statsUpdatedDay = nil
         lockedEvoPath = nil
         self.realtimeSessionTotals = sanitizeRealtimeSessionTotals(realtimeSessionTotals)
+        realtimeSessionObservedAt = Dictionary(
+            uniqueKeysWithValues: self.realtimeSessionTotals.keys.map { ($0, claimTime) }
+        )
         save()
     }
 
@@ -124,6 +130,7 @@ final class PetStore {
         statsUpdatedDay = nil
         lockedEvoPath = nil
         realtimeSessionTotals = [:]
+        realtimeSessionObservedAt = [:]
         save()
     }
 
@@ -169,6 +176,9 @@ final class PetStore {
            (currentHatchTokens > 0 || currentExperienceTokens > 0),
            !sanitizedTotals.isEmpty {
             realtimeSessionTotals = sanitizedTotals
+            for key in sanitizedTotals.keys {
+                realtimeSessionObservedAt[key] = now
+            }
             didChange = true
             debugLog.log(
                 "pet-ledger",
@@ -180,12 +190,16 @@ final class PetStore {
         for (sessionKey, sessionTotal) in sanitizedTotals {
             let previousTotal = realtimeSessionTotals[sessionKey] ?? 0
             guard sessionTotal > previousTotal else {
+                realtimeSessionObservedAt[sessionKey] = now
                 continue
             }
             deltaTokens += sessionTotal - previousTotal
             realtimeSessionTotals[sessionKey] = sessionTotal
+            realtimeSessionObservedAt[sessionKey] = now
             didChange = true
         }
+
+        pruneStaleRealtimeSessions(activeKeys: Set(sanitizedTotals.keys), now: now, didChange: &didChange)
 
         if deltaTokens > 0 {
             let hatchRemaining = max(0, PetProgressInfo.hatchThreshold - currentHatchTokens)
@@ -237,6 +251,7 @@ final class PetStore {
         currentHatchTokens = PetProgressInfo.hatchThreshold
         currentExperienceTokens = max(0, experienceTokens)
         realtimeSessionTotals = [:]
+        realtimeSessionObservedAt = [:]
         if statsUpdatedDay == nil {
             statsUpdatedDay = now
         }
@@ -255,6 +270,7 @@ final class PetStore {
         currentHatchTokens = PetProgressInfo.hatchThreshold
         currentExperienceTokens = 0
         realtimeSessionTotals = [:]
+        realtimeSessionObservedAt = [:]
         if statsUpdatedDay == nil {
             statsUpdatedDay = now
         }
@@ -270,6 +286,7 @@ final class PetStore {
             currentStats = .neutral
             statsUpdatedDay = nil
             realtimeSessionTotals = [:]
+            realtimeSessionObservedAt = [:]
         }
         species = nextSpecies
         customName = ""
@@ -341,6 +358,7 @@ final class PetStore {
         statsUpdatedDay = nil
         lockedEvoPath = nil
         realtimeSessionTotals = [:]
+        realtimeSessionObservedAt = [:]
         debugLog.log(
             "pet-ledger",
             "migrate-reset version=\(resolvedState.stateVersion ?? 0) hatched=\(legacyWasHatched) resetClaimedAt=true hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
@@ -355,6 +373,10 @@ final class PetStore {
         statsUpdatedDay = state.statsUpdatedDay
         lockedEvoPath = state.lockedEvoPath
         realtimeSessionTotals = sanitizeRealtimeSessionTotals(state.realtimeSessionTotals ?? [:])
+        let persistedObservedAt = state.realtimeSessionObservedAt ?? [:]
+        realtimeSessionObservedAt = realtimeSessionTotals.reduce(into: [:]) { partial, item in
+            partial[item.key] = persistedObservedAt[item.key] ?? Date()
+        }
     }
 
     private func shouldPreserveLedgerState(for state: PersistedPetState) -> Bool {
@@ -389,9 +411,37 @@ final class PetStore {
             statsUpdatedDay: statsUpdatedDay,
             lockedEvoPath: lockedEvoPath,
             legacy: legacy,
-            realtimeSessionTotals: realtimeSessionTotals
+            realtimeSessionTotals: realtimeSessionTotals,
+            realtimeSessionObservedAt: realtimeSessionObservedAt
         )
         saveStateFile(state)
+    }
+
+    private func pruneStaleRealtimeSessions(activeKeys: Set<String>, now: Date, didChange: inout Bool) {
+        guard !realtimeSessionTotals.isEmpty else {
+            realtimeSessionObservedAt = [:]
+            return
+        }
+
+        var staleKeys: [String] = []
+        for key in realtimeSessionTotals.keys where !activeKeys.contains(key) {
+            let observedAt = realtimeSessionObservedAt[key] ?? now
+            guard now.timeIntervalSince(observedAt) >= Self.realtimeSessionRetentionInterval else {
+                continue
+            }
+            staleKeys.append(key)
+        }
+
+        guard !staleKeys.isEmpty else {
+            return
+        }
+
+        for key in staleKeys {
+            realtimeSessionTotals.removeValue(forKey: key)
+            realtimeSessionObservedAt.removeValue(forKey: key)
+        }
+        didChange = true
+        debugLog.log("pet-ledger", "prune-watermarks removed=\(staleKeys.count)")
     }
 
     private func loadStateFile() -> PersistedPetState? {
@@ -461,6 +511,7 @@ private struct PersistedPetState: Codable, Equatable {
     var lockedEvoPath: PetEvoPath?
     var legacy: [PetLegacyRecord]?
     var realtimeSessionTotals: [String: Int]?
+    var realtimeSessionObservedAt: [String: Date]?
 
     // Legacy fields kept for one-way migration.
     var progressionVersion: Int?
