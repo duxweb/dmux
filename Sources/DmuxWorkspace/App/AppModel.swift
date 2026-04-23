@@ -145,11 +145,11 @@ final class AppModel {
             background: appSettings.aiBackgroundRefreshInterval
         )
         petRefreshCoordinator.configure(
-            totalNormalizedTokens: { [weak self] in
+            totalNormalizedTokensByProject: { [weak self] in
                 guard let self else {
-                    return 0
+                    return [:]
                 }
-                return self.aiStatsStore.totalNormalizedTokensForPet(
+                return self.aiStatsStore.normalizedTokenTotalsForPet(
                     self.projects,
                     claimedAt: self.petStore.claimedAt
                 )

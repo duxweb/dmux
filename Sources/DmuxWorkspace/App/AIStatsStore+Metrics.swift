@@ -10,25 +10,32 @@ extension AIStatsStore {
         return aiUsageStore.globalTodayNormalizedTokens()
     }
 
-    func totalNormalizedTokensForPet(_ projects: [Project], claimedAt: Date?) -> Int {
+    func normalizedTokenTotalsForPet(_ projects: [Project], claimedAt: Date?) -> [UUID: Int] {
         guard let claimedAt else {
-            return 0
+            return [:]
         }
         let projectIDs = Set(projects.map(\.id))
         guard !projectIDs.isEmpty else {
-            return 0
+            return [:]
         }
 
-        let historicalTotal = aiUsageStore
-            .indexedSessions(since: claimedAt, projectIDs: projectIDs)
-            .reduce(0) { partial, session in
-                clampedAdd(partial, session.totalTokens)
+        var totalsByProject = aiUsageStore.indexedSessions(since: claimedAt, projectIDs: projectIDs)
+            .reduce(into: [UUID: Int]()) { partial, session in
+                partial[session.projectID] = clampedAdd(partial[session.projectID] ?? 0, session.totalTokens)
             }
 
-        return clampedAdd(
-            historicalTotal,
-            liveOverlayTotalTokensForPet(projectIDs: projectIDs, claimedAt: claimedAt)
-        )
+        let liveTotals = liveOverlayTotalTokensForPet(projectIDs: projectIDs, claimedAt: claimedAt)
+        for (projectID, liveTotal) in liveTotals {
+            totalsByProject[projectID] = clampedAdd(totalsByProject[projectID] ?? 0, liveTotal)
+        }
+
+        return totalsByProject
+    }
+
+    func totalNormalizedTokensForPet(_ projects: [Project], claimedAt: Date?) -> Int {
+        normalizedTokenTotalsForPet(projects, claimedAt: claimedAt).values.reduce(0) { partial, total in
+            clampedAdd(partial, total)
+        }
     }
 
     func petStatsSinceClaimedAt(_ claimedAt: Date?, projects: [Project]) -> PetStats {
@@ -138,19 +145,17 @@ extension AIStatsStore {
         }
     }
 
-    private func liveOverlayTotalTokensForPet(projectIDs: Set<UUID>, claimedAt: Date) -> Int {
-        aiSessionStore.globalLiveAggregationSnapshots().reduce(0) { partial, snapshot in
+    private func liveOverlayTotalTokensForPet(projectIDs: Set<UUID>, claimedAt: Date) -> [UUID: Int] {
+        aiSessionStore.globalLiveAggregationSnapshots().reduce(into: [UUID: Int]()) { partial, snapshot in
             guard projectIDs.contains(snapshot.projectID) else {
-                return partial
+                return
             }
             let firstTrackedAt = snapshot.startedAt ?? snapshot.updatedAt
             guard firstTrackedAt >= claimedAt else {
-                return partial
+                return
             }
-            return clampedAdd(
-                partial,
-                max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens)
-            )
+            let delta = max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens)
+            partial[snapshot.projectID] = clampedAdd(partial[snapshot.projectID] ?? 0, delta)
         }
     }
 

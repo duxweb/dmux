@@ -321,6 +321,7 @@ extension AppModel {
 
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
             guard let self, result == .primary else { return }
+            self.petStore.forgetProjectBaseline(projectID)
             self.projects.removeAll { $0.id == projectID }
             self.workspaces.removeAll { $0.projectID == projectID }
             if self.selectedProjectID == projectID {
@@ -342,6 +343,7 @@ extension AppModel {
             return
         }
 
+        petStore.forgetProjectBaseline(project.id)
         projects.removeAll { $0.id == project.id }
         workspaces.removeAll { $0.projectID == project.id }
         updateSelectedProjectID(projects.first?.id, source: "closeCurrentProject")
@@ -376,6 +378,7 @@ extension AppModel {
 
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
             guard let self, result == .primary else { return }
+            self.petStore.forgetProjectBaselines(self.projects.map(\.id))
             self.projects.removeAll()
             self.workspaces.removeAll()
             self.updateSelectedProjectID(nil, source: "closeAllProjects")

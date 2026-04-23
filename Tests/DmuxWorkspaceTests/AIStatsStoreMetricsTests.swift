@@ -298,6 +298,13 @@ final class AIStatsStoreMetricsTests: XCTestCase {
         )
 
         XCTAssertEqual(
+            store.normalizedTokenTotalsForPet([projectA, projectB], claimedAt: claimDate),
+            [
+                projectA.id: 120,
+                projectB.id: 130,
+            ]
+        )
+        XCTAssertEqual(
             store.totalNormalizedTokensForPet([projectA, projectB], claimedAt: claimDate),
             250
         )

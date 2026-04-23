@@ -109,6 +109,7 @@ final class PetStore {
     private(set) var lockedEvoPath: PetEvoPath?
     private(set) var legacy: [PetLegacyRecord] = []
     private(set) var globalNormalizedTotalWatermark: Int?
+    private(set) var projectNormalizedTokenWatermarks: [UUID: Int] = [:]
     private let fileManager = FileManager.default
     private let debugLog = AppDebugLog.shared
     private let storage: Storage
@@ -145,6 +146,7 @@ final class PetStore {
         statsUpdatedDay = nil
         lockedEvoPath = nil
         globalNormalizedTotalWatermark = max(0, totalNormalizedTokens)
+        projectNormalizedTokenWatermarks = [:]
         save()
     }
 
@@ -189,6 +191,41 @@ final class PetStore {
         statsUpdatedDay = nil
         lockedEvoPath = nil
         globalNormalizedTotalWatermark = nil
+        projectNormalizedTokenWatermarks = [:]
+        save()
+    }
+
+    func forgetProjectBaseline(_ projectID: UUID) {
+        guard projectNormalizedTokenWatermarks.removeValue(forKey: projectID) != nil else {
+            return
+        }
+        globalNormalizedTotalWatermark = projectNormalizedTokenWatermarks.isEmpty
+            ? nil
+            : projectNormalizedTokenWatermarks.values.reduce(0, +)
+        debugLog.log(
+            Self.ledgerLogCategory,
+            "forget-project-watermark project=\(projectID.uuidString) remaining=\(projectNormalizedTokenWatermarks.count)"
+        )
+        save()
+    }
+
+    func forgetProjectBaselines(_ projectIDs: some Sequence<UUID>) {
+        var removedAny = false
+        for projectID in projectIDs {
+            if projectNormalizedTokenWatermarks.removeValue(forKey: projectID) != nil {
+                removedAny = true
+            }
+        }
+        guard removedAny else {
+            return
+        }
+        globalNormalizedTotalWatermark = projectNormalizedTokenWatermarks.isEmpty
+            ? nil
+            : projectNormalizedTokenWatermarks.values.reduce(0, +)
+        debugLog.log(
+            Self.ledgerLogCategory,
+            "forget-project-watermarks remaining=\(projectNormalizedTokenWatermarks.count)"
+        )
         save()
     }
 
@@ -223,27 +260,88 @@ final class PetStore {
         computedStats: PetStats?,
         now: Date = .init()
     ) {
+        refreshDerivedState(
+            totalNormalizedTokensByProject: [:],
+            fallbackTotalNormalizedTokens: nextTotalNormalizedTokens,
+            computedStats: computedStats,
+            now: now
+        )
+    }
+
+    func refreshDerivedState(
+        totalNormalizedTokensByProject nextTotalNormalizedTokensByProject: [UUID: Int],
+        computedStats: PetStats?,
+        now: Date = .init()
+    ) {
+        refreshDerivedState(
+            totalNormalizedTokensByProject: nextTotalNormalizedTokensByProject,
+            fallbackTotalNormalizedTokens: nil,
+            computedStats: computedStats,
+            now: now
+        )
+    }
+
+    private func refreshDerivedState(
+        totalNormalizedTokensByProject nextTotalNormalizedTokensByProject: [UUID: Int],
+        fallbackTotalNormalizedTokens: Int?,
+        computedStats: PetStats?,
+        now: Date
+    ) {
         guard isClaimed else {
             return
         }
 
         var didChange = false
-        let sanitizedTotal = max(0, nextTotalNormalizedTokens)
-
-        if globalNormalizedTotalWatermark == nil {
-            globalNormalizedTotalWatermark = sanitizedTotal
-            didChange = true
-            debugLog.log(
-                Self.ledgerLogCategory,
-                "bootstrap-watermark total=\(sanitizedTotal) hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
-            )
+        var deltaTokens = 0
+        var effectiveTotalNormalizedTokens = 0
+        let sanitizedTotalsByProject = nextTotalNormalizedTokensByProject.reduce(into: [UUID: Int]()) { partial, entry in
+            partial[entry.key] = max(0, entry.value)
         }
 
-        let previousTotal = globalNormalizedTotalWatermark ?? sanitizedTotal
-        let deltaTokens = max(0, sanitizedTotal - previousTotal)
-        if sanitizedTotal > previousTotal {
-            globalNormalizedTotalWatermark = sanitizedTotal
-            didChange = true
+        if sanitizedTotalsByProject.isEmpty == false {
+            for (projectID, total) in sanitizedTotalsByProject {
+                if let previousTotal = projectNormalizedTokenWatermarks[projectID] {
+                    let projectDelta = max(0, total - previousTotal)
+                    deltaTokens += projectDelta
+                    if total > previousTotal {
+                        projectNormalizedTokenWatermarks[projectID] = total
+                        didChange = true
+                    }
+                } else {
+                    projectNormalizedTokenWatermarks[projectID] = total
+                    didChange = true
+                    debugLog.log(
+                        Self.ledgerLogCategory,
+                        "bootstrap-project-watermark project=\(projectID.uuidString) total=\(total)"
+                    )
+                }
+            }
+
+            let aggregatedWatermark = projectNormalizedTokenWatermarks.values.reduce(0, +)
+            effectiveTotalNormalizedTokens = aggregatedWatermark
+            if globalNormalizedTotalWatermark != aggregatedWatermark {
+                globalNormalizedTotalWatermark = aggregatedWatermark
+                didChange = true
+            }
+        } else {
+            let sanitizedTotal = max(0, fallbackTotalNormalizedTokens ?? 0)
+            effectiveTotalNormalizedTokens = sanitizedTotal
+
+            if globalNormalizedTotalWatermark == nil {
+                globalNormalizedTotalWatermark = sanitizedTotal
+                didChange = true
+                debugLog.log(
+                    Self.ledgerLogCategory,
+                    "bootstrap-watermark total=\(sanitizedTotal) hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
+                )
+            }
+
+            let previousTotal = globalNormalizedTotalWatermark ?? sanitizedTotal
+            deltaTokens = max(0, sanitizedTotal - previousTotal)
+            if sanitizedTotal > previousTotal {
+                globalNormalizedTotalWatermark = sanitizedTotal
+                didChange = true
+            }
         }
 
         if deltaTokens > 0 {
@@ -255,7 +353,7 @@ final class PetStore {
             didChange = true
             debugLog.log(
                 Self.ledgerLogCategory,
-                "apply-delta delta=\(deltaTokens) total=\(sanitizedTotal) hatchDelta=\(hatchDelta) xpDelta=\(experienceDelta) hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
+                "apply-delta delta=\(deltaTokens) total=\(effectiveTotalNormalizedTokens) hatchDelta=\(hatchDelta) xpDelta=\(experienceDelta) hatch=\(currentHatchTokens) xp=\(currentExperienceTokens)"
             )
         }
 
@@ -296,6 +394,7 @@ final class PetStore {
         currentHatchTokens = PetProgressInfo.hatchThreshold
         currentExperienceTokens = max(0, experienceTokens)
         globalNormalizedTotalWatermark = nil
+        projectNormalizedTokenWatermarks = [:]
         if statsUpdatedDay == nil {
             statsUpdatedDay = now
         }
@@ -314,6 +413,7 @@ final class PetStore {
         currentHatchTokens = PetProgressInfo.hatchThreshold
         currentExperienceTokens = 0
         globalNormalizedTotalWatermark = nil
+        projectNormalizedTokenWatermarks = [:]
         if statsUpdatedDay == nil {
             statsUpdatedDay = now
         }
@@ -329,6 +429,7 @@ final class PetStore {
             currentStats = .neutral
             statsUpdatedDay = nil
             globalNormalizedTotalWatermark = nil
+            projectNormalizedTokenWatermarks = [:]
         }
         species = nextSpecies
         customName = ""
@@ -411,6 +512,7 @@ final class PetStore {
         statsUpdatedDay = state.statsUpdatedDay
         lockedEvoPath = state.lockedEvoPath
         globalNormalizedTotalWatermark = state.globalNormalizedTotalWatermark
+        projectNormalizedTokenWatermarks = state.projectNormalizedTokenWatermarks ?? [:]
     }
 
     private func shouldPreserveLedgerState(for state: PersistedPetState) -> Bool {
@@ -444,7 +546,8 @@ final class PetStore {
             statsUpdatedDay: statsUpdatedDay,
             lockedEvoPath: lockedEvoPath,
             legacy: legacy,
-            globalNormalizedTotalWatermark: globalNormalizedTotalWatermark
+            globalNormalizedTotalWatermark: globalNormalizedTotalWatermark,
+            projectNormalizedTokenWatermarks: projectNormalizedTokenWatermarks
         )
         saveStateFile(state)
     }
@@ -570,6 +673,7 @@ private struct PersistedPetState: Codable, Equatable {
     var lockedEvoPath: PetEvoPath?
     var legacy: [PetLegacyRecord]?
     var globalNormalizedTotalWatermark: Int?
+    var projectNormalizedTokenWatermarks: [UUID: Int]?
 
     // Legacy fields kept only while older hatch-state inference still reads them.
     var progressionVersion: Int?

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-04-23
+
+### Fixed
+
+- Fixed pet progression so newly indexed history from a project no longer grants retroactive pet XP the first time that project enters tracking; each project now establishes its own baseline before future growth is counted.
+- Fixed project removal semantics for pet progression so removing or closing a project also clears that project's pet baseline, preventing large delayed XP jumps if the same project is re-added and re-indexed much later.
+
 ## [0.4.2] - 2026-04-23
 
 ### Changed

@@ -13,7 +13,7 @@ final class PetRefreshCoordinator {
 
     private let petStore: PetStore
     private let logger = AppDebugLog.shared
-    private var totalNormalizedTokensProvider: (@MainActor () -> Int)?
+    private var totalNormalizedTokensByProjectProvider: (@MainActor () -> [UUID: Int])?
     private var computedStatsProvider: (@MainActor () -> PetStats)?
     private var pendingRefreshTask: Task<Void, Never>?
     private var periodicRefreshTimer: Timer?
@@ -23,10 +23,10 @@ final class PetRefreshCoordinator {
     }
 
     func configure(
-        totalNormalizedTokens: @escaping @MainActor () -> Int,
+        totalNormalizedTokensByProject: @escaping @MainActor () -> [UUID: Int],
         computedStats: @escaping @MainActor () -> PetStats
     ) {
-        totalNormalizedTokensProvider = totalNormalizedTokens
+        totalNormalizedTokensByProjectProvider = totalNormalizedTokensByProject
         computedStatsProvider = computedStats
     }
 
@@ -61,25 +61,33 @@ final class PetRefreshCoordinator {
 
     func refreshNow(reason: Reason, now: Date = .init()) {
         guard petStore.isClaimed,
-              let totalNormalizedTokensProvider,
+              let totalNormalizedTokensByProjectProvider,
               let computedStatsProvider else {
             return
         }
 
-        let totalNormalizedTokens = max(0, totalNormalizedTokensProvider())
+        let totalNormalizedTokensByProject = totalNormalizedTokensByProjectProvider()
+            .reduce(into: [UUID: Int]()) { partial, entry in
+                partial[entry.key] = max(0, entry.value)
+            }
+        let totalNormalizedTokens = totalNormalizedTokensByProject.values.reduce(0) { partial, total in
+            let base = max(0, partial)
+            let increment = max(0, total)
+            return increment > Int.max - base ? Int.max : base + increment
+        }
         let computedStats = petStore.shouldRefreshStats(now: now)
             ? computedStatsProvider()
             : nil
 
         petStore.refreshDerivedState(
-            totalNormalizedTokens: totalNormalizedTokens,
+            totalNormalizedTokensByProject: totalNormalizedTokensByProject,
             computedStats: computedStats,
             now: now
         )
 
         logger.log(
             "pet-refresh",
-            "reason=\(reason.rawValue) total=\(totalNormalizedTokens) watermark=\(petStore.globalNormalizedTotalWatermark ?? 0) hatch=\(petStore.currentHatchTokens) xp=\(petStore.currentExperienceTokens)"
+            "reason=\(reason.rawValue) projects=\(totalNormalizedTokensByProject.count) total=\(totalNormalizedTokens) watermark=\(petStore.globalNormalizedTotalWatermark ?? 0) hatch=\(petStore.currentHatchTokens) xp=\(petStore.currentExperienceTokens)"
         )
     }
 }
