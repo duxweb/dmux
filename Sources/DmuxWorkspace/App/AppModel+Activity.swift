@@ -139,35 +139,6 @@ extension AppModel {
         aiStatsStore.refreshIfNeeded(project: selectedProject, projects: projects, selectedSessionID: selectedSessionID)
     }
 
-    func clearCompletedActivityIfNeeded(for projectID: UUID) {
-        var didClear = false
-
-        lastWaitingInputTokenByProjectID[projectID] = nil
-
-        if aiSessionStore.clearCompleted(projectID: projectID) {
-            didClear = true
-        }
-
-        if case .completed = activityByProjectID[projectID] {
-            activityByProjectID[projectID] = .idle
-            didClear = true
-        }
-
-        if let payload = activityService.loadStatus(projectID: projectID),
-           case .completed = activityService.phase(for: payload) {
-            let token = activityService.completionToken(for: payload)
-            clearedCompletionTokenByProjectID[projectID] = token
-            activityByProjectID[projectID] = .idle
-            cachedActivityPayloadByProjectID[projectID] = nil
-            activityService.clearStatus(for: projectID)
-            didClear = true
-        }
-
-        if didClear {
-            markActivityStateChanged()
-        }
-    }
-
     private func makeDirectoryWatcher(for directoryURL: URL) -> DispatchSourceFileSystemObject? {
         let fd = open(directoryURL.path, O_EVTONLY)
         guard fd >= 0 else {

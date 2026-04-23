@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-23
+
+### Fixed
+
+- Fixed Codex runtime config installation so `suppress_unstable_features_warning` is now written into the top-level `[notice]` section instead of corrupting `[notice.model_migrations]`, which previously caused Codex startup failures on updated user configs.
+- Fixed live AI session presentation and aggregation edge cases so completed sessions remain visible in the realtime panel, current-session token cards stay bound to raw live totals, and overlay-only math no longer leaks into the per-session display path.
+- Fixed runtime and historical AI accounting edge cases across completed-turn baselines, post-cutoff indexed session buckets, corrupted active-duration history rows, and stale managed-session cleanup so project totals, pet progression inputs, and live overlays stay aligned more reliably.
+- Fixed runtime hook/bootstrap support for release builds by tightening socket/config handling and adding regression coverage around Codex config generation, runtime socket reconnectability, and live stats/session retention behavior.
+
 ## [0.4.0] - 2026-04-23
 
 ### Changed

@@ -114,6 +114,10 @@ final class GhosttyTerminalRegistry {
         containers[sessionID]?.terminalProcessInstanceID
     }
 
+    func activeSessionInstanceIDs() -> Set<String> {
+        Set(containers.values.map(\.terminalProcessInstanceID))
+    }
+
     func sendText(_ text: String, to sessionID: UUID) -> Bool {
         guard let container = containers[sessionID] else {
             return false

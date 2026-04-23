@@ -6,7 +6,6 @@ extension AppModel {
         updateSelectedProjectID(projectID, source: "selectProject")
         restoreSelectedTerminalFocusIfNeeded()
         restoreCachedGitPanelIfAvailable(for: projectID)
-        clearCompletedActivityIfNeeded(for: projectID)
         persist()
         refreshGitState()
         updateGitRemoteSyncPolling()

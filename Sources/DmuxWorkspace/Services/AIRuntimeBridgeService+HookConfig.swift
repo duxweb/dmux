@@ -40,24 +40,7 @@ extension AIRuntimeBridgeService {
         try? fileManager.createDirectory(at: configDirectoryURL, withIntermediateDirectories: true)
 
         let existingText = (try? String(contentsOf: configFileURL, encoding: .utf8)) ?? ""
-        let targetLine = "suppress_unstable_features_warning = true"
-        let updatedText: String
-
-        if existingText.range(
-            of: #"(?m)^\s*suppress_unstable_features_warning\s*=\s*.+$"#,
-            options: .regularExpression
-        ) != nil {
-            updatedText = existingText.replacingOccurrences(
-                of: #"(?m)^\s*suppress_unstable_features_warning\s*=\s*.+$"#,
-                with: targetLine,
-                options: .regularExpression
-            )
-        } else if existingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            updatedText = "\(targetLine)\n"
-        } else {
-            let suffix = existingText.hasSuffix("\n") ? "" : "\n"
-            updatedText = "\(existingText)\(suffix)\(targetLine)\n"
-        }
+        let updatedText = updatedCodexConfigText(from: existingText)
 
         guard updatedText != existingText else {
             return
@@ -69,6 +52,54 @@ extension AIRuntimeBridgeService {
         } catch {
             debugLog.log("codex-hook-config", "config write failed path=\(configFileURL.path) error=\(error.localizedDescription)")
         }
+    }
+
+    func updatedCodexConfigText(from existingText: String) -> String {
+        let targetHeader = "[notice]"
+        let targetLine = "suppress_unstable_features_warning = true"
+
+        func normalized(_ line: String) -> String {
+            line.trimmingCharacters(in: .whitespaces)
+        }
+
+        func isSuppressLine(_ line: String) -> Bool {
+            normalized(line).hasPrefix("suppress_unstable_features_warning")
+        }
+
+        func isNoticeHeader(_ line: String) -> Bool {
+            normalized(line) == targetHeader
+        }
+
+        func isNoticeChildHeader(_ line: String) -> Bool {
+            let trimmed = normalized(line)
+            return trimmed.hasPrefix("[notice.") && trimmed.hasSuffix("]")
+        }
+
+        var lines = existingText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { isSuppressLine($0) == false }
+
+        while lines.last?.isEmpty == true {
+            lines.removeLast()
+        }
+
+        if let noticeIndex = lines.firstIndex(where: isNoticeHeader) {
+            lines.insert(targetLine, at: noticeIndex + 1)
+        } else if let noticeChildIndex = lines.firstIndex(where: isNoticeChildHeader) {
+            lines.insert("", at: noticeChildIndex)
+            lines.insert(targetLine, at: noticeChildIndex)
+            lines.insert(targetHeader, at: noticeChildIndex)
+        } else if lines.isEmpty {
+            lines = [targetHeader, targetLine]
+        } else {
+            lines.append("")
+            lines.append(targetHeader)
+            lines.append(targetLine)
+        }
+
+        return lines.joined(separator: "\n") + "\n"
     }
 
     func installClaudeHooks(_ rootObject: inout [String: Any]) {

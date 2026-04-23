@@ -335,4 +335,60 @@ final class AIHistoryAggregationServiceTests: XCTestCase {
         XCTAssertEqual(merged.todayTimeBuckets.reduce(0) { $0 + $1.totalTokens }, 200)
         XCTAssertEqual(merged.todayTimeBuckets.reduce(0) { $0 + $1.cachedInputTokens }, 25)
     }
+
+    func testBuildProjectSummaryClampsCorruptedActiveDurationToWallClock() {
+        let service = AIHistoryAggregationService()
+        let project = Project(
+            id: UUID(),
+            name: "Workspace",
+            path: "/tmp/workspace",
+            shell: "/bin/zsh",
+            defaultCommand: "",
+            badgeText: nil,
+            badgeSymbol: nil,
+            badgeColorHex: nil,
+            gitDefaultPushRemoteName: nil
+        )
+        let firstSeenAt = Date(timeIntervalSince1970: 1_777_000_000)
+        let lastSeenAt = firstSeenAt.addingTimeInterval(120)
+
+        let summary = service.buildProjectSummary(
+            project: project,
+            fileSummaries: [
+                AIExternalFileSummary(
+                    source: "codex",
+                    filePath: "/tmp/corrupted.jsonl",
+                    fileModifiedAt: lastSeenAt.timeIntervalSince1970,
+                    projectPath: project.path,
+                    usageBuckets: [
+                        AIUsageBucket(
+                            source: "codex",
+                            sessionKey: "corrupted-session",
+                            externalSessionID: "corrupted-session",
+                            sessionTitle: "Corrupted Session",
+                            model: "gpt-5.4",
+                            projectID: project.id,
+                            projectName: project.name,
+                            bucketStart: firstSeenAt,
+                            bucketEnd: lastSeenAt,
+                            inputTokens: 100,
+                            outputTokens: 50,
+                            totalTokens: 150,
+                            cachedInputTokens: 0,
+                            requestCount: 2,
+                            activeDurationSeconds: Int.max,
+                            firstSeenAt: firstSeenAt,
+                            lastSeenAt: lastSeenAt
+                        )
+                    ],
+                    sessions: [],
+                    dayUsage: [],
+                    timeBuckets: []
+                )
+            ]
+        )
+
+        XCTAssertEqual(summary.sessions.count, 1)
+        XCTAssertEqual(summary.sessions.first?.activeDurationSeconds, 120)
+    }
 }

@@ -70,6 +70,34 @@ struct AIHistoryAggregationService: Sendable {
     private let calendar = Calendar.autoupdatingCurrent
     private let timeBucketIntervalMinutes = 30
 
+    private func roundedPositiveSeconds(from start: Date, to end: Date) -> Int {
+        let interval = end.timeIntervalSince(start)
+        guard interval.isFinite, interval > 0 else {
+            return 0
+        }
+        guard interval < Double(Int.max) else {
+            return Int.max
+        }
+        return Int(interval.rounded())
+    }
+
+    private func saturatingAdd(_ lhs: Int, _ rhs: Int) -> Int {
+        guard rhs > 0 else {
+            return max(0, lhs)
+        }
+        let base = max(0, lhs)
+        return rhs > Int.max - base ? Int.max : base + rhs
+    }
+
+    private func sanitizedActiveDurationSeconds(
+        _ seconds: Int,
+        firstSeenAt: Date,
+        lastSeenAt: Date
+    ) -> Int {
+        let wallClockSeconds = roundedPositiveSeconds(from: firstSeenAt, to: lastSeenAt)
+        return min(max(0, seconds), wallClockSeconds)
+    }
+
     func buildExternalFileSummary(
         source: String,
         filePath: String,
@@ -142,7 +170,7 @@ struct AIHistoryAggregationService: Sendable {
                 continue
             }
 
-            let durationSeconds = max(0, Int(last.timestamp.timeIntervalSince(first.timestamp).rounded()))
+            let durationSeconds = roundedPositiveSeconds(from: first.timestamp, to: last.timestamp)
             var activeSeconds = 0
             var turnStart: Date?
             var turnEnd: Date?
@@ -152,7 +180,8 @@ struct AIHistoryAggregationService: Sendable {
                 switch event.role {
                 case .user:
                     if let turnStart, let turnEnd, turnEnd > turnStart {
-                        activeSeconds += max(0, Int(turnEnd.timeIntervalSince(turnStart).rounded()))
+                        let turnDuration = roundedPositiveSeconds(from: turnStart, to: turnEnd)
+                        activeSeconds = min(durationSeconds, saturatingAdd(activeSeconds, turnDuration))
                     }
                     turnStart = nil
                     turnEnd = nil
@@ -170,7 +199,8 @@ struct AIHistoryAggregationService: Sendable {
             }
 
             if let turnStart, let turnEnd, turnEnd > turnStart {
-                activeSeconds += max(0, Int(turnEnd.timeIntervalSince(turnStart).rounded()))
+                let turnDuration = roundedPositiveSeconds(from: turnStart, to: turnEnd)
+                activeSeconds = min(durationSeconds, saturatingAdd(activeSeconds, turnDuration))
             }
 
             var userPromptHours = Array(repeating: 0, count: 24)
@@ -416,15 +446,19 @@ struct AIHistoryAggregationService: Sendable {
                 } else if existing.lastModel == nil {
                     existing.lastModel = normalizedNonEmptyString(bucket.model)
                 }
-                existing.requestCount += bucket.requestCount
-                existing.totalInputTokens += bucket.inputTokens
-                existing.totalOutputTokens += bucket.outputTokens
-                existing.totalTokens += bucket.totalTokens
-                existing.cachedInputTokens += bucket.cachedInputTokens
-                existing.activeDurationSeconds += bucket.activeDurationSeconds
+                existing.requestCount = saturatingAdd(existing.requestCount, bucket.requestCount)
+                existing.totalInputTokens = saturatingAdd(existing.totalInputTokens, bucket.inputTokens)
+                existing.totalOutputTokens = saturatingAdd(existing.totalOutputTokens, bucket.outputTokens)
+                existing.totalTokens = saturatingAdd(existing.totalTokens, bucket.totalTokens)
+                existing.cachedInputTokens = saturatingAdd(existing.cachedInputTokens, bucket.cachedInputTokens)
+                existing.activeDurationSeconds = sanitizedActiveDurationSeconds(
+                    saturatingAdd(existing.activeDurationSeconds, bucket.activeDurationSeconds),
+                    firstSeenAt: existing.firstSeenAt,
+                    lastSeenAt: existing.lastSeenAt
+                )
                 if calendar.startOfDay(for: bucket.bucketStart) == startOfToday {
-                    existing.todayTokens += bucket.totalTokens
-                    existing.todayCachedInputTokens += bucket.cachedInputTokens
+                    existing.todayTokens = saturatingAdd(existing.todayTokens, bucket.totalTokens)
+                    existing.todayCachedInputTokens = saturatingAdd(existing.todayCachedInputTokens, bucket.cachedInputTokens)
                 }
                 map[groupingKey] = existing
             } else {
@@ -444,7 +478,11 @@ struct AIHistoryAggregationService: Sendable {
                     totalTokens: bucket.totalTokens,
                     cachedInputTokens: bucket.cachedInputTokens,
                     maxContextUsagePercent: nil,
-                    activeDurationSeconds: bucket.activeDurationSeconds,
+                    activeDurationSeconds: sanitizedActiveDurationSeconds(
+                        bucket.activeDurationSeconds,
+                        firstSeenAt: bucket.firstSeenAt,
+                        lastSeenAt: bucket.lastSeenAt
+                    ),
                     todayTokens: calendar.startOfDay(for: bucket.bucketStart) == startOfToday ? bucket.totalTokens : 0,
                     todayCachedInputTokens: calendar.startOfDay(for: bucket.bucketStart) == startOfToday ? bucket.cachedInputTokens : 0
                 )

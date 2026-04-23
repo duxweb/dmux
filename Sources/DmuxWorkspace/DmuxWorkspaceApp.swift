@@ -165,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         Task { @MainActor [weak self] in
+            self?.model?.reconcileManagedAIProcessState(reason: "did-finish-launching")
             self?.model?.presentStartupRecoveryIfNeeded()
         }
     }
@@ -336,6 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             configure(window)
         }
         Task { @MainActor [weak self] in
+            self?.model?.reconcileManagedAIProcessState(reason: "did-become-active")
             self?.model?.presentStartupRecoveryIfNeeded()
         }
     }

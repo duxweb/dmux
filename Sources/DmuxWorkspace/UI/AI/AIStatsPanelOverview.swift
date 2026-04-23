@@ -106,6 +106,6 @@ struct AIStatsLiveSessionsCard: View {
     }
 
     private func displayTokens(for snapshot: AITerminalSessionSnapshot) -> Int {
-        max(0, snapshot.displayedCurrentTotalTokens(mode: displayMode))
+        snapshot.displayedCurrentTotalTokens(mode: displayMode)
     }
 }

@@ -19,16 +19,12 @@ extension AISessionStore {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    func liveDisplaySnapshots(projectID: UUID) -> [AITerminalSessionSnapshot] {
-        liveSnapshots(projectID: projectID)
-    }
-
     func liveAggregationSnapshots(projectID: UUID) -> [AITerminalSessionSnapshot] {
         aggregationSnapshots(from: liveSnapshots(projectID: projectID))
     }
 
     func currentDisplaySnapshot(projectID: UUID, selectedSessionID: UUID?) -> AITerminalSessionSnapshot? {
-        let snapshots = liveDisplaySnapshots(projectID: projectID)
+        let snapshots = liveSnapshots(projectID: projectID)
         if let selectedSessionID,
            let selected = snapshots.first(where: { $0.sessionID == selectedSessionID }) {
             return selected

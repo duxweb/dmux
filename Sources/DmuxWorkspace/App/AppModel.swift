@@ -74,6 +74,7 @@ final class AppModel {
     private let runtimeBridgeService = AIRuntimeBridgeService()
     let runtimeIngressService = AIRuntimeIngressService.shared
     private let runtimePollingService = AIRuntimePollingService.shared
+    private let terminalProcessInspector = TerminalProcessInspector()
     let toolDriverFactory = AIToolDriverFactory.shared
     let debugLog = AppDebugLog.shared
     var selectedProjectIDChangeSource = "init"
@@ -132,6 +133,7 @@ final class AppModel {
         runtimeIngressService.resetEphemeralState()
         runtimeBridgeService.prepareManagedRuntimeSupportIfNeeded()
         runtimePollingService.start()
+        reconcileManagedAIProcessState(reason: "launch")
         refreshProjectActivity(sendNotifications: false)
         activityService.requestNotificationPermission()
         observeApplicationActivation()
@@ -254,6 +256,46 @@ final class AppModel {
         hasPresentedStartupRecoveryDialog = true
         pendingStartupRecoveryDialog = nil
         ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { _ in }
+    }
+
+    func reconcileManagedAIProcessState(reason: String) {
+        let activeInstanceIDs = DmuxTerminalBackend.shared.registry.activeSessionInstanceIDs()
+        let orphanGroups = terminalProcessInspector.orphanedManagedAIProcessGroups(
+            activeSessionInstanceIDs: activeInstanceIDs
+        )
+        let orphanInstanceIDs = Set(orphanGroups.map(\.sessionInstanceID))
+
+        for group in orphanGroups {
+            _ = kill(-group.pgid, SIGTERM)
+            _ = kill(group.pgid, SIGTERM)
+            debugLog.log(
+                "ghostty-lifecycle",
+                "reap-orphan reason=\(reason) tool=\(group.tool) pgid=\(group.pgid) instance=\(group.sessionInstanceID) projectPath=\(group.projectPath ?? "nil")"
+            )
+        }
+
+        let observation = terminalProcessInspector.managedSessionObservation()
+        let liveInstanceIDs = observation.liveInstanceIDs.subtracting(orphanInstanceIDs)
+        let shouldSkipSessionPrune = observation.hasManagedProcessCandidates && liveInstanceIDs.isEmpty
+        let removedTerminalIDs: [UUID]
+        if shouldSkipSessionPrune {
+            removedTerminalIDs = []
+            debugLog.log(
+                "ghostty-lifecycle",
+                "skip-prune reason=\(reason) activeInstances=\(activeInstanceIDs.count) managedCandidates=1 observedLiveInstances=0"
+            )
+        } else {
+            removedTerminalIDs = aiSessionStore.removeMissingManagedTerminalSessions(
+                liveInstanceIDs: liveInstanceIDs
+            )
+        }
+
+        if orphanGroups.isEmpty == false || removedTerminalIDs.isEmpty == false {
+            debugLog.log(
+                "ghostty-lifecycle",
+                "reconcile-managed-ai reason=\(reason) orphans=\(orphanGroups.count) removedSessions=\(removedTerminalIDs.count) activeInstances=\(activeInstanceIDs.count) liveInstances=\(liveInstanceIDs.count)"
+            )
+        }
     }
 
     func noteRootViewAppeared() {

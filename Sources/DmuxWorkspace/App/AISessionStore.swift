@@ -369,6 +369,37 @@ final class AISessionStore {
         logger.log("ai-session-store", "remove terminal=\(terminalID.uuidString)")
     }
 
+    func removeMissingManagedTerminalSessions(liveInstanceIDs: Set<String>) -> [UUID] {
+        var removedTerminalIDs: [UUID] = []
+
+        for (terminalID, session) in terminalSessionsByID {
+            guard let instanceID = normalizedNonEmptyString(session.terminalInstanceID),
+                  liveInstanceIDs.contains(instanceID) == false else {
+                continue
+            }
+            removedTerminalIDs.append(terminalID)
+        }
+
+        guard !removedTerminalIDs.isEmpty else {
+            return []
+        }
+
+        for terminalID in removedTerminalIDs {
+            let previousLogicalKey = terminalSessionsByID[terminalID]?.logicalSessionKey
+            terminalSessionsByID[terminalID] = nil
+            expectedLogicalSessionsByTerminalID[terminalID] = nil
+            pruneLogicalSessionIfUnused(previousLogicalKey)
+        }
+
+        renderVersion &+= 1
+        let removedTerminalList = removedTerminalIDs.map(\.uuidString).joined(separator: ",")
+        logger.log(
+            "ai-session-store",
+            "remove-missing terminals=\(removedTerminalList)"
+        )
+        return removedTerminalIDs
+    }
+
     private func shouldRetainCompletedSessionOnEnd(_ session: TerminalSessionState) -> Bool {
         session.state == .idle && session.wasInterrupted == false && session.hasCompletedTurn
     }
@@ -499,21 +530,42 @@ final class AISessionStore {
     }
 
     private func seedSessionOnStart(_ session: inout TerminalSessionState, event: AIHookEvent) {
+        let previousCommittedInputTokens = session.committedInputTokens
+        let previousCommittedOutputTokens = session.committedOutputTokens
+        let previousCommittedCachedInputTokens = session.committedCachedInputTokens
+        let previousCommittedTotalTokens = session.committedTotalTokens
+
         if let inputTokens = event.inputTokens {
             session.committedInputTokens = max(session.committedInputTokens, inputTokens)
-            session.baselineInputTokens = min(session.baselineInputTokens, session.committedInputTokens)
+            if previousCommittedInputTokens == 0, session.baselineInputTokens == 0 {
+                session.baselineInputTokens = session.committedInputTokens
+            } else {
+                session.baselineInputTokens = min(session.baselineInputTokens, session.committedInputTokens)
+            }
         }
         if let outputTokens = event.outputTokens {
             session.committedOutputTokens = max(session.committedOutputTokens, outputTokens)
-            session.baselineOutputTokens = min(session.baselineOutputTokens, session.committedOutputTokens)
+            if previousCommittedOutputTokens == 0, session.baselineOutputTokens == 0 {
+                session.baselineOutputTokens = session.committedOutputTokens
+            } else {
+                session.baselineOutputTokens = min(session.baselineOutputTokens, session.committedOutputTokens)
+            }
         }
         if let cachedInputTokens = event.cachedInputTokens {
             session.committedCachedInputTokens = max(session.committedCachedInputTokens, cachedInputTokens)
-            session.baselineCachedInputTokens = min(session.baselineCachedInputTokens, session.committedCachedInputTokens)
+            if previousCommittedCachedInputTokens == 0, session.baselineCachedInputTokens == 0 {
+                session.baselineCachedInputTokens = session.committedCachedInputTokens
+            } else {
+                session.baselineCachedInputTokens = min(session.baselineCachedInputTokens, session.committedCachedInputTokens)
+            }
         }
         if let totalTokens = event.totalTokens {
             session.committedTotalTokens = max(session.committedTotalTokens, totalTokens)
-            session.baselineTotalTokens = min(session.baselineTotalTokens, session.committedTotalTokens)
+            if previousCommittedTotalTokens == 0, session.baselineTotalTokens == 0 {
+                session.baselineTotalTokens = session.committedTotalTokens
+            } else {
+                session.baselineTotalTokens = min(session.baselineTotalTokens, session.committedTotalTokens)
+            }
         }
         session.state = .idle
         session.wasInterrupted = false

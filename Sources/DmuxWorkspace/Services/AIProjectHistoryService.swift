@@ -468,12 +468,15 @@ struct AIProjectHistoryService: Sendable {
                 if let start = payload.pendingTurnStartAt,
                    let end = payload.pendingTurnEndAt,
                    end > start {
-                    payload.activeDurationSeconds += max(0, Int(end.timeIntervalSince(start).rounded()))
+                    payload.activeDurationSeconds = saturatingAdd(
+                        payload.activeDurationSeconds,
+                        roundedPositiveSeconds(from: start, to: end)
+                    )
                 }
                 payload.pendingTurnStartAt = nil
                 payload.pendingTurnEndAt = nil
                 payload.waitingForFirstResponse = true
-                payload.requestCount += 1
+                payload.requestCount = saturatingAdd(payload.requestCount, 1)
 
             case .assistant:
                 if payload.waitingForFirstResponse {
@@ -494,13 +497,13 @@ struct AIProjectHistoryService: Sendable {
             payload.firstSeenAt = minDate(payload.firstSeenAt, entry.timestamp)
             payload.lastSeenAt = maxDate(payload.lastSeenAt, entry.timestamp)
             payload.lastModel = normalizedNonEmptyString(entry.model) ?? payload.lastModel
-            payload.totalInputTokens += entry.inputTokens
-            payload.totalOutputTokens += entry.outputTokens
-            payload.totalTokens += entry.totalTokens
-            payload.totalCachedInputTokens += entry.cachedInputTokens
+            payload.totalInputTokens = saturatingAdd(payload.totalInputTokens, entry.inputTokens)
+            payload.totalOutputTokens = saturatingAdd(payload.totalOutputTokens, entry.outputTokens)
+            payload.totalTokens = saturatingAdd(payload.totalTokens, entry.totalTokens)
+            payload.totalCachedInputTokens = saturatingAdd(payload.totalCachedInputTokens, entry.cachedInputTokens)
             if calendar.startOfDay(for: entry.timestamp) == startOfToday {
-                payload.todayTokens += entry.totalTokens
-                payload.todayCachedInputTokens += entry.cachedInputTokens
+                payload.todayTokens = saturatingAdd(payload.todayTokens, entry.totalTokens)
+                payload.todayCachedInputTokens = saturatingAdd(payload.todayCachedInputTokens, entry.cachedInputTokens)
             }
         }
 
@@ -551,8 +554,13 @@ struct AIProjectHistoryService: Sendable {
                   end > start else {
                 return 0
             }
-            return max(0, Int(end.timeIntervalSince(start).rounded()))
+            return roundedPositiveSeconds(from: start, to: end)
         }()
+        let wallClockSeconds = roundedPositiveSeconds(from: firstSeenAt, to: lastSeenAt)
+        let activeDurationSeconds = min(
+            wallClockSeconds,
+            saturatingAdd(payload.activeDurationSeconds, activeInFlight)
+        )
 
         return AISessionSummary(
             sessionID: deterministicUUID(from: "\(source):\(externalSessionID)"),
@@ -570,10 +578,29 @@ struct AIProjectHistoryService: Sendable {
             totalTokens: payload.totalTokens,
             cachedInputTokens: payload.totalCachedInputTokens,
             maxContextUsagePercent: nil,
-            activeDurationSeconds: payload.activeDurationSeconds + activeInFlight,
+            activeDurationSeconds: activeDurationSeconds,
             todayTokens: payload.todayTokens,
             todayCachedInputTokens: payload.todayCachedInputTokens
         )
+    }
+
+    private func roundedPositiveSeconds(from start: Date, to end: Date) -> Int {
+        let interval = end.timeIntervalSince(start)
+        guard interval.isFinite, interval > 0 else {
+            return 0
+        }
+        guard interval < Double(Int.max) else {
+            return Int.max
+        }
+        return Int(interval.rounded())
+    }
+
+    private func saturatingAdd(_ lhs: Int, _ rhs: Int) -> Int {
+        guard rhs > 0 else {
+            return max(0, lhs)
+        }
+        let base = max(0, lhs)
+        return rhs > Int.max - base ? Int.max : base + rhs
     }
 
     private func mergeUsageBuckets(

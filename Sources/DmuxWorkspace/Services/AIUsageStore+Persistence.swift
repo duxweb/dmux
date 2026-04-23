@@ -476,16 +476,22 @@ extension AIUsageStore {
                 continue
             }
 
+            let firstSeenAt = columnDate(statement, index: 6)
+            let lastSeenAt = columnDate(statement, index: 7)
             items[filePath, default: [:]][sessionKey] = NormalizedSessionLinkRow(
                 sessionKey: sessionKey,
                 externalSessionID: columnText(statement, index: 2),
                 projectID: projectID,
                 projectName: projectName,
                 sessionTitle: sessionTitle,
-                firstSeenAt: columnDate(statement, index: 6),
-                lastSeenAt: columnDate(statement, index: 7),
+                firstSeenAt: firstSeenAt,
+                lastSeenAt: lastSeenAt,
                 lastModel: columnText(statement, index: 8),
-                activeDurationSeconds: columnInt(statement, index: 9)
+                activeDurationSeconds: sanitizedActiveDurationSeconds(
+                    columnInt(statement, index: 9),
+                    firstSeenAt: firstSeenAt,
+                    lastSeenAt: lastSeenAt
+                )
             )
         }
         return items

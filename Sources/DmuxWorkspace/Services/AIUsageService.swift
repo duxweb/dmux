@@ -15,9 +15,9 @@ struct AIUsageService: Sendable {
 
     func fastPanelState(project: Project, liveSnapshots: [AITerminalSessionSnapshot], currentSnapshot: AITerminalSessionSnapshot?) -> AIStatsPanelState {
         if let indexed = wrapperStore.indexedProjectSnapshot(projectID: project.id) {
-            return overlayLiveSummary(
-                on: indexed,
+            return liveSummaryOnlyState(
                 project: project,
+                indexed: indexed,
                 liveSnapshots: liveSnapshots,
                 currentSnapshot: currentSnapshot,
                 status: .indexing(progress: 0.0, detail: String(localized: "ai.indexing.starting", defaultValue: "Starting index.", bundle: .module))
@@ -35,9 +35,9 @@ struct AIUsageService: Sendable {
 
     func snapshotBackedPanelState(project: Project, liveSnapshots: [AITerminalSessionSnapshot], currentSnapshot: AITerminalSessionSnapshot?, status: AIIndexingStatus) -> AIStatsPanelState {
         if let indexed = wrapperStore.indexedProjectSnapshot(projectID: project.id) {
-            return overlayLiveSummary(
-                on: indexed,
+            return liveSummaryOnlyState(
                 project: project,
+                indexed: indexed,
                 liveSnapshots: liveSnapshots,
                 currentSnapshot: currentSnapshot,
                 status: status
@@ -60,14 +60,10 @@ struct AIUsageService: Sendable {
         currentSnapshot: AITerminalSessionSnapshot?,
         status: AIIndexingStatus
     ) -> AIStatsPanelState {
-        let adjustedLiveSnapshots = adjustedLiveSnapshots(from: liveSnapshots)
-        let adjustedCurrentSnapshot = adjustedCurrentSnapshot(
-            from: currentSnapshot,
-            adjustedLiveSnapshots: adjustedLiveSnapshots
-        )
-        let nextLiveOverlayTokens = adjustedLiveSnapshots.reduce(0) { $0 + $1.currentTotalTokens }
-        let nextLiveOverlayCachedInputTokens = adjustedLiveSnapshots.reduce(0) { $0 + $1.currentCachedInputTokens }
-        let shouldPreserveCompletedOverlay = adjustedLiveSnapshots.contains { $0.hasCompletedTurn } &&
+        let liveOverlaySnapshots = overlaySnapshots(from: liveSnapshots)
+        let nextLiveOverlayTokens = liveOverlaySnapshots.reduce(0) { $0 + $1.currentTotalTokens }
+        let nextLiveOverlayCachedInputTokens = liveOverlaySnapshots.reduce(0) { $0 + $1.currentCachedInputTokens }
+        let shouldPreserveCompletedOverlay = liveSnapshots.contains { $0.hasCompletedTurn } &&
             currentState.liveOverlayTokens > nextLiveOverlayTokens
         let preservedCompletedOverlayTokens = preservedOverlayAmount(
             shouldPreserve: shouldPreserveCompletedOverlay,
@@ -81,8 +77,8 @@ struct AIUsageService: Sendable {
         )
 
         var nextState = currentState
-        nextState.currentSnapshot = adjustedCurrentSnapshot
-        nextState.liveSnapshots = adjustedLiveSnapshots
+        nextState.currentSnapshot = currentSnapshot
+        nextState.liveSnapshots = liveSnapshots
         nextState.liveOverlayTokens = nextLiveOverlayTokens
         nextState.liveOverlayCachedInputTokens = nextLiveOverlayCachedInputTokens
         nextState.indexingStatus = status
@@ -96,19 +92,19 @@ struct AIUsageService: Sendable {
             summary.projectCachedInputTokens = baseProjectCached + nextLiveOverlayCachedInputTokens + preservedCompletedOverlayCachedInputTokens
             summary.todayTotalTokens = baseTodayTotal + nextLiveOverlayTokens + preservedCompletedOverlayTokens
             summary.todayCachedInputTokens = baseTodayCached + nextLiveOverlayCachedInputTokens + preservedCompletedOverlayCachedInputTokens
-            summary.currentSessionTokens = adjustedCurrentSnapshot?.currentTotalTokens ?? 0
-            summary.currentSessionCachedInputTokens = adjustedCurrentSnapshot?.currentCachedInputTokens ?? 0
-            summary.currentTool = adjustedCurrentSnapshot?.tool
-            summary.currentModel = adjustedCurrentSnapshot?.model
-            summary.currentContextUsagePercent = adjustedCurrentSnapshot?.currentContextUsagePercent
-            summary.currentContextUsedTokens = adjustedCurrentSnapshot?.currentContextUsedTokens
-            summary.currentContextWindow = adjustedCurrentSnapshot?.currentContextWindow
-            summary.currentSessionUpdatedAt = adjustedCurrentSnapshot?.updatedAt
+            summary.currentSessionTokens = currentSnapshot?.currentTotalTokens ?? 0
+            summary.currentSessionCachedInputTokens = currentSnapshot?.currentCachedInputTokens ?? 0
+            summary.currentTool = currentSnapshot?.tool
+            summary.currentModel = currentSnapshot?.model
+            summary.currentContextUsagePercent = currentSnapshot?.currentContextUsagePercent
+            summary.currentContextUsedTokens = currentSnapshot?.currentContextUsedTokens
+            summary.currentContextWindow = currentSnapshot?.currentContextWindow
+            summary.currentSessionUpdatedAt = currentSnapshot?.updatedAt
             nextState.projectSummary = summary
         } else {
             nextState.projectSummary = baseProjectSummary(
                 project: project,
-                liveSnapshot: adjustedCurrentSnapshot,
+                liveSnapshot: currentSnapshot,
                 sessions: currentState.sessions,
                 liveOverlayTokens: nextLiveOverlayTokens,
                 liveOverlayCachedInputTokens: nextLiveOverlayCachedInputTokens,
@@ -177,9 +173,9 @@ struct AIUsageService: Sendable {
             )
             wrapperStore.saveProjectIndexState(for: indexedSnapshot, projectPath: project.path)
 
-            return overlayLiveSummary(
-                on: indexedSnapshot,
+            return liveSummaryOnlyState(
                 project: project,
+                indexed: indexedSnapshot,
                 liveSnapshots: liveSnapshots,
                 currentSnapshot: currentSnapshot,
                 status: .completed(detail: String(localized: "ai.indexing.complete", defaultValue: "Index complete.", bundle: .module))
@@ -201,22 +197,6 @@ struct AIUsageService: Sendable {
         }
     }
 
-    private func overlayLiveSummary(
-        on indexed: AIIndexedProjectSnapshot,
-        project: Project,
-        liveSnapshots: [AITerminalSessionSnapshot],
-        currentSnapshot: AITerminalSessionSnapshot?,
-        status: AIIndexingStatus
-    ) -> AIStatsPanelState {
-        liveSummaryOnlyState(
-            project: project,
-            indexed: indexed,
-            liveSnapshots: liveSnapshots,
-            currentSnapshot: currentSnapshot,
-            status: status
-        )
-    }
-
     private func liveSummaryOnlyState(
         project: Project,
         indexed: AIIndexedProjectSnapshot?,
@@ -224,13 +204,9 @@ struct AIUsageService: Sendable {
         currentSnapshot: AITerminalSessionSnapshot?,
         status: AIIndexingStatus
     ) -> AIStatsPanelState {
-        let adjustedLiveSnapshots = adjustedLiveSnapshots(from: liveSnapshots)
-        let adjustedCurrentSnapshot = adjustedCurrentSnapshot(
-            from: currentSnapshot,
-            adjustedLiveSnapshots: adjustedLiveSnapshots
-        )
-        let totalLiveDelta = adjustedLiveSnapshots.reduce(0) { $0 + $1.currentTotalTokens }
-        let totalLiveCachedDelta = adjustedLiveSnapshots.reduce(0) { $0 + $1.currentCachedInputTokens }
+        let liveOverlaySnapshots = overlaySnapshots(from: liveSnapshots)
+        let totalLiveDelta = liveOverlaySnapshots.reduce(0) { $0 + $1.currentTotalTokens }
+        let totalLiveCachedDelta = liveOverlaySnapshots.reduce(0) { $0 + $1.currentCachedInputTokens }
 
         var summary = indexed?.projectSummary ?? AIProjectUsageSummary(
             projectID: project.id,
@@ -261,19 +237,19 @@ struct AIUsageService: Sendable {
             timeBuckets: indexed?.todayTimeBuckets ?? [],
             heatmap: indexed?.heatmap ?? []
         ) + totalLiveCachedDelta
-        summary.currentSessionTokens = adjustedCurrentSnapshot?.currentTotalTokens ?? 0
-        summary.currentSessionCachedInputTokens = adjustedCurrentSnapshot?.currentCachedInputTokens ?? 0
-        summary.currentTool = adjustedCurrentSnapshot?.tool
-        summary.currentModel = adjustedCurrentSnapshot?.model
-        summary.currentContextUsagePercent = adjustedCurrentSnapshot?.currentContextUsagePercent
-        summary.currentContextUsedTokens = adjustedCurrentSnapshot?.currentContextUsedTokens
-        summary.currentContextWindow = adjustedCurrentSnapshot?.currentContextWindow
-        summary.currentSessionUpdatedAt = adjustedCurrentSnapshot?.updatedAt ?? indexed?.projectSummary.currentSessionUpdatedAt
+        summary.currentSessionTokens = currentSnapshot?.currentTotalTokens ?? 0
+        summary.currentSessionCachedInputTokens = currentSnapshot?.currentCachedInputTokens ?? 0
+        summary.currentTool = currentSnapshot?.tool
+        summary.currentModel = currentSnapshot?.model
+        summary.currentContextUsagePercent = currentSnapshot?.currentContextUsagePercent
+        summary.currentContextUsedTokens = currentSnapshot?.currentContextUsedTokens
+        summary.currentContextWindow = currentSnapshot?.currentContextWindow
+        summary.currentSessionUpdatedAt = currentSnapshot?.updatedAt ?? indexed?.projectSummary.currentSessionUpdatedAt
 
         return AIStatsPanelState(
             projectSummary: summary,
-            currentSnapshot: adjustedCurrentSnapshot,
-            liveSnapshots: adjustedLiveSnapshots,
+            currentSnapshot: currentSnapshot,
+            liveSnapshots: liveSnapshots,
             liveOverlayTokens: totalLiveDelta,
             liveOverlayCachedInputTokens: totalLiveCachedDelta,
             sessions: indexed?.sessions ?? [],
@@ -286,24 +262,14 @@ struct AIUsageService: Sendable {
         )
     }
 
-    private func adjustedCurrentSnapshot(
-        from currentSnapshot: AITerminalSessionSnapshot?,
-        adjustedLiveSnapshots: [AITerminalSessionSnapshot]
-    ) -> AITerminalSessionSnapshot? {
-        guard let currentSnapshot else {
-            return nil
-        }
-        return adjustedLiveSnapshots.first(where: { $0.sessionID == currentSnapshot.sessionID }) ?? currentSnapshot
-    }
-
-    private func adjustedLiveSnapshots(from liveSnapshots: [AITerminalSessionSnapshot]) -> [AITerminalSessionSnapshot] {
+    private func overlaySnapshots(from liveSnapshots: [AITerminalSessionSnapshot]) -> [AITerminalSessionSnapshot] {
         liveSnapshots.map { snapshot in
-            var adjustedSnapshot = snapshot
-            adjustedSnapshot.currentInputTokens = max(0, snapshot.currentInputTokens - snapshot.baselineInputTokens)
-            adjustedSnapshot.currentOutputTokens = max(0, snapshot.currentOutputTokens - snapshot.baselineOutputTokens)
-            adjustedSnapshot.currentTotalTokens = max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens)
-            adjustedSnapshot.currentCachedInputTokens = max(0, snapshot.currentCachedInputTokens - snapshot.baselineCachedInputTokens)
-            return adjustedSnapshot
+            var overlaySnapshot = snapshot
+            overlaySnapshot.currentInputTokens = max(0, snapshot.currentInputTokens - snapshot.baselineInputTokens)
+            overlaySnapshot.currentOutputTokens = max(0, snapshot.currentOutputTokens - snapshot.baselineOutputTokens)
+            overlaySnapshot.currentTotalTokens = max(0, snapshot.currentTotalTokens - snapshot.baselineTotalTokens)
+            overlaySnapshot.currentCachedInputTokens = max(0, snapshot.currentCachedInputTokens - snapshot.baselineCachedInputTokens)
+            return overlaySnapshot
         }
     }
 

@@ -42,7 +42,8 @@ ensure_metal_toolchain() {
 }
 
 build_app() {
-  rm -rf "${build_dir}"
+  mkdir -p "${build_dir}"
+  rm -rf "${build_dir}/Build" "${build_dir}/Logs"
   mkdir -p "${build_products_dir}"
 
   xcodebuild \
@@ -50,6 +51,10 @@ build_app() {
     -scheme "${scheme}" \
     -configuration "${configuration}" \
     -derivedDataPath "${build_dir}" \
+    -clonedSourcePackagesDirPath "${build_dir}/SourcePackages" \
+    -disableAutomaticPackageResolution \
+    -onlyUsePackageVersionsFromResolvedFile \
+    -skipPackageUpdates \
     -destination "platform=macOS" \
     ARCHS="${native_arch}" \
     ONLY_ACTIVE_ARCH=YES \

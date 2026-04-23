@@ -169,8 +169,10 @@ final class AIUsageServiceTests: XCTestCase {
         XCTAssertEqual(nextState.projectSummary?.projectCachedInputTokens, 132)
         XCTAssertEqual(nextState.projectSummary?.todayTotalTokens, 340)
         XCTAssertEqual(nextState.projectSummary?.todayCachedInputTokens, 92)
-        XCTAssertEqual(nextState.currentSnapshot?.currentTotalTokens, 40)
-        XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 12)
+        XCTAssertEqual(nextState.projectSummary?.currentSessionTokens, 55)
+        XCTAssertEqual(nextState.projectSummary?.currentSessionCachedInputTokens, 20)
+        XCTAssertEqual(nextState.currentSnapshot?.currentTotalTokens, 55)
+        XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 20)
     }
 
     func testLightweightLivePanelStateFallbackSummaryIncludesLiveOverlay() {
@@ -232,8 +234,10 @@ final class AIUsageServiceTests: XCTestCase {
         XCTAssertEqual(nextState.projectSummary?.projectCachedInputTokens, 12)
         XCTAssertEqual(nextState.projectSummary?.todayTotalTokens, 40)
         XCTAssertEqual(nextState.projectSummary?.todayCachedInputTokens, 12)
-        XCTAssertEqual(nextState.currentSnapshot?.currentTotalTokens, 40)
-        XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 12)
+        XCTAssertEqual(nextState.projectSummary?.currentSessionTokens, 55)
+        XCTAssertEqual(nextState.projectSummary?.currentSessionCachedInputTokens, 20)
+        XCTAssertEqual(nextState.currentSnapshot?.currentTotalTokens, 55)
+        XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 20)
     }
 
     func testLightweightLivePanelStatePreservesCompletedOverlayUntilIndexedRefresh() {
@@ -310,8 +314,10 @@ final class AIUsageServiceTests: XCTestCase {
         XCTAssertEqual(nextState.projectSummary?.projectCachedInputTokens, 132)
         XCTAssertEqual(nextState.projectSummary?.todayTotalTokens, 340)
         XCTAssertEqual(nextState.projectSummary?.todayCachedInputTokens, 92)
-        XCTAssertEqual(nextState.currentSnapshot?.currentTotalTokens, 0)
-        XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 0)
+        XCTAssertEqual(nextState.projectSummary?.currentSessionTokens, 55)
+        XCTAssertEqual(nextState.projectSummary?.currentSessionCachedInputTokens, 20)
+        XCTAssertEqual(nextState.currentSnapshot?.currentTotalTokens, 55)
+        XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 20)
     }
 
     private func makeProject(name: String, path: String) -> Project {

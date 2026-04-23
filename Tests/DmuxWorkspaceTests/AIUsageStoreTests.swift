@@ -539,6 +539,89 @@ final class AIUsageStoreTests: XCTestCase {
         }
     }
 
+    func testStoredExternalSummarySanitizesCorruptedActiveDurationFromDatabase() {
+        let store = makeStore()
+        let projectID = UUID()
+        let projectPath = "/tmp/corrupted-active-duration"
+        let firstSeenAt = Date(timeIntervalSince1970: 1_777_100_000)
+        let lastSeenAt = firstSeenAt.addingTimeInterval(90)
+
+        let summary = AIExternalFileSummary(
+            source: "codex",
+            filePath: "/tmp/corrupted-active-duration.jsonl",
+            fileModifiedAt: lastSeenAt.timeIntervalSince1970,
+            projectPath: projectPath,
+            usageBuckets: [
+                AIUsageBucket(
+                    source: "codex",
+                    sessionKey: "corrupted",
+                    externalSessionID: "corrupted",
+                    sessionTitle: "Corrupted",
+                    model: "gpt-5.4",
+                    projectID: projectID,
+                    projectName: "Corrupted",
+                    bucketStart: firstSeenAt,
+                    bucketEnd: lastSeenAt,
+                    inputTokens: 100,
+                    outputTokens: 50,
+                    totalTokens: 150,
+                    cachedInputTokens: 0,
+                    requestCount: 2,
+                    activeDurationSeconds: 90,
+                    firstSeenAt: firstSeenAt,
+                    lastSeenAt: lastSeenAt
+                )
+            ],
+            sessions: [
+                AISessionSummary(
+                    sessionID: UUID(),
+                    externalSessionID: "corrupted",
+                    projectID: projectID,
+                    projectName: "Corrupted",
+                    sessionTitle: "Corrupted",
+                    firstSeenAt: firstSeenAt,
+                    lastSeenAt: lastSeenAt,
+                    lastTool: "codex",
+                    lastModel: "gpt-5.4",
+                    requestCount: 2,
+                    totalInputTokens: 100,
+                    totalOutputTokens: 50,
+                    totalTokens: 150,
+                    cachedInputTokens: 0,
+                    maxContextUsagePercent: nil,
+                    activeDurationSeconds: 90,
+                    todayTokens: 0,
+                    todayCachedInputTokens: 0
+                )
+            ],
+            dayUsage: [],
+            timeBuckets: []
+        )
+
+        store.saveExternalSummary(summary)
+
+        try? store.withDatabase { db in
+            try store.execute(
+                db,
+                sql: """
+                UPDATE ai_history_file_session_link
+                SET active_duration_seconds = ?
+                WHERE source = ? AND file_path = ? AND project_path = ? AND session_key = ?;
+                """,
+                bindings: [Int.max, "codex", summary.filePath, projectPath, "corrupted"]
+            )
+        }
+
+        let stored = store.storedExternalSummary(
+            source: "codex",
+            filePath: summary.filePath,
+            projectPath: projectPath
+        )
+
+        XCTAssertEqual(stored?.sessions.count, 1)
+        XCTAssertEqual(stored?.sessions.first?.activeDurationSeconds, 90)
+    }
+
     private func makeSessionSummary(projectPath: String, title: String, totalTokens: Int) -> AISessionSummary {
         let projectID = UUID()
         return AISessionSummary(

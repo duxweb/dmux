@@ -331,7 +331,7 @@ extension AIStatsStore {
 
     func liveSnapshotContext(projectID: UUID, selectedSessionID: UUID?) -> LiveSnapshotContext {
         (
-            display: aiSessionStore.liveDisplaySnapshots(projectID: projectID),
+            display: aiSessionStore.liveSnapshots(projectID: projectID),
             summary: aiSessionStore.liveAggregationSnapshots(projectID: projectID),
             current: aiSessionStore.currentDisplaySnapshot(projectID: projectID, selectedSessionID: selectedSessionID)
         )

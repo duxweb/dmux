@@ -77,6 +77,7 @@ final class AIRuntimeIngressService {
             logger.log("runtime-socket", "create failed path=\(socketPath)")
             return
         }
+        setCloseOnExec(listener)
 
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -132,12 +133,23 @@ final class AIRuntimeIngressService {
         let socketPath = bridgeService.runtimeEventSocketURL().path
         let listenerMissing = runtimeSocketWatcher == nil || runtimeSocketListenerFD < 0
         let socketMissing = FileManager.default.fileExists(atPath: socketPath) == false
-        guard listenerMissing || socketMissing else {
+        let socketUnreachable = listenerMissing || socketMissing
+            ? false
+            : isSocketReachable(at: socketPath) == false
+        guard listenerMissing || socketMissing || socketUnreachable else {
             return
+        }
+        let reason: String
+        if listenerMissing {
+            reason = "listener-missing"
+        } else if socketMissing {
+            reason = "socket-missing"
+        } else {
+            reason = "socket-unreachable"
         }
         logger.log(
             "runtime-socket",
-            "self-heal restart path=\(socketPath) reason=\(listenerMissing ? "listener-missing" : "socket-missing")"
+            "self-heal restart path=\(socketPath) reason=\(reason)"
         )
         startWatching()
     }
@@ -152,6 +164,7 @@ final class AIRuntimeIngressService {
                 return
             }
 
+            setCloseOnExec(connectionFD)
             configureRuntimeSocketReadTimeout(connectionFD)
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 var data = Data()
@@ -190,6 +203,45 @@ final class AIRuntimeIngressService {
                 timeoutSize
             )
         }
+    }
+
+    nonisolated func isSocketReachable(at socketPath: String) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            return false
+        }
+        defer { close(fd) }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        let utf8 = socketPath.utf8CString
+        guard utf8.count < maxLength else {
+            return false
+        }
+
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.initializeMemory(as: CChar.self, repeating: 0)
+            for (index, byte) in utf8.enumerated() {
+                buffer[index] = UInt8(bitPattern: byte)
+            }
+        }
+
+        let addressLength = socklen_t(MemoryLayout<sa_family_t>.size + utf8.count)
+        let result = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+                connect(fd, pointer, addressLength)
+            }
+        }
+        return result == 0
+    }
+
+    nonisolated private func setCloseOnExec(_ fd: Int32) {
+        let flags = fcntl(fd, F_GETFD)
+        guard flags >= 0 else {
+            return
+        }
+        _ = fcntl(fd, F_SETFD, flags | FD_CLOEXEC)
     }
 
     private func processRuntimeSocketEvent(_ data: Data) {

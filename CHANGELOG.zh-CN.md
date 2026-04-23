@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-23
+
+### Fixed
+
+- 修复 Codex 运行时配置写入逻辑，`suppress_unstable_features_warning` 现在会写入顶层 `[notice]` 段，而不会再污染 `[notice.model_migrations]`，从而避免更新后用户因配置结构损坏而无法启动 Codex。
+- 修复实时 AI 会话展示与聚合链路的边界问题，已完成会话现在会继续保留在实时面板中，当前会话 token 卡片始终绑定原始实时 totals，overlay 差值计算不再串入单会话显示路径。
+- 修复完成态 baseline、cutoff 之后的 indexed 历史 bucket、损坏的 active-duration 历史行以及托管会话清理等多处统计边界问题，让项目总量、宠物成长输入和实时 overlay 的结果保持更稳定一致。
+- 修复正式版运行时 hook/bootstrap 支撑链路，收紧 socket 与配置生成处理，并补充 Codex 配置生成、runtime socket 重连能力以及实时 stats / 会话保留行为的回归测试。
+
 ## [0.4.0] - 2026-04-23
 
 ### Changed

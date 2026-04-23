@@ -80,7 +80,6 @@ extension AIStatsStore {
         }
 
         return resolved
-            .filter { $0.status == "running" }
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 }

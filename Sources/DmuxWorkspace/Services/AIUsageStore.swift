@@ -559,7 +559,11 @@ struct AIUsageStore: Sendable {
                 current.sessionTitle = normalizedNonEmptyString(bucket.sessionTitle) ?? current.sessionTitle
                 current.firstSeenAt = min(current.firstSeenAt, bucket.firstSeenAt)
                 current.lastSeenAt = max(current.lastSeenAt, bucket.lastSeenAt)
-                current.activeDurationSeconds += bucket.activeDurationSeconds
+                current.activeDurationSeconds = sanitizedActiveDurationSeconds(
+                    saturatingAdd(current.activeDurationSeconds, bucket.activeDurationSeconds),
+                    firstSeenAt: current.firstSeenAt,
+                    lastSeenAt: current.lastSeenAt
+                )
                 if bucket.lastSeenAt >= previousLastSeenAt,
                    let model = normalizedNonEmptyString(bucket.model) {
                     current.lastModel = model
@@ -577,7 +581,11 @@ struct AIUsageStore: Sendable {
                     firstSeenAt: bucket.firstSeenAt,
                     lastSeenAt: bucket.lastSeenAt,
                     lastModel: normalizedNonEmptyString(bucket.model),
-                    activeDurationSeconds: bucket.activeDurationSeconds
+                    activeDurationSeconds: sanitizedActiveDurationSeconds(
+                        bucket.activeDurationSeconds,
+                        firstSeenAt: bucket.firstSeenAt,
+                        lastSeenAt: bucket.lastSeenAt
+                    )
                 )
             }
         }
@@ -588,6 +596,34 @@ struct AIUsageStore: Sendable {
             }
             return lhs.sessionKey < rhs.sessionKey
         }
+    }
+
+    func saturatingAdd(_ lhs: Int, _ rhs: Int) -> Int {
+        guard rhs > 0 else {
+            return max(0, lhs)
+        }
+        let base = max(0, lhs)
+        return rhs > Int.max - base ? Int.max : base + rhs
+    }
+
+    func roundedPositiveSeconds(from start: Date, to end: Date) -> Int {
+        let interval = end.timeIntervalSince(start)
+        guard interval.isFinite, interval > 0 else {
+            return 0
+        }
+        guard interval < Double(Int.max) else {
+            return Int.max
+        }
+        return Int(interval.rounded())
+    }
+
+    func sanitizedActiveDurationSeconds(
+        _ seconds: Int,
+        firstSeenAt: Date,
+        lastSeenAt: Date
+    ) -> Int {
+        let wallClockSeconds = roundedPositiveSeconds(from: firstSeenAt, to: lastSeenAt)
+        return min(max(0, seconds), wallClockSeconds)
     }
 
     func decodeCheckpointPayload(_ payloadJSON: String?) -> AIExternalFileCheckpointPayload? {
