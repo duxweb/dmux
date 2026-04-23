@@ -50,18 +50,38 @@ extension AISessionStore {
         if let needsInput = trackedSessions.first(where: { $0.state == .needsInput }) {
             return .waitingInput(tool: needsInput.tool)
         }
-        if let completed = trackedSessions.first(where: {
+        return .idle
+    }
+
+    func completedPhase(projectID: UUID) -> ProjectActivityPhase? {
+        let trackedSessions = terminalSessionsByID.values
+            .filter { $0.projectID == projectID && $0.isLive }
+            .sorted(by: { $0.updatedAt > $1.updatedAt })
+
+        guard let completed = trackedSessions.first(where: {
             $0.state == .idle
                 && $0.wasInterrupted == false
                 && $0.hasCompletedTurn
-        }) {
-            return .completed(
-                tool: completed.tool,
-                finishedAt: Date(timeIntervalSince1970: completed.updatedAt),
-                exitCode: nil
-            )
+        }) else {
+            return nil
         }
-        return .idle
+
+        return .completed(
+            tool: completed.tool,
+            finishedAt: Date(timeIntervalSince1970: completed.updatedAt),
+            exitCode: nil
+        )
+    }
+
+    func latestActiveStartedAt(projectID: UUID) -> Date? {
+        terminalSessionsByID.values
+            .filter { $0.projectID == projectID && $0.isLive }
+            .filter { $0.state == .responding || $0.state == .needsInput }
+            .compactMap { session in
+                let timestamp = session.startedAt ?? session.updatedAt
+                return Date(timeIntervalSince1970: timestamp)
+            }
+            .max()
     }
 
     func waitingInputContext(projectID: UUID) -> WaitingInputContext? {

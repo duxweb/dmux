@@ -4,11 +4,15 @@ import Foundation
 
 extension AppModel {
     func activityPhase(for projectID: UUID) -> ProjectActivityPhase {
+        let payload = cachedActivityPayloadByProjectID[projectID]
+        discardStaleCompletionPresentationIfNeeded(projectID: projectID)
         let runtimePhase = aiSessionStore.projectPhase(projectID: projectID)
-        let cachedPhase = cachedActivityPhase(for: projectID)
+        let cachedPhase = resolvedCachedProjectActivityPhase(payload: payload, projectID: projectID)
+        let completionPhase = completionPresentationPhase(for: projectID)
         let resolvedPhase = Self.resolveDisplayedActivityPhase(
             runtimePhase: runtimePhase,
             cachedPhase: cachedPhase,
+            completionPhase: completionPhase,
             cachedPayloadTool: cachedActivityPayloadByProjectID[projectID]?.tool,
             hasLiveRuntimeSessions: aiSessionStore.hasLiveSessions(projectID: projectID),
             isRealtimeTool: isRealtimeAITool
@@ -17,6 +21,8 @@ extension AppModel {
         let source: String
         if resolvedPhase == runtimePhase {
             source = shouldUseRuntimeActivityOnly(projectID: projectID) ? "runtime-only" : "runtime"
+        } else if resolvedPhase == completionPhase, completionPhase != .idle {
+            source = "ui-completion"
         } else if resolvedPhase == cachedPhase {
             source = "cached"
         } else {
@@ -62,9 +68,6 @@ extension AppModel {
         if let terminalFocusObserver {
             NotificationCenter.default.removeObserver(terminalFocusObserver)
         }
-        if let terminalInterruptObserver {
-            NotificationCenter.default.removeObserver(terminalInterruptObserver)
-        }
 
         terminalFocusObserver = NotificationCenter.default.addObserver(
             forName: .dmuxTerminalFocusDidChange,
@@ -73,24 +76,6 @@ extension AppModel {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.terminalFocusRenderVersion &+= 1
-            }
-        }
-
-        terminalInterruptObserver = NotificationCenter.default.addObserver(
-            forName: .dmuxTerminalInterruptDidSend,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self,
-                  let sessionID = notification.object as? UUID else {
-                return
-            }
-
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    return
-                }
-                _ = Self.handleManagedTerminalInterrupt(sessionID: sessionID, sessionStore: self.aiSessionStore)
             }
         }
     }
@@ -278,6 +263,7 @@ extension AppModel {
 
         for project in projects {
             let payload = payloads[project.id]
+            let completionPhase = observedCompletionPhase(projectID: project.id, payload: payload)
             let phase = resolvedProjectActivityPhase(projectID: project.id, payload: payload)
 
             phases[project.id] = phase
@@ -290,7 +276,7 @@ extension AppModel {
 
             if sendNotifications {
                 handleWaitingInputNotificationIfNeeded(project: project, phase: phase)
-                handleCompletionNotificationIfNeeded(project: project, phase: phase, payload: payload)
+                handleCompletionNotificationIfNeeded(project: project, completionPhase: completionPhase, payload: payload)
             }
         }
 
@@ -352,23 +338,18 @@ extension AppModel {
         projectID: UUID,
         payload: ProjectActivityPayload?
     ) -> ProjectActivityPhase {
+        discardStaleCompletionPresentationIfNeeded(projectID: projectID)
         let cachedPhase = resolvedCachedProjectActivityPhase(payload: payload, projectID: projectID)
         let runtimePhase = aiSessionStore.projectPhase(projectID: projectID)
-        var phase = Self.resolveDisplayedActivityPhase(
+        let completionPhase = completionPresentationPhase(for: projectID)
+        return Self.resolveDisplayedActivityPhase(
             runtimePhase: runtimePhase,
             cachedPhase: cachedPhase,
+            completionPhase: completionPhase,
             cachedPayloadTool: payload?.tool,
             hasLiveRuntimeSessions: aiSessionStore.hasLiveSessions(projectID: projectID),
             isRealtimeTool: isRealtimeAITool
         )
-
-        if let payload,
-           case .completed = phase,
-           clearedCompletionTokenByProjectID[projectID] == activityService.completionToken(for: payload) {
-            phase = .idle
-        }
-
-        return phase
     }
 
     private func debugActivityDescription(_ phase: ProjectActivityPhase) -> String {
@@ -384,10 +365,6 @@ extension AppModel {
         }
     }
 
-    private func cachedActivityPhase(for projectID: UUID) -> ProjectActivityPhase {
-        sanitizedCachedActivityPhase(activityByProjectID[projectID])
-    }
-
     private func shouldUseRuntimeActivityOnly(projectID: UUID) -> Bool {
         Self.shouldUseRuntimeActivityOnly(
             cachedPhase: activityByProjectID[projectID],
@@ -399,6 +376,73 @@ extension AppModel {
 
     private func cachedActivityDescription(for projectID: UUID) -> String {
         activityByProjectID[projectID].map(debugActivityDescription) ?? "nil"
+    }
+
+    private func completionPresentationPhase(for projectID: UUID) -> ProjectActivityPhase {
+        guard let presentation = completionPresentationByProjectID[projectID] else {
+            return .idle
+        }
+
+        return .completed(
+            tool: presentation.tool,
+            finishedAt: presentation.finishedAt,
+            exitCode: presentation.exitCode
+        )
+    }
+
+    private func completionActivityDescription(for projectID: UUID) -> String {
+        debugActivityDescription(completionPresentationPhase(for: projectID))
+    }
+
+    @discardableResult
+    func dismissCompletionPresentationIfNeeded(
+        projectID: UUID,
+        reason: String
+    ) -> Bool {
+        guard completionPresentationByProjectID[projectID] != nil else {
+            return false
+        }
+
+        completionPresentationByProjectID[projectID] = nil
+        debugLog.log(
+            "activity-ui",
+            "clear-completed project=\(projectID.uuidString) reason=\(reason)"
+        )
+        refreshProjectActivity(
+            sendNotifications: false,
+            useCachedStatusesOnly: true
+        )
+        return true
+    }
+
+    private func discardStaleCompletionPresentationIfNeeded(projectID: UUID) {
+        guard let presentation = completionPresentationByProjectID[projectID],
+              let latestActiveStartedAt = aiSessionStore.latestActiveStartedAt(projectID: projectID),
+              latestActiveStartedAt > presentation.finishedAt else {
+            return
+        }
+
+        completionPresentationByProjectID[projectID] = nil
+        debugLog.log(
+            "activity-ui",
+            "drop-stale-completed project=\(projectID.uuidString) startedAt=\(latestActiveStartedAt.timeIntervalSince1970)"
+        )
+    }
+
+    private func observedCompletionPhase(
+        projectID: UUID,
+        payload: ProjectActivityPayload?
+    ) -> ProjectActivityPhase {
+        if let runtimeCompletion = aiSessionStore.completedPhase(projectID: projectID) {
+            return runtimeCompletion
+        }
+
+        let cachedPhase = resolvedCachedProjectActivityPhase(payload: payload, projectID: projectID)
+        if case .completed = cachedPhase {
+            return cachedPhase
+        }
+
+        return .idle
     }
 
     private func logProjectActivityTransitionIfNeeded(
@@ -420,7 +464,7 @@ extension AppModel {
         let runtimeSummary = aiSessionStore.debugSummary(projectID: projectID)
         debugLog.log(
             "activity-phase",
-            "project=\(projectName) source=\(source) phase=\(debugActivityDescription(phase)) cached=\(cachedActivityDescription(for: projectID)) runtime=\(runtimeSummary)"
+            "project=\(projectName) source=\(source) phase=\(debugActivityDescription(phase)) cached=\(cachedActivityDescription(for: projectID)) completion=\(completionActivityDescription(for: projectID)) runtime=\(runtimeSummary)"
         )
     }
 
@@ -434,7 +478,7 @@ extension AppModel {
         let runtimeSummary = aiSessionStore.debugSummary(projectID: project.id)
         debugLog.log(
             "app-activation",
-            "project=\(project.name) runtimePhase=\(debugActivityDescription(runtimePhase)) cached=\(cachedActivityDescription(for: project.id)) runtime=\(runtimeSummary)"
+            "project=\(project.name) runtimePhase=\(debugActivityDescription(runtimePhase)) cached=\(cachedActivityDescription(for: project.id)) completion=\(completionActivityDescription(for: project.id)) runtime=\(runtimeSummary)"
         )
     }
 
@@ -460,21 +504,24 @@ extension AppModel {
     nonisolated static func resolveDisplayedActivityPhase(
         runtimePhase: ProjectActivityPhase,
         cachedPhase: ProjectActivityPhase,
+        completionPhase: ProjectActivityPhase,
         cachedPayloadTool: String?,
         hasLiveRuntimeSessions: Bool,
         isRealtimeTool: (String) -> Bool
     ) -> ProjectActivityPhase {
+        if runtimePhase != .idle {
+            return runtimePhase
+        }
+        if completionPhase != .idle {
+            return completionPhase
+        }
         if shouldUseRuntimeActivityOnly(
             cachedPhase: cachedPhase,
             cachedPayloadTool: cachedPayloadTool,
             hasLiveRuntimeSessions: hasLiveRuntimeSessions,
             isRealtimeTool: isRealtimeTool
         ) {
-            return runtimePhase
-        }
-
-        if runtimePhase != .idle {
-            return runtimePhase
+            return .idle
         }
         if cachedPhase != .idle {
             return cachedPhase
@@ -568,10 +615,10 @@ extension AppModel {
 
     private func handleCompletionNotificationIfNeeded(
         project: Project,
-        phase: ProjectActivityPhase,
+        completionPhase: ProjectActivityPhase,
         payload: ProjectActivityPayload?
     ) {
-        guard case .completed(let tool, let finishedAt, let exitCode) = phase else {
+        guard case .completed(let tool, let finishedAt, let exitCode) = completionPhase else {
             return
         }
 
@@ -582,7 +629,12 @@ extension AppModel {
         }
 
         lastCompletionTokenByProjectID[project.id] = token
-        clearedCompletionTokenByProjectID[project.id] = nil
+        completionPresentationByProjectID[project.id] = ProjectCompletionPresentation(
+            token: token,
+            tool: tool,
+            finishedAt: finishedAt,
+            exitCode: exitCode
+        )
         activityService.notifyCompletion(
             projectName: project.name,
             tool: tool,

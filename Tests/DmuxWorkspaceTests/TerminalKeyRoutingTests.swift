@@ -3,27 +3,60 @@ import XCTest
 @testable import DmuxWorkspace
 
 final class TerminalKeyRoutingTests: XCTestCase {
-    func testCommandShortcutsAreNotRoutedToTerminalKeyDown() {
+    func testMainMenuShortcutsAreNotRoutedToTerminalKeyDown() {
         XCTAssertFalse(
-            TerminalKeyRoutingPolicy.shouldRouteToTerminal(modifiers: [.command])
+            TerminalKeyRoutingPolicy.shouldRouteToTerminal(
+                isMainMenuShortcut: true,
+                isReservedApplicationShortcut: false
+            )
         )
         XCTAssertFalse(
-            TerminalKeyRoutingPolicy.shouldRouteToTerminal(modifiers: [.command, .shift])
+            TerminalKeyRoutingPolicy.shouldRouteToTerminal(
+                isMainMenuShortcut: true,
+                isReservedApplicationShortcut: false
+            )
         )
     }
 
-    func testNonCommandKeysStillRouteToTerminalKeyDown() {
+    func testReservedApplicationShortcutsAreNotRoutedToTerminalKeyDown() {
+        XCTAssertFalse(
+            TerminalKeyRoutingPolicy.shouldRouteToTerminal(
+                isMainMenuShortcut: false,
+                isReservedApplicationShortcut: true
+            )
+        )
+    }
+
+    func testNonMenuKeysStillRouteToTerminalKeyDown() {
         XCTAssertTrue(
-            TerminalKeyRoutingPolicy.shouldRouteToTerminal(modifiers: [])
+            TerminalKeyRoutingPolicy.shouldRouteToTerminal(
+                isMainMenuShortcut: false,
+                isReservedApplicationShortcut: false
+            )
         )
         XCTAssertTrue(
-            TerminalKeyRoutingPolicy.shouldRouteToTerminal(modifiers: [.shift])
+            TerminalKeyRoutingPolicy.shouldRouteToTerminal(
+                isMainMenuShortcut: false,
+                isReservedApplicationShortcut: false
+            )
         )
         XCTAssertTrue(
-            TerminalKeyRoutingPolicy.shouldRouteToTerminal(modifiers: [.option])
+            TerminalKeyRoutingPolicy.shouldRouteToTerminal(
+                isMainMenuShortcut: false,
+                isReservedApplicationShortcut: false
+            )
         )
         XCTAssertTrue(
-            TerminalKeyRoutingPolicy.shouldRouteToTerminal(modifiers: [.control])
+            TerminalKeyRoutingPolicy.shouldRouteToTerminal(
+                isMainMenuShortcut: false,
+                isReservedApplicationShortcut: false
+            )
+        )
+        XCTAssertTrue(
+            TerminalKeyRoutingPolicy.shouldRouteToTerminal(
+                isMainMenuShortcut: false,
+                isReservedApplicationShortcut: false
+            )
         )
     }
 }

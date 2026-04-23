@@ -205,13 +205,7 @@ extension AppModel {
         }
         terminalFocusRequestID = sessionID
         let didSend = DmuxTerminalBackend.shared.registry.sendInterrupt(to: sessionID)
-        guard didSend else {
-            return false
-        }
-
-        _ = Self.handleManagedTerminalInterrupt(sessionID: sessionID, sessionStore: aiSessionStore)
-
-        return true
+        return didSend
     }
 
     func sendEscapeToSelectedSessionIfInterruptingAI() -> Bool {
@@ -224,52 +218,7 @@ extension AppModel {
 
         terminalFocusRequestID = sessionID
         let didSend = DmuxTerminalBackend.shared.registry.sendEscape(to: sessionID)
-        guard didSend else {
-            return false
-        }
-
-        _ = Self.handleManagedTerminalInterrupt(sessionID: sessionID, sessionStore: aiSessionStore)
-
-        return true
-    }
-
-    @discardableResult
-    static func handleManagedTerminalInterrupt(
-        sessionID: UUID,
-        sessionStore: AISessionStore = .shared,
-        notificationCenter: NotificationCenter = .default
-    ) -> Bool {
-        let logger = AppDebugLog.shared
-        let previousSession = sessionStore.session(for: sessionID)
-        logger.log(
-            "runtime-interrupt",
-            "request terminal=\(sessionID.uuidString) tool=\(previousSession?.tool ?? "nil") state=\(previousSession?.state.rawValue ?? "nil")"
-        )
-        guard sessionStore.tool(for: sessionID) != nil,
-              sessionStore.markInterrupted(terminalID: sessionID) else {
-            logger.log(
-                "runtime-interrupt",
-                "skip terminal=\(sessionID.uuidString) reason=missing-live-session"
-            )
-            return false
-        }
-
-        let nextSession = sessionStore.session(for: sessionID)
-        logger.log(
-            "runtime-interrupt",
-            "applied terminal=\(sessionID.uuidString) nextState=\(nextSession?.state.rawValue ?? "nil") interrupted=\(nextSession?.wasInterrupted == true)"
-        )
-
-        notificationCenter.post(
-            name: .dmuxAIRuntimeActivityPulse,
-            object: nil
-        )
-        notificationCenter.post(
-            name: .dmuxAIRuntimeBridgeDidChange,
-            object: nil,
-            userInfo: ["kind": "interrupt"]
-        )
-        return true
+        return didSend
     }
 
     func session(for sessionID: UUID) -> TerminalSession? {

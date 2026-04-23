@@ -27,6 +27,13 @@ enum RightPanelKind: String, Codable, Equatable {
 @MainActor
 @Observable
 final class AppModel {
+    struct ProjectCompletionPresentation: Equatable {
+        var token: String
+        var tool: String
+        var finishedAt: Date
+        var exitCode: Int?
+    }
+
     struct TerminalRecoveryIssue: Equatable {
         var message: String
         var detail: String
@@ -81,7 +88,6 @@ final class AppModel {
     var activityStatusWatcher: DispatchSourceFileSystemObject?
     var appActivationObservers: [NSObjectProtocol] = []
     var terminalFocusObserver: NSObjectProtocol?
-    var terminalInterruptObserver: NSObjectProtocol?
     var runtimeBridgeObserver: NSObjectProtocol?
     var runtimeActivityObserver: NSObjectProtocol?
     var pendingActivityRefreshTask: Task<Void, Never>?
@@ -89,8 +95,8 @@ final class AppModel {
     var pendingActivityRefreshShouldRefreshAIStats = false
     var pendingActivityRefreshRequiresStatusReload = false
     var cachedActivityPayloadByProjectID: [UUID: ProjectActivityPayload] = [:]
+    var completionPresentationByProjectID: [UUID: ProjectCompletionPresentation] = [:]
     var lastCompletionTokenByProjectID: [UUID: String] = [:]
-    var clearedCompletionTokenByProjectID: [UUID: String] = [:]
     var lastWaitingInputTokenByProjectID: [UUID: String] = [:]
     var isSystemUIReady = false
     private var isTerminalStartupUnlocked = false
@@ -217,8 +223,8 @@ final class AppModel {
         activityByProjectID = [:]
         activityRenderVersion = 0
         cachedActivityPayloadByProjectID.removeAll()
+        completionPresentationByProjectID.removeAll()
         lastCompletionTokenByProjectID.removeAll()
-        clearedCompletionTokenByProjectID.removeAll()
         lastWaitingInputTokenByProjectID.removeAll()
     }
 

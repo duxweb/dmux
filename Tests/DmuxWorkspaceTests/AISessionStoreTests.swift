@@ -114,6 +114,149 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertNil(exitCode)
     }
 
+    func testToolActivityPromptSubmittedDoesNotStartLoadingFromIdle() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+
+        XCTAssertFalse(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-1",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "Terminal",
+                    tool: "codex",
+                    aiSessionID: "codex-session",
+                    model: "gpt-5.4",
+                    totalTokens: nil,
+                    updatedAt: 100,
+                    metadata: .init(source: "tool-use")
+                )
+            )
+        )
+
+        XCTAssertNil(store.session(for: terminalID))
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+    }
+
+    func testToolActivityPromptSubmittedExtendsExistingLoadingSession() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-1",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "Terminal",
+                    tool: "codex",
+                    aiSessionID: "codex-session",
+                    model: "gpt-5.4",
+                    totalTokens: nil,
+                    updatedAt: now - 1,
+                    metadata: .init(source: "user-input")
+                )
+            )
+        )
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-1",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "Terminal",
+                    tool: "codex",
+                    aiSessionID: "codex-session",
+                    model: "gpt-5.4",
+                    totalTokens: nil,
+                    updatedAt: now,
+                    metadata: .init(source: "tool-use")
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertEqual(session.updatedAt, now)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
+    }
+
+    func testToolActivityPromptSubmittedDoesNotReviveCompletedSession() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-session",
+                model: "gpt-5.4",
+                totalTokens: nil,
+                updatedAt: 100,
+                metadata: .init(source: "user-input")
+            )
+        )
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .turnCompleted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-session",
+                model: "gpt-5.4",
+                totalTokens: nil,
+                updatedAt: 101,
+                metadata: .init(wasInterrupted: false, hasCompletedTurn: true)
+            )
+        )
+
+        XCTAssertFalse(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-1",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "Terminal",
+                    tool: "codex",
+                    aiSessionID: "codex-session",
+                    model: "gpt-5.4",
+                    totalTokens: nil,
+                    updatedAt: 120,
+                    metadata: .init(source: "tool-use")
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertTrue(session.hasCompletedTurn)
+        XCTAssertEqual(session.updatedAt, 101)
+        guard case .completed(let tool, _, _) = store.projectPhase(projectID: projectID) else {
+            return XCTFail("expected completed project phase")
+        }
+        XCTAssertEqual(tool, "codex")
+    }
+
     func testCompletedTurnRemainsVisibleAsLiveSnapshotDuringCompletionWindow() throws {
         let terminalID = UUID()
         let projectID = UUID()
@@ -315,7 +458,7 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertFalse(store.isRunning(terminalID: terminalID))
     }
 
-    func testRuntimeSnapshotRespondingRestoresRunningPhase() throws {
+    func testRuntimeSnapshotRespondingDoesNotRestoreRunningPhase() throws {
         let terminalID = UUID()
         let projectID = UUID()
 
@@ -356,11 +499,12 @@ final class AISessionStoreTests: XCTestCase {
         )
 
         let session = try XCTUnwrap(store.session(for: terminalID))
-        XCTAssertEqual(session.state, .responding)
+        XCTAssertEqual(session.state, .idle)
         XCTAssertFalse(session.hasCompletedTurn)
         XCTAssertFalse(session.wasInterrupted)
-        XCTAssertTrue(store.isRunning(terminalID: terminalID))
-        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
+        XCTAssertFalse(store.isRunning(terminalID: terminalID))
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+        XCTAssertEqual(session.committedTotalTokens, 20)
     }
 
     func testSessionStartedSeedsBaselineToInitialCommittedTotals() throws {
@@ -1005,10 +1149,10 @@ final class AISessionStoreTests: XCTestCase {
         )
 
         let session = try XCTUnwrap(store.session(for: terminalID))
-        XCTAssertEqual(session.state, .idle)
+        XCTAssertEqual(session.state, .responding)
         XCTAssertFalse(session.hasCompletedTurn)
         XCTAssertFalse(session.wasInterrupted)
-        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
     }
 
     func testProjectPhasePrefersRunningOverCompletedAcrossSplitSessions() throws {
@@ -1247,9 +1391,10 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertEqual(context.updatedAt, 101)
     }
 
-    func testInterruptClearsRespondingState() throws {
+    func testRuntimeSnapshotDoesNotClearRespondingState() throws {
         let terminalID = UUID()
         let projectID = UUID()
+        let now = Date().timeIntervalSince1970
 
         _ = store.apply(
             AIHookEvent(
@@ -1263,17 +1408,35 @@ final class AISessionStoreTests: XCTestCase {
                 aiSessionID: "gemini-session",
                 model: "gemini-2.5-pro",
                 totalTokens: 8,
-                updatedAt: 100,
+                updatedAt: now,
                 metadata: nil
             )
         )
 
-        XCTAssertTrue(store.markInterrupted(terminalID: terminalID, updatedAt: 101))
+        XCTAssertTrue(
+            store.applyRuntimeSnapshot(
+                terminalID: terminalID,
+                snapshot: AIRuntimeContextSnapshot(
+                    tool: "gemini",
+                    externalSessionID: "gemini-session",
+                    model: "gemini-2.5-pro",
+                    inputTokens: 10,
+                    outputTokens: 6,
+                    cachedInputTokens: 0,
+                    totalTokens: 16,
+                    updatedAt: now + 1,
+                    responseState: .idle,
+                    wasInterrupted: false,
+                    hasCompletedTurn: false
+                )
+            )
+        )
         let session = try XCTUnwrap(store.session(for: terminalID))
-        XCTAssertEqual(session.state, .idle)
-        XCTAssertTrue(session.wasInterrupted)
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertFalse(session.wasInterrupted)
         XCTAssertEqual(store.liveSnapshots(projectID: projectID).count, 1)
         XCTAssertEqual(store.currentDisplaySnapshot(projectID: projectID, selectedSessionID: terminalID)?.sessionID, terminalID)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "gemini"))
     }
 
     func testStaleTerminalInstanceEventIsIgnored() throws {

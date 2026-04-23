@@ -7,6 +7,11 @@ final class AISessionStore {
     static let shared = AISessionStore()
     let runningPhaseLifetime: TimeInterval = 180
 
+    private enum PromptSubmittedSource {
+        case userInput
+        case toolUse
+    }
+
     enum State: String, Codable, Equatable, Sendable {
         case idle
         case responding
@@ -223,6 +228,14 @@ final class AISessionStore {
         let previousLogicalKey = terminalSessionsByID[event.terminalID]?.logicalSessionKey
         let previousState = terminalSessionsByID[event.terminalID]
 
+        if shouldIgnorePromptSubmitted(event: event, existing: previousState) {
+            logger.log(
+                "ai-session-store",
+                "ignore terminal=\(event.terminalID.uuidString) tool=\(normalizedTool) kind=\(event.kind.rawValue) reason=tool-activity-without-loading"
+            )
+            return false
+        }
+
         var session = terminalSessionsByID[event.terminalID] ?? makeFreshSessionState(
             event: event,
             tool: normalizedTool,
@@ -366,21 +379,6 @@ final class AISessionStore {
         )
     }
 
-    func markInterrupted(terminalID: UUID, updatedAt: Double = Date().timeIntervalSince1970) -> Bool {
-        guard var session = terminalSessionsByID[terminalID],
-              session.state != .idle else {
-            return false
-        }
-        session.state = .idle
-        session.wasInterrupted = true
-        session.hasCompletedTurn = false
-        session.updatedAt = max(session.updatedAt, updatedAt)
-        terminalSessionsByID[terminalID] = session
-        renderVersion &+= 1
-        logger.log("ai-session-store", "interrupt terminal=\(terminalID.uuidString) tool=\(session.tool)")
-        return true
-    }
-
     func removeTerminal(_ terminalID: UUID) {
         let previousLogicalKey = terminalSessionsByID[terminalID]?.logicalSessionKey
         terminalSessionsByID[terminalID] = nil
@@ -517,30 +515,6 @@ final class AISessionStore {
             if let normalizedModel {
                 session.model = normalizedModel
             }
-            switch snapshot.responseState {
-            case .responding:
-                if session.wasInterrupted == false,
-                   session.hasCompletedTurn == false {
-                    session.state = .responding
-                    session.notificationType = nil
-                    session.targetToolName = nil
-                    session.interactionMessage = nil
-                }
-            case .idle:
-                session.state = .idle
-                session.wasInterrupted = snapshot.wasInterrupted
-                if snapshot.wasInterrupted {
-                    session.hasCompletedTurn = false
-                } else if snapshot.hasCompletedTurn {
-                    session.hasCompletedTurn = true
-                }
-                session.notificationType = nil
-                session.targetToolName = nil
-                session.interactionMessage = nil
-            case nil:
-                break
-            }
-            session.updatedAt = max(session.updatedAt, snapshot.updatedAt)
             resolveBaselineIfNeeded(&session, snapshot: snapshot)
             session.committedInputTokens = max(session.committedInputTokens, snapshot.inputTokens)
             session.committedOutputTokens = max(session.committedOutputTokens, snapshot.outputTokens)
@@ -577,13 +551,19 @@ final class AISessionStore {
     }
 
     private func applyPromptSubmitted(_ session: inout TerminalSessionState, event: AIHookEvent) {
-        _ = event
-        session.state = .responding
-        session.wasInterrupted = false
-        session.hasCompletedTurn = false
-        session.notificationType = nil
-        session.targetToolName = nil
-        session.interactionMessage = nil
+        switch promptSubmittedSource(for: event) {
+        case .userInput:
+            session.state = .responding
+            session.wasInterrupted = false
+            session.hasCompletedTurn = false
+            session.notificationType = nil
+            session.targetToolName = nil
+            session.interactionMessage = nil
+        case .toolUse:
+            guard session.state == .responding else {
+                return
+            }
+        }
     }
 
     private func applyTurnCompleted(_ session: inout TerminalSessionState, event: AIHookEvent) {
@@ -740,6 +720,29 @@ final class AISessionStore {
             return false
         }
         return event.updatedAt < existing.updatedAt
+    }
+
+    private func shouldIgnorePromptSubmitted(
+        event: AIHookEvent,
+        existing: TerminalSessionState?
+    ) -> Bool {
+        guard event.kind == .promptSubmitted,
+              promptSubmittedSource(for: event) == .toolUse else {
+            return false
+        }
+        guard let existing else {
+            return true
+        }
+        return existing.state != .responding
+    }
+
+    private func promptSubmittedSource(for event: AIHookEvent) -> PromptSubmittedSource {
+        switch normalizedNonEmptyString(event.metadata?.source) {
+        case "tool-use", "pre-tool-use", "post-tool-use", "post-tool-use-failure":
+            return .toolUse
+        default:
+            return .userInput
+        }
     }
 
     private func makeFreshSessionState(

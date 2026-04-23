@@ -457,42 +457,6 @@ final class AIRuntimeIngressHookEventTests: XCTestCase {
         XCTAssertEqual(store.projectPhase(projectID: projectID), .waitingInput(tool: "claude"))
     }
 
-    func testManualInterruptTransitionsRunningSessionToIdleInterrupted() async throws {
-        let terminalID = UUID()
-        let projectID = UUID()
-
-        let promptPayload = try JSONEncoder().encode(
-            AIHookEvent(
-                kind: .promptSubmitted,
-                terminalID: terminalID,
-                terminalInstanceID: "instance-3",
-                projectID: projectID,
-                projectName: "Codux",
-                sessionTitle: "Terminal",
-                tool: "codex",
-                aiSessionID: "codex-thread",
-                model: "gpt-5.4",
-                totalTokens: 12,
-                updatedAt: 300,
-                metadata: nil
-            )
-        )
-        await ingress.ingestManagedRuntimeSocketEventForTesting(kind: "ai-hook", payloadData: promptPayload)
-
-        let interruptPayload = try JSONEncoder().encode(
-            AIManualInterruptEvent(
-                terminalID: terminalID,
-                updatedAt: 301
-            )
-        )
-        await ingress.ingestManagedRuntimeSocketEventForTesting(kind: "manual-interrupt", payloadData: interruptPayload)
-
-        let session = try XCTUnwrap(store.session(for: terminalID))
-        XCTAssertEqual(session.state, .idle)
-        XCTAssertTrue(session.wasInterrupted)
-        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
-    }
-
     func testClaudeTurnCompletedAppliesImmediatelyThenBackfillsRuntimeTokens() async throws {
         let terminalID = UUID()
         let projectID = UUID()

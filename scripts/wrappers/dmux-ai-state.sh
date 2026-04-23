@@ -113,6 +113,137 @@ log_line() {
   print -r -- "[$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')] [wrapper] $1" >> "${DMUX_LOG_FILE}"
 }
 
+hook_payload_hash() {
+  [[ -n "${hook_payload}" ]] || return 0
+  print -rn -- "${hook_payload}" | /usr/bin/shasum -a 256 2>/dev/null | /usr/bin/awk '{print $1}'
+}
+
+hook_payload_size() {
+  [[ -n "${hook_payload}" ]] || return 0
+  print -rn -- "${#hook_payload}"
+}
+
+extract_hook_debug_summary() {
+  [[ -n "${hook_payload}" ]] || return 0
+  HOOK_PAYLOAD="${hook_payload}" /usr/bin/python3 - <<'PY'
+import json
+import os
+
+payload = os.environ.get("HOOK_PAYLOAD", "")
+if not payload:
+    raise SystemExit(0)
+
+try:
+    obj = json.loads(payload)
+except Exception as exc:
+    print(f"parse_error={type(exc).__name__}")
+    raise SystemExit(0)
+
+def truncate(value, limit=140):
+    if not isinstance(value, str):
+        return ""
+    value = " ".join(value.split())
+    if len(value) <= limit:
+        return value
+    return value[: limit - 1] + "…"
+
+def first_string(node, *keys):
+    if not isinstance(node, dict):
+        return None
+    for key in keys:
+        value = node.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+def first_content_text(node):
+    if not isinstance(node, dict):
+        return None
+    candidates = []
+    content = node.get("content")
+    if isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            text = first_string(item, "text")
+            if text:
+                candidates.append(text)
+    for key in ("message", "text"):
+        value = node.get(key)
+        if isinstance(value, str) and value:
+            candidates.append(value)
+    for candidate in candidates:
+        candidate = truncate(candidate)
+        if candidate:
+            return candidate
+    return None
+
+stack = [obj]
+seen = set()
+session_id = None
+cwd = None
+transcript = None
+reason = None
+source = None
+prompt_preview = None
+top_type = first_string(obj, "type") if isinstance(obj, dict) else None
+payload_node = obj.get("payload") if isinstance(obj, dict) and isinstance(obj.get("payload"), dict) else None
+payload_type = first_string(payload_node, "type") if payload_node else None
+payload_phase = first_string(payload_node, "phase") if payload_node else None
+
+while stack:
+    current = stack.pop()
+    ident = id(current)
+    if ident in seen:
+        continue
+    seen.add(ident)
+
+    if isinstance(current, dict):
+        if session_id is None:
+            session_id = first_string(current, "session_id", "sessionId")
+        if cwd is None:
+            cwd = first_string(current, "cwd")
+        if transcript is None:
+            transcript = first_string(current, "transcript_path", "transcriptPath")
+        if reason is None:
+            reason = first_string(current, "stop_reason", "reason")
+        if source is None:
+            source = first_string(current, "source")
+        if prompt_preview is None:
+            prompt_preview = first_content_text(current)
+        stack.extend(current.values())
+    elif isinstance(current, list):
+        stack.extend(current)
+
+parts = []
+for key, value in (
+    ("topType", top_type),
+    ("payloadType", payload_type),
+    ("phase", payload_phase),
+    ("source", source),
+    ("reason", reason),
+    ("session", session_id),
+    ("cwd", cwd),
+    ("transcript", transcript),
+    ("preview", prompt_preview),
+):
+    if value:
+        parts.append(f"{key}={json.dumps(value, ensure_ascii=True)}")
+
+print(" ".join(parts))
+PY
+}
+
+log_codex_hook_diagnostics() {
+  local summary
+  summary="$(extract_hook_debug_summary)"
+  local payload_hash
+  payload_hash="$(hook_payload_hash)"
+  local payload_size
+  payload_size="$(hook_payload_size)"
+  log_line "codex hook diag action=${action} tool=${tool_name} bytes=${payload_size:-0} hash=${payload_hash:-nil}${summary:+ ${summary}}"
+}
+
 extract_hook_session_id() {
   [[ -n "${hook_payload}" ]] || return 0
   HOOK_PAYLOAD="${hook_payload}" /usr/bin/python3 - <<'PY'
@@ -452,11 +583,15 @@ case "${action}" in
     exit 0
     ;;
   codex-prompt-submit)
+    log_codex_hook_diagnostics
     write_ai_hook_event \
       "promptSubmitted" \
       "$(extract_hook_session_id)" \
       "$(resolved_hook_model)" \
-      "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)"
+      "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)" \
+      "" \
+      "" \
+      "user-input"
     exit 0
     ;;
   codex-pre-tool-use)
@@ -464,7 +599,10 @@ case "${action}" in
       "promptSubmitted" \
       "$(extract_hook_session_id)" \
       "$(resolved_hook_model)" \
-      "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)"
+      "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)" \
+      "" \
+      "" \
+      "tool-use"
     exit 0
     ;;
   codex-post-tool-use)
@@ -472,10 +610,14 @@ case "${action}" in
       "promptSubmitted" \
       "$(extract_hook_session_id)" \
       "$(resolved_hook_model)" \
-      "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)"
+      "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)" \
+      "" \
+      "" \
+      "tool-use"
     exit 0
     ;;
   codex-stop)
+    log_codex_hook_diagnostics
     codex_total_tokens="$(extract_hook_number_field total_tokens totalTokenCount totalTokens)"
     [[ -z "${codex_total_tokens}" ]] && codex_total_tokens="null"
     write_ai_hook_event \
@@ -516,7 +658,10 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
           "promptSubmitted" \
           "$(resolved_claude_external_session_id)" \
           "$(resolved_hook_model)" \
-          "${claude_prompt_tokens}"
+          "${claude_prompt_tokens}" \
+          "" \
+          "" \
+          "$([[ "${action}" == "prompt-submit" ]] && print -r -- "user-input" || print -r -- "tool-use")"
       elif [[ "${action}" == "permission-request" ]]; then
         write_ai_hook_event \
           "needsInput" \
@@ -558,7 +703,10 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
           "promptSubmitted" \
           "$(resolved_claude_external_session_id)" \
           "$(resolved_hook_model)" \
-          "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)"
+          "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)" \
+          "" \
+          "" \
+          "user-input"
       fi
       if [[ "${action}" == "notification" ]]; then
         log_line "claude hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} notificationType=${notification_type:-unknown}"
@@ -631,7 +779,10 @@ if [[ "${tool_name}" == "gemini" ]]; then
             "promptSubmitted" \
             "$(extract_hook_session_id)" \
             "$(resolved_hook_model)" \
-            "${gemini_total_tokens}"
+            "${gemini_total_tokens}" \
+            "" \
+            "" \
+            "user-input"
           ;;
         after-agent)
           write_ai_hook_event \

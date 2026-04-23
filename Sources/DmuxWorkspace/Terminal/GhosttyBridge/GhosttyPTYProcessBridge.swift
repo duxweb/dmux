@@ -354,15 +354,6 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
             return
         }
 
-        if data.contains(0x03) {
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: .dmuxTerminalInterruptDidSend,
-                    object: self.sessionID
-                )
-            }
-        }
-
         ioQueue.async {
             data.withUnsafeBytes { buffer in
                 guard var base = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {

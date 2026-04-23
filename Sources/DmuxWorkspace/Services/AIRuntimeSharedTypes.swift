@@ -384,11 +384,6 @@ struct AIRuntimeContextSnapshot: Sendable {
     var source: AIRuntimeUpdateSource = .probe
 }
 
-struct AIManualInterruptEvent: Codable, Equatable, Sendable {
-    var terminalID: UUID
-    var updatedAt: Double
-}
-
 enum AIRuntimeSessionOrigin: String, Sendable {
     case unknown
     case fresh

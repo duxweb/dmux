@@ -3,6 +3,10 @@ import Foundation
 
 extension AppModel {
     func selectProject(_ projectID: UUID) {
+        dismissCompletionPresentationIfNeeded(
+            projectID: projectID,
+            reason: "select-project"
+        )
         updateSelectedProjectID(projectID, source: "selectProject")
         restoreSelectedTerminalFocusIfNeeded()
         restoreCachedGitPanelIfAvailable(for: projectID)

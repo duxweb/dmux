@@ -4,8 +4,11 @@ import Observation
 import UserNotifications
 
 enum TerminalKeyRoutingPolicy {
-    static func shouldRouteToTerminal(modifiers: NSEvent.ModifierFlags) -> Bool {
-        !modifiers.contains(.command)
+    static func shouldRouteToTerminal(
+        isMainMenuShortcut: Bool,
+        isReservedApplicationShortcut: Bool
+    ) -> Bool {
+        !isMainMenuShortcut && !isReservedApplicationShortcut
     }
 }
 
@@ -218,25 +221,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @MainActor
     private func handleLocalKeyDown(_ event: NSEvent) -> NSEvent? {
         let modifiers = normalizedShortcutModifiers(for: event)
-
-        if modifiers == [.control],
-           event.charactersIgnoringModifiers?.lowercased() == "c",
-           handleTerminalInterruptIfNeeded() {
-                return nil
-        }
-
-        if modifiers.isEmpty,
-           event.keyCode == 53,
-           handleTerminalEscapeIfNeeded() {
+        let mainMenuHandled = handleMainMenuShortcutIfNeeded(event, modifiers: modifiers)
+        if mainMenuHandled {
             return nil
         }
 
-        if handleMainMenuShortcutIfNeeded(event, modifiers: modifiers) {
-            return nil
+        let reservedApplicationShortcut = isReservedApplicationShortcut(event, modifiers: modifiers)
+        if reservedApplicationShortcut {
+            return event
         }
 
         guard modifiers == [.command],
               event.charactersIgnoringModifiers?.lowercased() == "w" else {
+            if routeKeyDownToTerminalIfNeeded(
+                event,
+                modifiers: modifiers,
+                isMainMenuShortcut: mainMenuHandled,
+                isReservedApplicationShortcut: reservedApplicationShortcut
+            ) {
+                return nil
+            }
             return event
         }
 
@@ -277,59 +281,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @MainActor
-    private func shouldRouteKeyToTerminal(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> Bool {
-        if isReservedApplicationShortcut(event, modifiers: modifiers) {
+    private func routeKeyDownToTerminalIfNeeded(
+        _ event: NSEvent,
+        modifiers: NSEvent.ModifierFlags,
+        isMainMenuShortcut: Bool,
+        isReservedApplicationShortcut: Bool
+    ) -> Bool {
+        guard TerminalKeyRoutingPolicy.shouldRouteToTerminal(
+            isMainMenuShortcut: isMainMenuShortcut,
+            isReservedApplicationShortcut: isReservedApplicationShortcut
+        ) else {
             return false
         }
 
-        return TerminalKeyRoutingPolicy.shouldRouteToTerminal(modifiers: modifiers)
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              !isStandardChromeWindow(window) else {
+            return false
+        }
+
+        let responder = window.firstResponder
+        if responder is NSTextView,
+           DmuxTerminalBackend.shared.registry.ownsResponder(responder) == false {
+            return false
+        }
+
+        return DmuxTerminalBackend.shared.registry.forwardKeyDown(event, responder: responder)
     }
 
     @MainActor
     private func isReservedApplicationShortcut(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> Bool {
         modifiers == [.command] && event.charactersIgnoringModifiers?.lowercased() == ","
-    }
-
-    @MainActor
-    private func handleTerminalInterruptIfNeeded() -> Bool {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              !isStandardChromeWindow(window),
-              let model else {
-            return false
-        }
-
-        let responder = window.firstResponder
-        if responder is NSTextView,
-           DmuxTerminalBackend.shared.registry.ownsResponder(responder) == false {
-            return false
-        }
-
-        guard responder == nil || DmuxTerminalBackend.shared.registry.ownsResponder(responder) else {
-            return false
-        }
-
-        return model.sendInterruptToSelectedSession()
-    }
-
-    @MainActor
-    private func handleTerminalEscapeIfNeeded() -> Bool {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              !isStandardChromeWindow(window),
-              let model else {
-            return false
-        }
-
-        let responder = window.firstResponder
-        if responder is NSTextView,
-           DmuxTerminalBackend.shared.registry.ownsResponder(responder) == false {
-            return false
-        }
-
-        guard responder == nil || DmuxTerminalBackend.shared.registry.ownsResponder(responder) else {
-            return false
-        }
-
-        return model.sendEscapeToSelectedSessionIfInterruptingAI()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

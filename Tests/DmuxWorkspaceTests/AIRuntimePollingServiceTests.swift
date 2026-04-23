@@ -14,7 +14,7 @@ final class AIRuntimePollingServiceTests: XCTestCase {
         store.reset()
     }
 
-    func testPollingUpdatesRuntimeTokensAndAppliesIdleCompletionState() async throws {
+    func testPollingUpdatesRuntimeTokensWithoutChangingHookDrivenPhase() async throws {
         let terminalID = UUID()
         let projectID = UUID()
         _ = store.apply(
@@ -79,8 +79,8 @@ final class AIRuntimePollingServiceTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 2)
 
         let session = try XCTUnwrap(store.session(for: terminalID))
-        XCTAssertEqual(session.state, .idle)
-        XCTAssertTrue(session.hasCompletedTurn)
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertFalse(session.hasCompletedTurn)
         XCTAssertFalse(session.wasInterrupted)
         XCTAssertEqual(session.baselineTotalTokens, 0)
         XCTAssertEqual(session.committedTotalTokens, 150)
@@ -393,7 +393,7 @@ final class AIRuntimePollingServiceTests: XCTestCase {
         XCTAssertEqual(session.committedTotalTokens, 150)
     }
 
-    func testRuntimeSnapshotIdleMarksInterruptedSession() async throws {
+    func testRuntimeSnapshotInterruptedDoesNotOverrideRespondingPhase() async throws {
         let terminalID = UUID()
         let projectID = UUID()
         let now = Date().timeIntervalSince1970
@@ -460,8 +460,8 @@ final class AIRuntimePollingServiceTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 2)
 
         let session = try XCTUnwrap(store.session(for: terminalID))
-        XCTAssertEqual(session.state, .idle)
-        XCTAssertTrue(session.wasInterrupted)
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertFalse(session.wasInterrupted)
         XCTAssertFalse(session.hasCompletedTurn)
     }
 }

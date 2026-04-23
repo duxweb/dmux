@@ -291,17 +291,6 @@ final class AIRuntimeIngressService {
             }
             await processAIHookEvent(event)
 
-        case "manual-interrupt":
-            guard let event = try? JSONDecoder().decode(AIManualInterruptEvent.self, from: payloadData) else {
-                logger.log("runtime-socket", "drop kind=manual-interrupt reason=decode")
-                return
-            }
-            logger.log(
-                "runtime-interrupt",
-                "receive manual-interrupt terminal=\(event.terminalID.uuidString) updatedAt=\(event.updatedAt)"
-            )
-            processManualInterruptEvent(event)
-
         case "opencode-runtime":
             guard let envelope = try? JSONDecoder().decode(AIToolUsageEnvelope.self, from: payloadData) else {
                 logger.log("runtime-socket", "drop kind=opencode-runtime reason=decode")
@@ -365,26 +354,6 @@ final class AIRuntimeIngressService {
             )
         }
         postRuntimeBridgeDidChange(kind: "opencode-runtime", asynchronously: true)
-    }
-
-    private func processManualInterruptEvent(_ event: AIManualInterruptEvent) {
-        let previousState = aiSessionStore.session(for: event.terminalID)
-        let didChange = aiSessionStore.markInterrupted(
-            terminalID: event.terminalID,
-            updatedAt: event.updatedAt
-        )
-        guard didChange else {
-            logger.log("runtime-socket", "drop kind=manual-interrupt terminal=\(event.terminalID.uuidString) reason=no-live-session")
-            return
-        }
-
-        let nextState = aiSessionStore.session(for: event.terminalID)
-        logger.log(
-            "runtime-interrupt",
-            "applied manual-interrupt terminal=\(event.terminalID.uuidString) prev=\(previousState?.state.rawValue ?? "nil") next=\(nextState?.state.rawValue ?? "nil") interrupted=\(nextState?.wasInterrupted == true)"
-        )
-
-        postRuntimeBridgeDidChange(kind: "manual-interrupt", asynchronously: true)
     }
 
     private func postRuntimeBridgeDidChange(kind: String, asynchronously: Bool = false) {
