@@ -529,7 +529,11 @@ final class AISessionStore {
             case .idle:
                 session.state = .idle
                 session.wasInterrupted = snapshot.wasInterrupted
-                session.hasCompletedTurn = snapshot.hasCompletedTurn || snapshot.wasInterrupted == false
+                if snapshot.wasInterrupted {
+                    session.hasCompletedTurn = false
+                } else if snapshot.hasCompletedTurn {
+                    session.hasCompletedTurn = true
+                }
                 session.notificationType = nil
                 session.targetToolName = nil
                 session.interactionMessage = nil

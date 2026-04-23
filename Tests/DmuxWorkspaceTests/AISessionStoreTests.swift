@@ -963,6 +963,189 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertEqual(tool, "claude")
     }
 
+    func testRuntimeIdleWithoutExplicitCompletionDoesNotCreateCompletedPhase() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-session",
+                model: "gpt-5.4",
+                totalTokens: 12,
+                updatedAt: now - 1,
+                metadata: nil
+            )
+        )
+
+        XCTAssertTrue(
+            store.applyRuntimeSnapshot(
+                terminalID: terminalID,
+                snapshot: AIRuntimeContextSnapshot(
+                    tool: "codex",
+                    externalSessionID: "codex-session",
+                    model: "gpt-5.4",
+                    inputTokens: 20,
+                    outputTokens: 30,
+                    cachedInputTokens: 0,
+                    totalTokens: 50,
+                    updatedAt: now,
+                    responseState: .idle,
+                    wasInterrupted: false,
+                    hasCompletedTurn: false
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertFalse(session.hasCompletedTurn)
+        XCTAssertFalse(session.wasInterrupted)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+    }
+
+    func testProjectPhasePrefersRunningOverCompletedAcrossSplitSessions() throws {
+        let completedTerminalID = UUID()
+        let runningTerminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .turnCompleted,
+                terminalID: completedTerminalID,
+                terminalInstanceID: "instance-completed",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Claude",
+                tool: "claude",
+                aiSessionID: "claude-session",
+                model: "claude-sonnet-4-6",
+                totalTokens: 42,
+                updatedAt: now - 2,
+                metadata: .init(wasInterrupted: false, hasCompletedTurn: true)
+            )
+        )
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: runningTerminalID,
+                terminalInstanceID: "instance-running",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Codex",
+                tool: "codex",
+                aiSessionID: "codex-session",
+                model: "gpt-5.4",
+                totalTokens: 12,
+                updatedAt: now - 1,
+                metadata: nil
+            )
+        )
+
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
+    }
+
+    func testProjectPhasePrefersWaitingInputOverCompletedAcrossSplitSessions() throws {
+        let completedTerminalID = UUID()
+        let waitingTerminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .turnCompleted,
+                terminalID: completedTerminalID,
+                terminalInstanceID: "instance-completed",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Codex",
+                tool: "codex",
+                aiSessionID: "codex-session",
+                model: "gpt-5.4",
+                totalTokens: 42,
+                updatedAt: now - 2,
+                metadata: .init(wasInterrupted: false, hasCompletedTurn: true)
+            )
+        )
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .needsInput,
+                terminalID: waitingTerminalID,
+                terminalInstanceID: "instance-waiting",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Claude",
+                tool: "claude",
+                aiSessionID: "claude-session",
+                model: "claude-sonnet-4-6",
+                updatedAt: now - 1,
+                metadata: .init(
+                    notificationType: "permission-request",
+                    targetToolName: "bash",
+                    message: "Need approval"
+                )
+            )
+        )
+
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .waitingInput(tool: "claude"))
+    }
+
+    func testProjectPhaseKeepsCompletedWhenAnotherSplitIsIdleIncomplete() throws {
+        let completedTerminalID = UUID()
+        let idleTerminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .turnCompleted,
+                terminalID: completedTerminalID,
+                terminalInstanceID: "instance-completed",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Claude",
+                tool: "claude",
+                aiSessionID: "claude-session",
+                model: "claude-sonnet-4-6",
+                totalTokens: 42,
+                updatedAt: now - 2,
+                metadata: .init(wasInterrupted: false, hasCompletedTurn: true)
+            )
+        )
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .sessionStarted,
+                terminalID: idleTerminalID,
+                terminalInstanceID: "instance-idle",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Codex",
+                tool: "codex",
+                aiSessionID: "codex-session",
+                model: "gpt-5.4",
+                totalTokens: 0,
+                updatedAt: now - 1,
+                metadata: nil
+            )
+        )
+
+        guard case .completed(let tool, _, _) = store.projectPhase(projectID: projectID) else {
+            return XCTFail("expected completed project phase")
+        }
+        XCTAssertEqual(tool, "claude")
+    }
+
     func testNeedsInputProducesWaitingPhase() throws {
         let terminalID = UUID()
         let projectID = UUID()

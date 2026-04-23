@@ -103,9 +103,6 @@ private struct TitlebarPetButtonContainer: View {
     var body: some View {
         TitlebarPetButton(
             model: model,
-            totalNormalizedTokensProvider: {
-                model.aiStatsStore.totalAllTimeNormalizedTokensForPet(model.projects)
-            },
             isShowingPopover: $isShowingPopover
         )
     }

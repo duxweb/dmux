@@ -2,6 +2,10 @@ import Foundation
 
 @MainActor
 extension AISessionStore {
+    func hasLiveSessions(projectID: UUID) -> Bool {
+        terminalSessionsByID.values.contains { $0.projectID == projectID && $0.isLive }
+    }
+
     func liveSnapshots(projectID: UUID) -> [AITerminalSessionSnapshot] {
         terminalSessionsByID.values
             .filter { $0.projectID == projectID && $0.isLive }

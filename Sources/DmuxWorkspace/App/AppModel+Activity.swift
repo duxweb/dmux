@@ -5,17 +5,26 @@ import Foundation
 extension AppModel {
     func activityPhase(for projectID: UUID) -> ProjectActivityPhase {
         let runtimePhase = aiSessionStore.projectPhase(projectID: projectID)
-        if runtimePhase != .idle {
-            logActivityPhaseResolution(projectID: projectID, source: "runtime", phase: runtimePhase)
-            return runtimePhase
-        }
         let cachedPhase = cachedActivityPhase(for: projectID)
-        if cachedPhase != .idle {
-            logActivityPhaseResolution(projectID: projectID, source: "cached", phase: cachedPhase)
-            return cachedPhase
+        let resolvedPhase = Self.resolveDisplayedActivityPhase(
+            runtimePhase: runtimePhase,
+            cachedPhase: cachedPhase,
+            cachedPayloadTool: cachedActivityPayloadByProjectID[projectID]?.tool,
+            hasLiveRuntimeSessions: aiSessionStore.hasLiveSessions(projectID: projectID),
+            isRealtimeTool: isRealtimeAITool
+        )
+
+        let source: String
+        if resolvedPhase == runtimePhase {
+            source = shouldUseRuntimeActivityOnly(projectID: projectID) ? "runtime-only" : "runtime"
+        } else if resolvedPhase == cachedPhase {
+            source = "cached"
+        } else {
+            source = "default"
         }
-        logActivityPhaseResolution(projectID: projectID, source: "default", phase: .idle)
-        return .idle
+
+        logActivityPhaseResolution(projectID: projectID, source: source, phase: resolvedPhase)
+        return resolvedPhase
     }
 
     func observeApplicationActivation() {
@@ -343,17 +352,20 @@ extension AppModel {
         projectID: UUID,
         payload: ProjectActivityPayload?
     ) -> ProjectActivityPhase {
-        var phase = resolvedCachedProjectActivityPhase(payload: payload, projectID: projectID)
+        let cachedPhase = resolvedCachedProjectActivityPhase(payload: payload, projectID: projectID)
+        let runtimePhase = aiSessionStore.projectPhase(projectID: projectID)
+        var phase = Self.resolveDisplayedActivityPhase(
+            runtimePhase: runtimePhase,
+            cachedPhase: cachedPhase,
+            cachedPayloadTool: payload?.tool,
+            hasLiveRuntimeSessions: aiSessionStore.hasLiveSessions(projectID: projectID),
+            isRealtimeTool: isRealtimeAITool
+        )
 
         if let payload,
            case .completed = phase,
            clearedCompletionTokenByProjectID[projectID] == activityService.completionToken(for: payload) {
             phase = .idle
-        }
-
-        let runtimePhase = aiSessionStore.projectPhase(projectID: projectID)
-        if runtimePhase != .idle {
-            phase = runtimePhase
         }
 
         return phase
@@ -374,6 +386,15 @@ extension AppModel {
 
     private func cachedActivityPhase(for projectID: UUID) -> ProjectActivityPhase {
         sanitizedCachedActivityPhase(activityByProjectID[projectID])
+    }
+
+    private func shouldUseRuntimeActivityOnly(projectID: UUID) -> Bool {
+        Self.shouldUseRuntimeActivityOnly(
+            cachedPhase: activityByProjectID[projectID],
+            cachedPayloadTool: cachedActivityPayloadByProjectID[projectID]?.tool,
+            hasLiveRuntimeSessions: aiSessionStore.hasLiveSessions(projectID: projectID),
+            isRealtimeTool: isRealtimeAITool
+        )
     }
 
     private func cachedActivityDescription(for projectID: UUID) -> String {
@@ -433,6 +454,67 @@ extension AppModel {
             return .idle
         default:
             return phase
+        }
+    }
+
+    nonisolated static func resolveDisplayedActivityPhase(
+        runtimePhase: ProjectActivityPhase,
+        cachedPhase: ProjectActivityPhase,
+        cachedPayloadTool: String?,
+        hasLiveRuntimeSessions: Bool,
+        isRealtimeTool: (String) -> Bool
+    ) -> ProjectActivityPhase {
+        if shouldUseRuntimeActivityOnly(
+            cachedPhase: cachedPhase,
+            cachedPayloadTool: cachedPayloadTool,
+            hasLiveRuntimeSessions: hasLiveRuntimeSessions,
+            isRealtimeTool: isRealtimeTool
+        ) {
+            return runtimePhase
+        }
+
+        if runtimePhase != .idle {
+            return runtimePhase
+        }
+        if cachedPhase != .idle {
+            return cachedPhase
+        }
+        return .idle
+    }
+
+    nonisolated static func shouldUseRuntimeActivityOnly(
+        cachedPhase: ProjectActivityPhase?,
+        cachedPayloadTool: String?,
+        hasLiveRuntimeSessions: Bool,
+        isRealtimeTool: (String) -> Bool
+    ) -> Bool {
+        if hasLiveRuntimeSessions {
+            return true
+        }
+
+        if let cachedPayloadTool,
+           isRealtimeTool(cachedPayloadTool) {
+            return true
+        }
+
+        if let tool = activityToolName(for: cachedPhase),
+           isRealtimeTool(tool) {
+            return true
+        }
+
+        return false
+    }
+
+    nonisolated static func activityToolName(for phase: ProjectActivityPhase?) -> String? {
+        guard let phase else {
+            return nil
+        }
+
+        switch phase {
+        case .idle:
+            return nil
+        case .running(let tool), .waitingInput(let tool), .completed(let tool, _, _):
+            return tool
         }
     }
 

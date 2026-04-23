@@ -557,7 +557,7 @@ final class AIUsageStoreTests: XCTestCase {
         XCTAssertEqual(sessions.last?.sessionTitle, "Old Session")
         XCTAssertEqual(sessions.last?.totalTokens, 150)
         XCTAssertEqual(sessions.last?.requestCount, 2)
-        XCTAssertEqual(sessions.last?.activeDurationSeconds, 0)
+        XCTAssertEqual(sessions.last?.activeDurationSeconds, 120)
     }
 
     func testDatabaseConfigurationEnablesWALAndBucketStartIndex() throws {

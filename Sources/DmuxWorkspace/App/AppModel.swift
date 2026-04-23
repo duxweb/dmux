@@ -149,13 +149,19 @@ final class AppModel {
                 guard let self else {
                     return 0
                 }
-                return self.aiStatsStore.totalAllTimeNormalizedTokensForPet(self.projects)
+                return self.aiStatsStore.totalNormalizedTokensForPet(
+                    self.projects,
+                    claimedAt: self.petStore.claimedAt
+                )
             },
             computedStats: { [weak self] in
                 guard let self else {
                     return .neutral
                 }
-                return self.aiStatsStore.petStatsSinceClaimedAt(self.petStore.claimedAt)
+                return self.aiStatsStore.petStatsSinceClaimedAt(
+                    self.petStore.claimedAt,
+                    projects: self.projects
+                )
             }
         )
         aiSessionStore.onRenderVersionChange = { [weak self] in

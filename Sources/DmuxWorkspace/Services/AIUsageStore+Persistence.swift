@@ -80,10 +80,22 @@ extension AIUsageStore {
         }) ?? 0
     }
 
-    func indexedSessions(since cutoff: Date?) -> [AISessionSummary] {
+    func indexedSessions(since cutoff: Date?, projectIDs: Set<UUID>? = nil) -> [AISessionSummary] {
+        if let projectIDs, projectIDs.isEmpty {
+            return []
+        }
+
         let calendar = Calendar.autoupdatingCurrent
         let startOfDay = calendar.startOfDay(for: Date())
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
+        let normalizedProjectIDs = projectIDs?.map(\.uuidString).sorted()
+        let projectFilterSQL: String
+        if let normalizedProjectIDs, !normalizedProjectIDs.isEmpty {
+            let placeholders = Array(repeating: "?", count: normalizedProjectIDs.count).joined(separator: ",")
+            projectFilterSQL = " AND session.project_id IN (\(placeholders))"
+        } else {
+            projectFilterSQL = ""
+        }
 
         return (try? withDatabase { db in
             let sql = """
@@ -97,8 +109,13 @@ extension AIUsageStore {
                 session.external_session_id,
                 CASE
                     WHEN ? IS NULL THEN session.active_duration_seconds
-                    WHEN session.first_seen_at >= ? THEN session.active_duration_seconds
-                    ELSE 0
+                    WHEN session.last_seen_at <= ? THEN 0
+                    ELSE CAST(
+                        MIN(
+                            session.active_duration_seconds,
+                            MAX(0, session.last_seen_at - MAX(session.first_seen_at, ?))
+                        ) AS INTEGER
+                    )
                 END,
                 COALESCE(SUM(CASE WHEN ? IS NULL OR bucket.bucket_start >= ? THEN bucket.request_count ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN ? IS NULL OR bucket.bucket_start >= ? THEN bucket.input_tokens ELSE 0 END), 0),
@@ -114,6 +131,7 @@ extension AIUsageStore {
              AND bucket.project_path = session.project_path
              AND bucket.session_key = session.session_key
             WHERE (? IS NULL OR session.last_seen_at >= ?)
+            \(projectFilterSQL)
             GROUP BY
                 session.source,
                 session.file_path,
@@ -137,12 +155,24 @@ extension AIUsageStore {
             defer { sqlite3_finalize(statement) }
 
             let cutoffSeconds = cutoff?.timeIntervalSince1970
-            bindOptionalDouble(cutoffSeconds, to: statement, positions: 1 ... 12)
-            sqlite3_bind_double(statement, 13, startOfDay.timeIntervalSince1970)
-            sqlite3_bind_double(statement, 14, endOfDay.timeIntervalSince1970)
-            sqlite3_bind_double(statement, 15, startOfDay.timeIntervalSince1970)
-            sqlite3_bind_double(statement, 16, endOfDay.timeIntervalSince1970)
-            bindOptionalDouble(cutoffSeconds, to: statement, positions: 17 ... 18)
+            bindOptionalDouble(cutoffSeconds, to: statement, positions: 1 ... 13)
+            sqlite3_bind_double(statement, 14, startOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 15, endOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 16, startOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 17, endOfDay.timeIntervalSince1970)
+            bindOptionalDouble(cutoffSeconds, to: statement, positions: 18 ... 19)
+
+            if let normalizedProjectIDs {
+                for (offset, projectID) in normalizedProjectIDs.enumerated() {
+                    sqlite3_bind_text(
+                        statement,
+                        Int32(20 + offset),
+                        projectID,
+                        -1,
+                        SQLITE_TRANSIENT
+                    )
+                }
+            }
 
             var items: [AISessionSummary] = []
             while sqlite3_step(statement) == SQLITE_ROW {

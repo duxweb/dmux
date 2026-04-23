@@ -37,10 +37,10 @@ final class AIStatsStore {
         }
     }
 
-    let aiUsageService = AIUsageService()
-    let aiUsageStore = AIUsageStore()
-    let runtimeIngressService = AIRuntimeIngressService.shared
-    let aiSessionStore = AISessionStore.shared
+    let aiUsageService: AIUsageService
+    let aiUsageStore: AIUsageStore
+    let runtimeIngressService: AIRuntimeIngressService
+    let aiSessionStore: AISessionStore
     let logger = AppDebugLog.shared
     var refreshTasks: [UUID: Task<Void, Never>] = [:]
     var indexingStatusByProjectID: [UUID: AIIndexingStatus] = [:]
@@ -68,6 +68,18 @@ final class AIStatsStore {
     var backgroundRefreshInterval: TimeInterval = 600
     var onRenderVersionChange: (@MainActor () -> Void)?
     let debugAIFocus = ProcessInfo.processInfo.environment["DMUX_DEBUG_AI_FOCUS"] == "1"
+
+    init(
+        aiUsageStore: AIUsageStore = AIUsageStore(),
+        aiSessionStore: AISessionStore = .shared,
+        runtimeIngressService: AIRuntimeIngressService = .shared,
+        aiUsageService: AIUsageService? = nil
+    ) {
+        self.aiUsageStore = aiUsageStore
+        self.aiSessionStore = aiSessionStore
+        self.runtimeIngressService = runtimeIngressService
+        self.aiUsageService = aiUsageService ?? AIUsageService(wrapperStore: aiUsageStore)
+    }
 
     func effectiveSessionID(_ selectedSessionID: UUID?) -> UUID? {
         let focusedSessionID = DmuxTerminalBackend.shared.registry.focusedSessionID()
