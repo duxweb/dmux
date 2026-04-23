@@ -45,12 +45,16 @@ extension AIUsageStore {
                 session.last_seen_at,
                 session.last_model,
                 session.external_session_id,
-                session.active_duration_seconds,
-                COALESCE(SUM(bucket.request_count), 0),
-                COALESCE(SUM(bucket.input_tokens), 0),
-                COALESCE(SUM(bucket.output_tokens), 0),
-                COALESCE(SUM(bucket.total_tokens), 0),
-                COALESCE(SUM(bucket.cached_input_tokens), 0),
+                CASE
+                    WHEN ? IS NULL THEN session.active_duration_seconds
+                    WHEN session.first_seen_at >= ? THEN session.active_duration_seconds
+                    ELSE 0
+                END,
+                COALESCE(SUM(CASE WHEN ? IS NULL OR bucket.bucket_start >= ? THEN bucket.request_count ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN ? IS NULL OR bucket.bucket_start >= ? THEN bucket.input_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN ? IS NULL OR bucket.bucket_start >= ? THEN bucket.output_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN ? IS NULL OR bucket.bucket_start >= ? THEN bucket.total_tokens ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN ? IS NULL OR bucket.bucket_start >= ? THEN bucket.cached_input_tokens ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN bucket.bucket_end > ? AND bucket.bucket_start < ? THEN bucket.total_tokens ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN bucket.bucket_end > ? AND bucket.bucket_start < ? THEN bucket.cached_input_tokens ELSE 0 END), 0)
             FROM ai_history_file_session_link AS session
@@ -59,7 +63,7 @@ extension AIUsageStore {
              AND bucket.file_path = session.file_path
              AND bucket.project_path = session.project_path
              AND bucket.session_key = session.session_key
-            WHERE (? IS NULL OR session.first_seen_at >= ?)
+            WHERE (? IS NULL OR session.last_seen_at >= ?)
             GROUP BY
                 session.source,
                 session.file_path,
@@ -82,16 +86,34 @@ extension AIUsageStore {
             }
             defer { sqlite3_finalize(statement) }
 
-            sqlite3_bind_double(statement, 1, startOfDay.timeIntervalSince1970)
-            sqlite3_bind_double(statement, 2, endOfDay.timeIntervalSince1970)
-            sqlite3_bind_double(statement, 3, startOfDay.timeIntervalSince1970)
-            sqlite3_bind_double(statement, 4, endOfDay.timeIntervalSince1970)
             if let cutoff {
+                sqlite3_bind_double(statement, 1, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 2, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 3, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 4, cutoff.timeIntervalSince1970)
                 sqlite3_bind_double(statement, 5, cutoff.timeIntervalSince1970)
                 sqlite3_bind_double(statement, 6, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 7, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 8, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 9, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 10, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 11, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 12, cutoff.timeIntervalSince1970)
             } else {
-                sqlite3_bind_null(statement, 5)
-                sqlite3_bind_null(statement, 6)
+                for index in 1 ... 12 {
+                    sqlite3_bind_null(statement, Int32(index))
+                }
+            }
+            sqlite3_bind_double(statement, 13, startOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 14, endOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 15, startOfDay.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 16, endOfDay.timeIntervalSince1970)
+            if let cutoff {
+                sqlite3_bind_double(statement, 17, cutoff.timeIntervalSince1970)
+                sqlite3_bind_double(statement, 18, cutoff.timeIntervalSince1970)
+            } else {
+                sqlite3_bind_null(statement, 17)
+                sqlite3_bind_null(statement, 18)
             }
 
             var items: [AISessionSummary] = []

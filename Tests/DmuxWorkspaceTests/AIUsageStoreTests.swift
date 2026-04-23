@@ -384,7 +384,7 @@ final class AIUsageStoreTests: XCTestCase {
         XCTAssertEqual(storedSummaryWithoutModifiedAt?.sessions.first?.totalTokens, 321)
     }
 
-    func testIndexedSessionsSinceClaimUsesFirstSeenAtCutoff() {
+    func testIndexedSessionsSinceClaimKeepsPostCutoffBucketsFromExistingSessions() {
         let store = makeStore()
         let projectID = UUID()
         let projectPath = "/tmp/pet-cutoff-project"
@@ -396,6 +396,25 @@ final class AIUsageStoreTests: XCTestCase {
             fileModifiedAt: 1_713_700_100,
             projectPath: projectPath,
             usageBuckets: [
+                AIUsageBucket(
+                    source: "codex",
+                    sessionKey: "before-cutoff",
+                    externalSessionID: "before-cutoff",
+                    sessionTitle: "Old Session",
+                    model: "gpt-5.4",
+                    projectID: projectID,
+                    projectName: "Pet Cutoff",
+                    bucketStart: cutoff.addingTimeInterval(-1_800),
+                    bucketEnd: cutoff,
+                    inputTokens: 30,
+                    outputTokens: 20,
+                    totalTokens: 50,
+                    cachedInputTokens: 0,
+                    requestCount: 1,
+                    activeDurationSeconds: 0,
+                    firstSeenAt: cutoff.addingTimeInterval(-3_600),
+                    lastSeenAt: cutoff.addingTimeInterval(120)
+                ),
                 AIUsageBucket(
                     source: "codex",
                     sessionKey: "before-cutoff",
@@ -484,9 +503,40 @@ final class AIUsageStoreTests: XCTestCase {
         store.saveExternalSummary(summary)
 
         let sessions = store.indexedSessions(since: cutoff)
-        XCTAssertEqual(sessions.map(\.externalSessionID), ["after-cutoff"])
+        XCTAssertEqual(sessions.map(\.externalSessionID), ["after-cutoff", "before-cutoff"])
         XCTAssertEqual(sessions.first?.sessionTitle, "Fresh Session")
         XCTAssertEqual(sessions.first?.totalTokens, 100)
+        XCTAssertEqual(sessions.last?.sessionTitle, "Old Session")
+        XCTAssertEqual(sessions.last?.totalTokens, 150)
+        XCTAssertEqual(sessions.last?.requestCount, 2)
+        XCTAssertEqual(sessions.last?.activeDurationSeconds, 0)
+    }
+
+    func testDatabaseConfigurationEnablesWALAndBucketStartIndex() throws {
+        let store = makeStore()
+
+        try store.withDatabase { db in
+            var pragmaStatement: OpaquePointer?
+            XCTAssertEqual(sqlite3_prepare_v2(db, "PRAGMA journal_mode;", -1, &pragmaStatement, nil), SQLITE_OK)
+            defer { sqlite3_finalize(pragmaStatement) }
+            XCTAssertEqual(sqlite3_step(pragmaStatement), SQLITE_ROW)
+            let journalMode = sqlite3_column_text(pragmaStatement, 0).map { String(cString: $0).lowercased() }
+            XCTAssertEqual(journalMode, "wal")
+
+            var indexStatement: OpaquePointer?
+            XCTAssertEqual(
+                sqlite3_prepare_v2(
+                    db,
+                    "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_ai_history_file_usage_bucket_bucket_start' LIMIT 1;",
+                    -1,
+                    &indexStatement,
+                    nil
+                ),
+                SQLITE_OK
+            )
+            defer { sqlite3_finalize(indexStatement) }
+            XCTAssertEqual(sqlite3_step(indexStatement), SQLITE_ROW)
+        }
     }
 
     private func makeSessionSummary(projectPath: String, title: String, totalTokens: Int) -> AISessionSummary {

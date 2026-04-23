@@ -67,6 +67,15 @@ struct AIUsageService: Sendable {
         )
         let nextLiveOverlayTokens = adjustedLiveSnapshots.reduce(0) { $0 + $1.currentTotalTokens }
         let nextLiveOverlayCachedInputTokens = adjustedLiveSnapshots.reduce(0) { $0 + $1.currentCachedInputTokens }
+        let shouldPreserveCompletedOverlay = adjustedLiveSnapshots.contains { $0.hasCompletedTurn } &&
+            currentState.liveOverlayTokens > nextLiveOverlayTokens
+        let preservedCompletedOverlayTokens = shouldPreserveCompletedOverlay
+            ? currentState.liveOverlayTokens - nextLiveOverlayTokens
+            : 0
+        let preservedCompletedOverlayCachedInputTokens = shouldPreserveCompletedOverlay &&
+            currentState.liveOverlayCachedInputTokens > nextLiveOverlayCachedInputTokens
+            ? currentState.liveOverlayCachedInputTokens - nextLiveOverlayCachedInputTokens
+            : 0
 
         var nextState = currentState
         nextState.currentSnapshot = adjustedCurrentSnapshot
@@ -80,10 +89,10 @@ struct AIUsageService: Sendable {
             let baseProjectCached = max(0, summary.projectCachedInputTokens - currentState.liveOverlayCachedInputTokens)
             let baseTodayTotal = max(0, summary.todayTotalTokens - currentState.liveOverlayTokens)
             let baseTodayCached = max(0, summary.todayCachedInputTokens - currentState.liveOverlayCachedInputTokens)
-            summary.projectTotalTokens = baseProjectTotal + nextLiveOverlayTokens
-            summary.projectCachedInputTokens = baseProjectCached + nextLiveOverlayCachedInputTokens
-            summary.todayTotalTokens = baseTodayTotal + nextLiveOverlayTokens
-            summary.todayCachedInputTokens = baseTodayCached + nextLiveOverlayCachedInputTokens
+            summary.projectTotalTokens = baseProjectTotal + nextLiveOverlayTokens + preservedCompletedOverlayTokens
+            summary.projectCachedInputTokens = baseProjectCached + nextLiveOverlayCachedInputTokens + preservedCompletedOverlayCachedInputTokens
+            summary.todayTotalTokens = baseTodayTotal + nextLiveOverlayTokens + preservedCompletedOverlayTokens
+            summary.todayCachedInputTokens = baseTodayCached + nextLiveOverlayCachedInputTokens + preservedCompletedOverlayCachedInputTokens
             summary.currentSessionTokens = adjustedCurrentSnapshot?.currentTotalTokens ?? 0
             summary.currentSessionCachedInputTokens = adjustedCurrentSnapshot?.currentCachedInputTokens ?? 0
             summary.currentTool = adjustedCurrentSnapshot?.tool
@@ -98,6 +107,8 @@ struct AIUsageService: Sendable {
                 project: project,
                 liveSnapshot: adjustedCurrentSnapshot,
                 sessions: currentState.sessions,
+                liveOverlayTokens: nextLiveOverlayTokens,
+                liveOverlayCachedInputTokens: nextLiveOverlayCachedInputTokens,
                 todayTotalTokens: todayTotalTokens(
                     timeBuckets: currentState.todayTimeBuckets,
                     heatmap: currentState.heatmap
@@ -297,6 +308,8 @@ struct AIUsageService: Sendable {
         project: Project,
         liveSnapshot: AITerminalSessionSnapshot?,
         sessions: [AISessionSummary],
+        liveOverlayTokens: Int,
+        liveOverlayCachedInputTokens: Int,
         todayTotalTokens: Int,
         todayCachedInputTokens: Int
     ) -> AIProjectUsageSummary {
@@ -305,10 +318,10 @@ struct AIUsageService: Sendable {
             projectName: project.name,
             currentSessionTokens: liveSnapshot?.currentTotalTokens ?? 0,
             currentSessionCachedInputTokens: liveSnapshot?.currentCachedInputTokens ?? 0,
-            projectTotalTokens: sessions.reduce(0) { $0 + $1.totalTokens },
-            projectCachedInputTokens: sessions.reduce(0) { $0 + $1.cachedInputTokens },
-            todayTotalTokens: todayTotalTokens,
-            todayCachedInputTokens: todayCachedInputTokens,
+            projectTotalTokens: sessions.reduce(0) { $0 + $1.totalTokens } + liveOverlayTokens,
+            projectCachedInputTokens: sessions.reduce(0) { $0 + $1.cachedInputTokens } + liveOverlayCachedInputTokens,
+            todayTotalTokens: todayTotalTokens + liveOverlayTokens,
+            todayCachedInputTokens: todayCachedInputTokens + liveOverlayCachedInputTokens,
             currentTool: liveSnapshot?.tool,
             currentModel: liveSnapshot?.model,
             currentContextUsagePercent: liveSnapshot?.currentContextUsagePercent,

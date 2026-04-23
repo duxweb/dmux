@@ -173,6 +173,147 @@ final class AIUsageServiceTests: XCTestCase {
         XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 12)
     }
 
+    func testLightweightLivePanelStateFallbackSummaryIncludesLiveOverlay() {
+        let store = AIUsageStore(databaseURL: databaseURL)
+        let service = AIUsageService(wrapperStore: store)
+        let project = makeProject(name: "Project A", path: "/tmp/project-a")
+
+        let baselineState = AIStatsPanelState(
+            projectSummary: nil,
+            currentSnapshot: nil,
+            liveSnapshots: [],
+            liveOverlayTokens: 0,
+            liveOverlayCachedInputTokens: 0,
+            sessions: [makeSessionSummary(project: project, externalSessionID: "a-1", totalTokens: 500)],
+            heatmap: [],
+            todayTimeBuckets: [],
+            toolBreakdown: [],
+            modelBreakdown: [],
+            indexedAt: nil,
+            indexingStatus: .completed(detail: "done")
+        )
+
+        let liveSnapshot = AITerminalSessionSnapshot(
+            sessionID: UUID(),
+            externalSessionID: "claude-1",
+            projectID: project.id,
+            projectName: project.name,
+            sessionTitle: "Live",
+            tool: "claude",
+            model: "claude-sonnet-4-6",
+            status: "running",
+            isRunning: true,
+            startedAt: nil,
+            updatedAt: Date(),
+            currentInputTokens: 40,
+            currentOutputTokens: 15,
+            currentTotalTokens: 55,
+            currentCachedInputTokens: 20,
+            baselineInputTokens: 10,
+            baselineOutputTokens: 5,
+            baselineTotalTokens: 15,
+            baselineCachedInputTokens: 8,
+            currentContextWindow: nil,
+            currentContextUsedTokens: nil,
+            currentContextUsagePercent: nil,
+            wasInterrupted: false,
+            hasCompletedTurn: false
+        )
+
+        let nextState = service.lightweightLivePanelState(
+            from: baselineState,
+            project: project,
+            liveSnapshots: [liveSnapshot],
+            currentSnapshot: liveSnapshot,
+            status: .completed(detail: "done")
+        )
+
+        XCTAssertEqual(nextState.projectSummary?.projectTotalTokens, 540)
+        XCTAssertEqual(nextState.projectSummary?.projectCachedInputTokens, 12)
+        XCTAssertEqual(nextState.projectSummary?.todayTotalTokens, 40)
+        XCTAssertEqual(nextState.projectSummary?.todayCachedInputTokens, 12)
+        XCTAssertEqual(nextState.currentSnapshot?.currentTotalTokens, 40)
+        XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 12)
+    }
+
+    func testLightweightLivePanelStatePreservesCompletedOverlayUntilIndexedRefresh() {
+        let store = AIUsageStore(databaseURL: databaseURL)
+        let service = AIUsageService(wrapperStore: store)
+        let project = makeProject(name: "Project A", path: "/tmp/project-a")
+
+        let baselineState = AIStatsPanelState(
+            projectSummary: AIProjectUsageSummary(
+                projectID: project.id,
+                projectName: project.name,
+                currentSessionTokens: 40,
+                currentSessionCachedInputTokens: 12,
+                projectTotalTokens: 540,
+                projectCachedInputTokens: 132,
+                todayTotalTokens: 340,
+                todayCachedInputTokens: 92,
+                currentTool: "claude",
+                currentModel: "claude-sonnet-4-6",
+                currentContextUsagePercent: nil,
+                currentContextUsedTokens: nil,
+                currentContextWindow: nil,
+                currentSessionUpdatedAt: nil
+            ),
+            currentSnapshot: nil,
+            liveSnapshots: [],
+            liveOverlayTokens: 40,
+            liveOverlayCachedInputTokens: 12,
+            sessions: [],
+            heatmap: [],
+            todayTimeBuckets: [],
+            toolBreakdown: [],
+            modelBreakdown: [],
+            indexedAt: nil,
+            indexingStatus: .completed(detail: "done")
+        )
+
+        let completedSnapshot = AITerminalSessionSnapshot(
+            sessionID: UUID(),
+            externalSessionID: "claude-1",
+            projectID: project.id,
+            projectName: project.name,
+            sessionTitle: "Live",
+            tool: "claude",
+            model: "claude-sonnet-4-6",
+            status: "completed",
+            isRunning: false,
+            startedAt: nil,
+            updatedAt: Date(),
+            currentInputTokens: 40,
+            currentOutputTokens: 15,
+            currentTotalTokens: 55,
+            currentCachedInputTokens: 20,
+            baselineInputTokens: 40,
+            baselineOutputTokens: 15,
+            baselineTotalTokens: 55,
+            baselineCachedInputTokens: 20,
+            currentContextWindow: nil,
+            currentContextUsedTokens: nil,
+            currentContextUsagePercent: nil,
+            wasInterrupted: false,
+            hasCompletedTurn: true
+        )
+
+        let nextState = service.lightweightLivePanelState(
+            from: baselineState,
+            project: project,
+            liveSnapshots: [completedSnapshot],
+            currentSnapshot: completedSnapshot,
+            status: .completed(detail: "done")
+        )
+
+        XCTAssertEqual(nextState.projectSummary?.projectTotalTokens, 540)
+        XCTAssertEqual(nextState.projectSummary?.projectCachedInputTokens, 132)
+        XCTAssertEqual(nextState.projectSummary?.todayTotalTokens, 340)
+        XCTAssertEqual(nextState.projectSummary?.todayCachedInputTokens, 92)
+        XCTAssertEqual(nextState.currentSnapshot?.currentTotalTokens, 0)
+        XCTAssertEqual(nextState.currentSnapshot?.currentCachedInputTokens, 0)
+    }
+
     private func makeProject(name: String, path: String) -> Project {
         Project(
             id: UUID(),

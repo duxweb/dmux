@@ -13,7 +13,7 @@ final class AISessionStoreTests: XCTestCase {
         store.reset()
     }
 
-    func testPromptSubmitThenTurnCompleteTracksBaselineAndCommittedTokens() throws {
+    func testPromptSubmitThenTurnCompleteResetsBaselineToCommittedTokens() throws {
         let terminalID = UUID()
         let projectID = UUID()
 
@@ -57,7 +57,7 @@ final class AISessionStoreTests: XCTestCase {
 
         let session = try XCTUnwrap(store.session(for: terminalID))
         XCTAssertEqual(session.state, .idle)
-        XCTAssertEqual(session.baselineTotalTokens, 12)
+        XCTAssertEqual(session.baselineTotalTokens, 42)
         XCTAssertEqual(session.committedTotalTokens, 42)
         XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
         XCTAssertEqual(store.currentDisplaySnapshot(projectID: projectID, selectedSessionID: terminalID)?.sessionID, terminalID)

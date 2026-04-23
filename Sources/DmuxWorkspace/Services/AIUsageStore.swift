@@ -2,7 +2,13 @@ import Foundation
 import SQLite3
 
 struct AIUsageStore: Sendable {
+    private final class InitializationState: @unchecked Sendable {
+        let lock = NSLock()
+        var databasePaths: Set<String> = []
+    }
+
     private static let normalizedHistorySchemaVersion = 6
+    private static let initializationState = InitializationState()
     let aggregator = AIHistoryAggregationService()
     private let databaseFileURL: URL
 
@@ -31,6 +37,16 @@ struct AIUsageStore: Sendable {
     }
 
     private func initializeIfNeeded(_ db: OpaquePointer) throws {
+        try configureConnection(db)
+
+        let databasePath = databaseFileURL.standardizedFileURL.path
+        Self.initializationState.lock.lock()
+        defer { Self.initializationState.lock.unlock() }
+
+        if Self.initializationState.databasePaths.contains(databasePath) {
+            return
+        }
+
         let statements = normalizedSchemaStatements()
 
         for statement in statements {
@@ -40,6 +56,21 @@ struct AIUsageStore: Sendable {
         }
 
         try migrateNormalizedHistoryIfNeeded(db)
+        Self.initializationState.databasePaths.insert(databasePath)
+    }
+
+    private func configureConnection(_ db: OpaquePointer) throws {
+        let pragmas = [
+            "PRAGMA journal_mode=WAL;",
+            "PRAGMA synchronous=NORMAL;",
+            "PRAGMA temp_store=MEMORY;"
+        ]
+
+        for pragma in pragmas {
+            guard sqlite3_exec(db, pragma, nil, nil, nil) == SQLITE_OK else {
+                throw NSError(domain: "AIUsageStore", code: 5, userInfo: [NSLocalizedDescriptionKey: "Failed to configure AI usage database"])
+            }
+        }
     }
 
     private func normalizedSchemaStatements() -> [String] {
@@ -118,6 +149,7 @@ struct AIUsageStore: Sendable {
             "CREATE INDEX IF NOT EXISTS idx_ai_history_file_checkpoint_project_path ON ai_history_file_checkpoint(project_path);",
             "CREATE INDEX IF NOT EXISTS idx_ai_history_file_session_link_project_path ON ai_history_file_session_link(project_path);",
             "CREATE INDEX IF NOT EXISTS idx_ai_history_file_usage_bucket_project_path ON ai_history_file_usage_bucket(project_path, bucket_start);",
+            "CREATE INDEX IF NOT EXISTS idx_ai_history_file_usage_bucket_bucket_start ON ai_history_file_usage_bucket(bucket_start);",
             "CREATE INDEX IF NOT EXISTS idx_ai_history_project_index_state_indexed_at ON ai_history_project_index_state(indexed_at DESC);"
         ]
     }

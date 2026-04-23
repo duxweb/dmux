@@ -541,6 +541,10 @@ final class AISessionStore {
         session.committedOutputTokens = committedOutput
         session.committedCachedInputTokens = committedCached
         session.committedTotalTokens = committedTotal
+        session.baselineInputTokens = committedInput
+        session.baselineOutputTokens = committedOutput
+        session.baselineCachedInputTokens = committedCached
+        session.baselineTotalTokens = committedTotal
     }
 
     private func resolvedCommittedTotalTokens(for session: TerminalSessionState, incomingTotalTokens: Int?) -> Int {
