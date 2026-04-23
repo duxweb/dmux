@@ -989,7 +989,7 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/duxphp/libghostty-spm";
 			requirement = {
-				branch = "pr/appkit-input-alignment";
+				branch = "pr/appkit-shift-direct-input";
 				kind = branch;
 			};
 		};
