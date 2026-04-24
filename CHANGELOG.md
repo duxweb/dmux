@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-04-24
+
+### Fixed
+
+- Replaced global floating tooltip windows with local SwiftUI overlays so sidebar and title-bar hover labels stay anchored to their controls in release builds.
+- Fixed Codex memory extraction so Codux no longer forces the built-in default model over the user's local Codex provider configuration.
+
 ## [0.5.3] - 2026-04-24
 
 ### Fixed

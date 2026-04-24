@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 enum FloatingTooltipPlacement {
@@ -6,123 +5,9 @@ enum FloatingTooltipPlacement {
     case right
 }
 
-@MainActor
-final class FloatingTooltipManager {
-    static let shared = FloatingTooltipManager()
-
-    private let panel: FloatingTooltipPanel
-    private let hostingController: NSHostingController<FloatingTooltipBubbleView>
-    private weak var parentWindow: NSWindow?
-    private var currentText: String?
-
-    private init() {
-        panel = FloatingTooltipPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isFloatingPanel = true
-        panel.level = .statusBar
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = false
-        panel.hidesOnDeactivate = false
-        panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.moveToActiveSpace, .transient]
-
-        hostingController = NSHostingController(rootView: FloatingTooltipBubbleView(text: ""))
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-        hostingController.view.wantsLayer = true
-        hostingController.view.layer?.masksToBounds = false
-        panel.contentViewController = hostingController
-    }
-
-    func show(text: String, from anchorView: NSView, placement: FloatingTooltipPlacement) {
-        guard let window = anchorView.window else { return }
-
-        let anchorRectInWindow: NSRect
-        if let superview = anchorView.superview {
-            anchorRectInWindow = superview.convert(anchorView.frame, to: nil)
-        } else {
-            anchorRectInWindow = anchorView.convert(anchorView.bounds, to: nil)
-        }
-        let anchorRectOnScreen = window.convertToScreen(anchorRectInWindow)
-        let contentSize = FloatingTooltipBubbleView.size(for: text)
-        let origin = tooltipOrigin(
-            for: anchorRectOnScreen,
-            contentSize: contentSize,
-            placement: placement
-        )
-
-        if parentWindow !== window {
-            if let parentWindow {
-                parentWindow.removeChildWindow(panel)
-            }
-            self.parentWindow = window
-        }
-
-        hostingController.rootView = FloatingTooltipBubbleView(text: text)
-        panel.setFrame(NSRect(origin: origin, size: contentSize), display: false)
-
-        if !panel.isVisible {
-            panel.orderFront(nil)
-        }
-
-        currentText = text
-    }
-
-    func hide(text: String? = nil) {
-        if let text, currentText != text {
-            return
-        }
-        panel.orderOut(nil)
-        currentText = nil
-    }
-
-    private func tooltipOrigin(
-        for anchorRect: NSRect,
-        contentSize: NSSize,
-        placement: FloatingTooltipPlacement
-    ) -> NSPoint {
-        let offset: CGFloat = 8
-        switch placement {
-        case .below:
-            return NSPoint(
-                x: round(anchorRect.midX - contentSize.width / 2),
-                y: round(anchorRect.minY - contentSize.height - offset)
-            )
-        case .right:
-            return NSPoint(
-                x: round(anchorRect.maxX + offset),
-                y: round(anchorRect.midY - contentSize.height / 2)
-            )
-        }
-    }
-}
-
-private final class FloatingTooltipPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
-}
-
 private struct FloatingTooltipBubbleView: View {
     let text: String
     private static let maxWidth: CGFloat = 240
-
-    static func size(for text: String) -> NSSize {
-        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let constraint = NSSize(width: maxWidth - 20, height: .greatestFiniteMagnitude)
-        let rect = (text as NSString).boundingRect(
-            with: constraint,
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: attributes
-        )
-        let width = min(maxWidth, ceil(rect.width) + 20)
-        let height = ceil(rect.height) + 16
-        return NSSize(width: width, height: height)
-    }
 
     var body: some View {
         Text(text)
@@ -138,32 +23,8 @@ private struct FloatingTooltipBubbleView: View {
                     .fill(AppTheme.panel.opacity(0.98))
             )
             .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
-private struct FloatingTooltipAnchorView: NSViewRepresentable {
-    @Binding var view: NSView?
-
-    func makeNSView(context: Context) -> NSView {
-        let nsView = FloatingTooltipAnchorNSView(frame: .zero)
-        DispatchQueue.main.async {
-            view = nsView
-        }
-        return nsView
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            view = nsView
-        }
-    }
-}
-
-private final class FloatingTooltipAnchorNSView: NSView {
-    override var isFlipped: Bool { true }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+            .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 4)
+            .allowsHitTesting(false)
     }
 }
 
@@ -172,26 +33,46 @@ struct FloatingTooltipModifier: ViewModifier {
     let enabled: Bool
     let placement: FloatingTooltipPlacement
 
-    @State private var anchorView: NSView?
+    @State private var isHovered = false
 
     func body(content: Content) -> some View {
         content
-            .overlay(FloatingTooltipAnchorView(view: $anchorView).allowsHitTesting(false))
-            .onHover { hovering in
-                guard enabled else {
-                    FloatingTooltipManager.shared.hide(text: text)
-                    return
+            .overlay(alignment: overlayAlignment) {
+                if enabled, isHovered, !text.isEmpty {
+                    FloatingTooltipBubbleView(text: text)
+                        .offset(tooltipOffset)
+                        .zIndex(1_000)
                 }
-                guard let anchorView else { return }
-                if hovering {
-                    FloatingTooltipManager.shared.show(text: text, from: anchorView, placement: placement)
-                } else {
-                    FloatingTooltipManager.shared.hide(text: text)
+            }
+            .onHover { hovering in
+                isHovered = hovering && enabled
+            }
+            .onChange(of: enabled) { _, newValue in
+                if !newValue {
+                    isHovered = false
                 }
             }
             .onDisappear {
-                FloatingTooltipManager.shared.hide(text: text)
+                isHovered = false
             }
+    }
+
+    private var overlayAlignment: Alignment {
+        switch placement {
+        case .below:
+            return .bottom
+        case .right:
+            return .trailing
+        }
+    }
+
+    private var tooltipOffset: CGSize {
+        switch placement {
+        case .below:
+            return CGSize(width: 0, height: 28)
+        case .right:
+            return CGSize(width: 18, height: 0)
+        }
     }
 }
 

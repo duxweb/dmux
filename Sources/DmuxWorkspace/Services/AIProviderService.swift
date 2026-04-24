@@ -96,8 +96,9 @@ struct AIProviderFactory: Sendable {
                     if let workingDirectory = normalizedNonEmptyString(request.workingDirectory) {
                         args.append(contentsOf: ["--cd", workingDirectory])
                     }
-                    if !configuration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        args.append(contentsOf: ["--model", configuration.model])
+                    let model = configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !model.isEmpty, model != AppAIProviderKind.codex.defaultModel {
+                        args.append(contentsOf: ["--model", model])
                     }
                     let prompt = mergedPrompt(request: request)
                     args.append("-")
