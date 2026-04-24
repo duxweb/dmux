@@ -97,8 +97,8 @@ struct AIProviderFactory: Sendable {
                         args.append(contentsOf: ["--cd", workingDirectory])
                     }
                     let model = configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !model.isEmpty, model != AppAIProviderKind.codex.defaultModel {
-                        args.append(contentsOf: ["--model", model])
+                    if !model.isEmpty {
+                        args.append("--model=\(model)")
                     }
                     let prompt = mergedPrompt(request: request)
                     args.append("-")

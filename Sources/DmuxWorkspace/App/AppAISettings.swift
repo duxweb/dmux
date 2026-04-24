@@ -33,7 +33,7 @@ enum AppAIProviderKind: String, Codable, CaseIterable, Identifiable, Sendable {
         case .claude:
             return "sonnet"
         case .codex:
-            return "gpt-5-codex"
+            return "gpt-5.3-codex"
         case .gemini:
             return "gemini-2.5-pro"
         case .opencode:

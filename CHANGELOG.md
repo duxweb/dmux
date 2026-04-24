@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-04-24
+
+### Fixed
+
+- Fixed Codex memory extraction model overrides by passing the configured model with the current Codex CLI `--model=...` form and updating the built-in Codex default to `gpt-5.3-codex`.
+
 ## [0.5.4] - 2026-04-24
 
 ### Fixed
