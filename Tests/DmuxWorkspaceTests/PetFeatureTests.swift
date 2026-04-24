@@ -608,6 +608,134 @@ final class PetStoreLifecycleTests: XCTestCase {
         XCTAssertEqual(store.currentExperienceTokens, 0)
     }
 
+    func testProjectRemovalKeepsPetProgressStable() {
+        let store = PetStore(storage: .inMemory)
+        let projectA = UUID()
+        let projectB = UUID()
+        store.claim(option: .voidcat, customName: "")
+
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 120, projectB: 300],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 180, projectB: 340],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_060)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 100)
+
+        store.forgetProjectBaseline(projectB)
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 180],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_120)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 100)
+        XCTAssertEqual(store.currentExperienceTokens, 0)
+        XCTAssertEqual(store.projectNormalizedTokenWatermarks[projectA], 180)
+        XCTAssertNil(store.projectNormalizedTokenWatermarks[projectB])
+        XCTAssertEqual(store.globalNormalizedTotalWatermark, 180)
+
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 260],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_180)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 180)
+        XCTAssertEqual(store.currentExperienceTokens, 0)
+
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 260, projectB: 900],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_240)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 180)
+        XCTAssertEqual(store.currentExperienceTokens, 0)
+        XCTAssertEqual(store.projectNormalizedTokenWatermarks[projectB], 900)
+
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 260, projectB: 980],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_300)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 260)
+        XCTAssertEqual(store.currentExperienceTokens, 0)
+    }
+
+    func testRefreshDerivedStatePrunesMissingProjectBaselineFromSnapshotTotals() {
+        let store = PetStore(storage: .inMemory)
+        let projectA = UUID()
+        let projectB = UUID()
+        store.claim(option: .voidcat, customName: "")
+
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 120, projectB: 300],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 180, projectB: 340],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_060)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 100)
+
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 260],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_120)
+        )
+
+        XCTAssertEqual(store.currentHatchTokens, 180)
+        XCTAssertEqual(store.currentExperienceTokens, 0)
+        XCTAssertEqual(store.projectNormalizedTokenWatermarks[projectA], 260)
+        XCTAssertNil(store.projectNormalizedTokenWatermarks[projectB])
+        XCTAssertEqual(store.globalNormalizedTotalWatermark, 260)
+    }
+
+    func testReopenedProjectsStartFreshAfterAllBaselinesAreForgotten() {
+        let store = PetStore(storage: .inMemory)
+        let projectA = UUID()
+        let projectB = UUID()
+        let reopenedProjectA = UUID()
+        store.claim(option: .voidcat, customName: "")
+
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 200, projectB: 400],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [projectA: 260, projectB: 460],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_060)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 120)
+
+        store.forgetProjectBaselines([projectA, projectB])
+        XCTAssertTrue(store.projectNormalizedTokenWatermarks.isEmpty)
+        XCTAssertNil(store.globalNormalizedTotalWatermark)
+
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [reopenedProjectA: 960],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_120)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 120)
+        XCTAssertEqual(store.currentExperienceTokens, 0)
+        XCTAssertEqual(store.projectNormalizedTokenWatermarks[reopenedProjectA], 960)
+
+        store.refreshDerivedState(
+            totalNormalizedTokensByProject: [reopenedProjectA: 1_040],
+            computedStats: nil,
+            now: Date(timeIntervalSince1970: 1_700_000_180)
+        )
+        XCTAssertEqual(store.currentHatchTokens, 200)
+        XCTAssertEqual(store.currentExperienceTokens, 0)
+    }
+
     func testEncryptedDatStorageRoundTripsWithoutKeychain() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -299,77 +299,6 @@ has_prefix_arg() {
   return 1
 }
 
-now() {
-  if [[ -n "${EPOCHREALTIME:-}" ]]; then
-    printf "%.3f" "${EPOCHREALTIME}"
-  elif [[ -n "${EPOCHSECONDS:-}" ]]; then
-    printf "%.3f" "${EPOCHSECONDS}"
-  else
-    /bin/date +%s | awk '{ printf "%.3f", $1 }'
-  fi
-}
-
-send_usage_runtime_event() {
-  local phase="${1:-running}"
-  local external_session_id="${2:-}"
-  local model="${3:-}"
-
-  [[ -n "${DMUX_RUNTIME_SOCKET:-}" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_PROJECT_ID:-}" ]] || return 0
-  command -v /usr/bin/nc >/dev/null 2>&1 || return 0
-  local now
-  now="$(now)"
-  local payload
-  payload="$(
-    {
-      print -rn -- '{"kind":"usage","payload":{'
-      print -rn -- "\"sessionId\":\"$(json_escape "${DMUX_SESSION_ID}")\","
-      print -rn -- "\"sessionInstanceId\":\"$(json_escape "${DMUX_SESSION_INSTANCE_ID:-}")\","
-      if [[ -n "${DMUX_ACTIVE_AI_INVOCATION_ID:-}" ]]; then
-        print -rn -- "\"invocationId\":\"$(json_escape "${DMUX_ACTIVE_AI_INVOCATION_ID}")\","
-      else
-        print -rn -- "\"invocationId\":null,"
-      fi
-      if [[ -n "${external_session_id}" ]]; then
-        print -rn -- "\"externalSessionID\":\"$(json_escape "${external_session_id}")\","
-      else
-        print -rn -- "\"externalSessionID\":null,"
-      fi
-      print -rn -- "\"projectId\":\"$(json_escape "${DMUX_PROJECT_ID}")\","
-      print -rn -- "\"projectName\":\"$(json_escape "${DMUX_PROJECT_NAME:-Workspace}")\","
-      print -rn -- "\"projectPath\":\"$(json_escape "${DMUX_PROJECT_PATH:-}")\","
-      print -rn -- "\"sessionTitle\":\"$(json_escape "${DMUX_SESSION_TITLE:-Terminal}")\","
-      print -rn -- "\"tool\":\"$(json_escape "${DMUX_ACTIVE_AI_TOOL:-$tool_name}")\","
-      if [[ -n "${model}" ]]; then
-        print -rn -- "\"model\":\"$(json_escape "${model}")\","
-      else
-        print -rn -- "\"model\":null,"
-      fi
-      print -rn -- "\"status\":\"$(json_escape "${phase}")\","
-      if [[ "${phase}" == "running" && ( "${DMUX_ACTIVE_AI_TOOL:-$tool_name}" == "codex" || "${DMUX_ACTIVE_AI_TOOL:-$tool_name}" == "claude" || "${DMUX_ACTIVE_AI_TOOL:-$tool_name}" == "claude-code" || "${DMUX_ACTIVE_AI_TOOL:-$tool_name}" == "gemini" || "${DMUX_ACTIVE_AI_TOOL:-$tool_name}" == "opencode" ) ]]; then
-        print -rn -- "\"responseState\":null,"
-      else
-        print -rn -- "\"responseState\":\"idle\","
-      fi
-      print -rn -- "\"updatedAt\":${now},"
-      print -rn -- "\"startedAt\":${DMUX_ACTIVE_AI_STARTED_AT:-$now},"
-      if [[ "${phase}" == "running" ]]; then
-        print -rn -- "\"finishedAt\":null,"
-      else
-        print -rn -- "\"finishedAt\":${now},"
-      fi
-      print -rn -- "\"inputTokens\":0,"
-      print -rn -- "\"outputTokens\":0,"
-      print -rn -- "\"totalTokens\":0,"
-      print -rn -- "\"contextWindow\":null,"
-      print -rn -- "\"contextUsedTokens\":null,"
-      print -rn -- "\"contextUsagePercent\":null"
-      print -rn -- '}}'
-    }
-  )"
-  print -r -- "${payload}" | /usr/bin/nc -U -w 1 "${DMUX_RUNTIME_SOCKET}" >/dev/null 2>&1 || true
-  log_line "usage event tool=${DMUX_ACTIVE_AI_TOOL:-$tool_name} phase=${phase} session=${DMUX_SESSION_ID} externalSession=${external_session_id:-nil}"
-}
-
 run_wrapped_command() {
   local external_session_id="${1:-}"
   local model="${2:-}"
@@ -385,8 +314,8 @@ run_wrapped_command() {
     "$@"
   fi
   local exit_code=$?
-  if [[ "${tool_name}" == "opencode" && -z "${external_session_id}" && -n "${DMUX_STATUS_DIR:-}" && -n "${DMUX_SESSION_ID:-}" ]]; then
-    local opencode_state_path="${DMUX_STATUS_DIR}/opencode-session-${DMUX_SESSION_ID}.json"
+  if [[ "${tool_name}" == "opencode" && -z "${external_session_id}" && -n "${DMUX_OPENCODE_SESSION_MAP_DIR:-}" && -n "${DMUX_SESSION_ID:-}" ]]; then
+    local opencode_state_path="${DMUX_OPENCODE_SESSION_MAP_DIR}/opencode-session-${DMUX_SESSION_ID}.json"
     if [[ -f "${opencode_state_path}" ]]; then
       local resolved_state
       resolved_state="$(
@@ -425,7 +354,6 @@ PY
       rm -f -- "${opencode_state_path}"
     fi
   fi
-  send_usage_runtime_event completed "${external_session_id}" "${model}"
   log_line "process exit tool=${DMUX_ACTIVE_AI_TOOL:-$tool_name} session=${DMUX_SESSION_ID:-nil} code=${exit_code} externalSession=${external_session_id:-nil}"
   return "${exit_code}"
 }

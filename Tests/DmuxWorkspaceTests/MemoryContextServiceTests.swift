@@ -101,18 +101,22 @@ final class MemoryContextServiceTests: XCTestCase {
         let geminiText = try String(contentsOf: resolvedArtifacts.workspaceRootURL.appendingPathComponent("GEMINI.md"))
         let promptText = try String(contentsOf: resolvedArtifacts.promptFileURL)
 
+        XCTAssertTrue(claudeText.contains("Launch context for Claude Code."))
         XCTAssertTrue(claudeText.contains("Keep answers concise."))
         XCTAssertTrue(claudeText.contains("Claude should summarize implementation tradeoffs."))
         XCTAssertFalse(claudeText.contains("Codex should patch files with apply_patch only."))
 
+        XCTAssertTrue(agentsText.contains("Launch context for Codex."))
         XCTAssertTrue(agentsText.contains("Keep answers concise."))
         XCTAssertTrue(agentsText.contains("Codex should patch files with apply_patch only."))
         XCTAssertFalse(agentsText.contains("Gemini should prefer policy-driven approvals."))
 
+        XCTAssertTrue(geminiText.contains("Launch context for Gemini."))
         XCTAssertTrue(geminiText.contains("Keep answers concise."))
         XCTAssertTrue(geminiText.contains("Gemini should prefer policy-driven approvals."))
         XCTAssertFalse(geminiText.contains("Claude should summarize implementation tradeoffs."))
 
+        XCTAssertTrue(promptText.contains("Project context: Dmux"))
         XCTAssertTrue(promptText.contains("Keep answers concise."))
         XCTAssertTrue(promptText.contains("Claude should summarize implementation tradeoffs."))
         let linkedDestination = try FileManager.default.destinationOfSymbolicLink(atPath: resolvedArtifacts.workspaceLinkURL.path)

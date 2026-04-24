@@ -4,6 +4,7 @@ struct AIRuntimeBridgeService {
     struct ManagedHookSpec {
         var eventKey: String
         var action: String
+        var tool: String
         var command: String
         var statusMessage: String
         var timeout: Int
@@ -149,7 +150,7 @@ struct AIRuntimeBridgeService {
         let wrapperPath = wrapperBinURL().path
         let processEnvironment = ProcessInfo.processInfo.environment
         let originalPath = processEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
-        let statusDirectoryPath = preparedStatusDirectoryPath()
+        let opencodeSessionMapDirectoryPath = preparedOpencodeSessionMapDirectoryPath()
         let claudeSessionMapDirectoryPath = preparedClaudeSessionMapDirectoryPath()
         let shellHookPaths = preparedShellHookPaths()
         let logFilePath = AppDebugLog.shared.logFileURL().path
@@ -168,7 +169,7 @@ struct AIRuntimeBridgeService {
             processEnvironment: processEnvironment,
             wrapperPath: wrapperPath,
             originalPath: originalPath,
-            statusDirectoryPath: statusDirectoryPath,
+            opencodeSessionMapDirectoryPath: opencodeSessionMapDirectoryPath,
             claudeSessionMapDirectoryPath: claudeSessionMapDirectoryPath,
             shellHookPaths: shellHookPaths,
             logFilePath: logFilePath,
@@ -205,8 +206,8 @@ struct AIRuntimeBridgeService {
         merged["DMUX_WRAPPER_BIN"] = wrapperPath
         merged["DMUX_ORIGINAL_PATH"] = originalPath
         debugLog.log("startup-ui", "terminal-env step=path-ready session=\(session.id.uuidString)")
-        if let statusDirectoryPath {
-            merged["DMUX_STATUS_DIR"] = statusDirectoryPath
+        if let opencodeSessionMapDirectoryPath {
+            merged["DMUX_OPENCODE_SESSION_MAP_DIR"] = opencodeSessionMapDirectoryPath
         }
         merged["DMUX_RUNTIME_SOCKET"] = runtimeEventSocketURL().path
         if let claudeSessionMapDirectoryPath {
@@ -268,8 +269,8 @@ struct AIRuntimeBridgeService {
                 "runtime-hooks",
                 "bootstrap namespace owner=\(service.runtimeOwnerID()) supportRoot=\(service.runtimeSupportRootURL().path) tempRoot=\(service.runtimeTemporaryRootURL().path) socket=\(service.runtimeEventSocketURL().path)"
             )
-            service.debugLog.log("runtime-hooks", "bootstrap step=status-directory")
-            _ = service.statusDirectoryURL()
+            service.debugLog.log("runtime-hooks", "bootstrap step=opencode-session-map-directory")
+            _ = service.opencodeSessionMapDirectoryURL()
             service.debugLog.log("runtime-hooks", "bootstrap step=claude-session-map")
             _ = service.claudeSessionMapDirectoryURL()
             service.debugLog.log("runtime-hooks", "bootstrap step=shell-hooks")
@@ -307,9 +308,9 @@ struct AIRuntimeBridgeService {
         debugLog.log("runtime-hooks", "bootstrap scheduled")
     }
 
-    func statusDirectoryURL() -> URL {
+    func opencodeSessionMapDirectoryURL() -> URL {
         let url = runtimeTemporaryRootURL()
-            .appendingPathComponent("agent-status", isDirectory: true)
+            .appendingPathComponent("opencode-session-map", isDirectory: true)
         try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -342,10 +343,10 @@ struct AIRuntimeBridgeService {
         return (zdotdirURL.path, scriptURL.path)
     }
 
-    private func preparedStatusDirectoryPath() -> String? {
+    private func preparedOpencodeSessionMapDirectoryPath() -> String? {
         optionalExistingDirectoryPath(
             runtimeTemporaryRootURL(createIfNeeded: false)
-                .appendingPathComponent("agent-status", isDirectory: true)
+                .appendingPathComponent("opencode-session-map", isDirectory: true)
         )
     }
 
@@ -375,7 +376,7 @@ struct AIRuntimeBridgeService {
         processEnvironment: [String: String],
         wrapperPath: String,
         originalPath: String,
-        statusDirectoryPath: String?,
+        opencodeSessionMapDirectoryPath: String?,
         claudeSessionMapDirectoryPath: String?,
         shellHookPaths: (zdotdirPath: String, scriptPath: String)?,
         logFilePath: String,
@@ -399,7 +400,7 @@ struct AIRuntimeBridgeService {
             session.shell,
             wrapperPath,
             originalPath,
-            statusDirectoryPath ?? "",
+            opencodeSessionMapDirectoryPath ?? "",
             claudeSessionMapDirectoryPath ?? "",
             shellHookPaths?.zdotdirPath ?? "",
             shellHookPaths?.scriptPath ?? "",

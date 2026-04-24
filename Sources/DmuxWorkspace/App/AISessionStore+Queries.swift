@@ -188,7 +188,9 @@ extension AISessionStore {
         _ session: TerminalSessionState,
         now: TimeInterval
     ) -> Bool {
-        _ = now
-        return session.state == .responding
+        guard session.state == .responding else {
+            return false
+        }
+        return now - session.updatedAt <= runningPhaseLifetime
     }
 }

@@ -71,25 +71,16 @@ final class AIRuntimeBridgeServiceHookConfigTests: XCTestCase {
         XCTAssertFalse(commands.contains(where: { $0.contains("'codux-dev'") }))
     }
 
-    func testStrippedManagedHookGroupsRemovesLegacyOwnerlessHooksFromOldPaths() {
+    func testStrippedManagedHookGroupsStripsLegacyGeminiHookForDifferentOwner() {
         let service = AIRuntimeBridgeService()
-        let helperURL = URL(fileURLWithPath: "/Users/test/Library/Application Support/Codux-dev/runtime-support/runtime-hooks/dmux-ai-state.sh")
+        let helperURL = URL(fileURLWithPath: "/tmp/new-runtime-hooks/dmux-ai-state.sh")
         let existingValue: [[String: Any]] = [[
             "matcher": "",
             "hooks": [
                 [
                     "type": "command",
-                    "command": "'/Users/test/Library/Application Support/dmux-dev/runtime-hooks/dmux-ai-state.sh' 'prompt-submit' 'claude'",
-                    "timeout": 10,
-                ],
-                [
-                    "type": "command",
-                    "command": service.hookCommand(
-                        helperScriptURL: URL(fileURLWithPath: "/Users/test/Library/Application Support/Codux/runtime-support/runtime-hooks/dmux-ai-state.sh"),
-                        action: "prompt-submit",
-                        owner: "codux",
-                        tool: "claude"
-                    ),
+                    "command": "'/tmp/old-runtime-hooks/dmux-ai-state.sh' 'session-start' 'codux' 'gemini'",
+                    "statusMessage": "dmux gemini live",
                     "timeout": 10,
                 ],
                 [
@@ -102,19 +93,56 @@ final class AIRuntimeBridgeServiceHookConfigTests: XCTestCase {
 
         let stripped = service.strippedManagedHookGroups(
             existingValue: existingValue,
-            action: "prompt-submit",
+            action: "session-start",
+            tool: "gemini",
             owner: "codux-dev",
             helperScriptURL: helperURL,
-            statusMessage: "dmux claude live"
+            statusMessage: "dmux gemini live",
+            stripAnyManagedHookForAction: true
         )
 
-        let commands = (stripped.first?["hooks"] as? [[String: Any]])?
-            .compactMap { $0["command"] as? String } ?? []
+        let hooks = stripped.first?["hooks"] as? [[String: Any]]
+        let commands = hooks?.compactMap { $0["command"] as? String } ?? []
+
+        XCTAssertEqual(commands, ["echo user-hook"])
+    }
+
+    func testStrippedManagedHookGroupsDoesNotStripLegacyHookForOtherTool() {
+        let service = AIRuntimeBridgeService()
+        let helperURL = URL(fileURLWithPath: "/tmp/new-runtime-hooks/dmux-ai-state.sh")
+        let existingValue: [[String: Any]] = [[
+            "matcher": "",
+            "hooks": [
+                [
+                    "type": "command",
+                    "command": "'/tmp/old-runtime-hooks/dmux-ai-state.sh' 'session-start' 'codux' 'claude'",
+                    "statusMessage": "dmux gemini live",
+                    "timeout": 10,
+                ],
+                [
+                    "type": "command",
+                    "command": "echo user-hook",
+                    "timeout": 10,
+                ],
+            ],
+        ]]
+
+        let stripped = service.strippedManagedHookGroups(
+            existingValue: existingValue,
+            action: "session-start",
+            tool: "gemini",
+            owner: "codux-dev",
+            helperScriptURL: helperURL,
+            statusMessage: "dmux gemini live",
+            stripAnyManagedHookForAction: true
+        )
+
+        let hooks = stripped.first?["hooks"] as? [[String: Any]]
+        let commands = hooks?.compactMap { $0["command"] as? String } ?? []
 
         XCTAssertEqual(commands.count, 2)
-        XCTAssertFalse(commands.contains(where: { $0.contains("Application Support/dmux-dev") }))
-        XCTAssertTrue(commands.contains(where: { $0.contains("'codux'") }))
         XCTAssertTrue(commands.contains("echo user-hook"))
+        XCTAssertTrue(commands.contains(where: { $0.contains("'claude'") }))
     }
 
     func testUpdatedCodexConfigTextAddsNoticeSectionForEmptyConfig() {

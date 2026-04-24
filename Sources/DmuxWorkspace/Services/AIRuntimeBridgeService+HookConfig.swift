@@ -287,6 +287,7 @@ extension AIRuntimeBridgeService {
             ManagedHookSpec(
                 eventKey: definition.eventKey,
                 action: definition.action,
+                tool: tool,
                 command: hookCommand(
                     helperScriptURL: helperScriptURL,
                     action: definition.action,
@@ -310,6 +311,7 @@ extension AIRuntimeBridgeService {
         let nextGroups = strippedManagedHookGroups(
             existingValue: existingValue,
             action: spec.action,
+            tool: spec.tool,
             owner: owner,
             helperScriptURL: helperScriptURL,
             statusMessage: spec.statusMessage,
@@ -335,6 +337,7 @@ extension AIRuntimeBridgeService {
     func strippedManagedHookGroups(
         existingValue: Any?,
         action: String,
+        tool: String? = nil,
         owner: String,
         helperScriptURL: URL,
         statusMessage: String,
@@ -347,6 +350,7 @@ extension AIRuntimeBridgeService {
                 !isManagedHook(
                     hook,
                     action: action,
+                    tool: tool,
                     owner: owner,
                     helperScriptURL: helperScriptURL,
                     statusMessage: statusMessage,
@@ -367,6 +371,7 @@ extension AIRuntimeBridgeService {
     func isManagedHook(
         _ hook: [String: Any],
         action: String,
+        tool: String? = nil,
         owner: String,
         helperScriptURL: URL,
         statusMessage expectedStatusMessage: String,
@@ -378,22 +383,15 @@ extension AIRuntimeBridgeService {
             return false
         }
 
-        guard command.contains(action) else {
+        guard commandContainsShellArgument(command, argument: action) else {
             return false
         }
 
         if stripAnyManagedHookForAction,
            command.contains("dmux-ai-state.sh"),
-           hook["statusMessage"] as? String == expectedStatusMessage {
-            return true
-        }
-
-        let singleQuoteCount = command.reduce(into: 0) { count, character in
-            if character == "'" {
-                count += 1
-            }
-        }
-        if singleQuoteCount < 8, command.contains("dmux-ai-state.sh") {
+           hook["statusMessage"] as? String == expectedStatusMessage,
+           let tool,
+           commandContainsShellArgument(command, argument: tool) {
             return true
         }
 
@@ -401,12 +399,19 @@ extension AIRuntimeBridgeService {
             return false
         }
 
-        let ownerToken = shellQuoted(owner)
-        if command.contains(" \(ownerToken) ") || command.hasSuffix(" \(ownerToken)") {
+        if commandContainsShellArgument(command, argument: owner) {
             return true
         }
 
         return false
+    }
+
+    func commandContainsShellArgument(_ command: String, argument: String) -> Bool {
+        let token = shellQuoted(argument)
+        return command.contains(" \(token) ")
+            || command.hasPrefix("\(token) ")
+            || command.hasSuffix(" \(token)")
+            || command == token
     }
 
     func hookCommand(helperScriptURL: URL, action: String, owner: String, tool: String) -> String {

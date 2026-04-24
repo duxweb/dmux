@@ -15,7 +15,6 @@ final class AIRuntimePollingService {
     private let logger = AppDebugLog.shared
     private let interval: TimeInterval
     private let hookSuppressionWindow: TimeInterval
-    private let sessionSilenceThreshold: TimeInterval
 
     private var runtimeBridgeObserver: NSObjectProtocol?
     private var timer: Timer?
@@ -28,15 +27,13 @@ final class AIRuntimePollingService {
         toolDriverFactory: AIToolDriverFactory = .shared,
         notificationCenter: NotificationCenter = .default,
         interval: TimeInterval = 6,
-        hookSuppressionWindow: TimeInterval = 1.25,
-        sessionSilenceThreshold: TimeInterval = 18
+        hookSuppressionWindow: TimeInterval = 1.25
     ) {
         self.aiSessionStore = aiSessionStore
         self.toolDriverFactory = toolDriverFactory
         self.notificationCenter = notificationCenter
         self.interval = interval
         self.hookSuppressionWindow = hookSuppressionWindow
-        self.sessionSilenceThreshold = max(interval, sessionSilenceThreshold)
     }
 
     func start() {
@@ -171,7 +168,6 @@ final class AIRuntimePollingService {
 
         if didChange {
             logger.log("runtime-refresh", "apply reason=\(reason) updates=\(updates.count)")
-            notificationCenter.post(name: .dmuxAIRuntimeActivityPulse, object: nil)
             notificationCenter.post(
                 name: .dmuxAIRuntimeBridgeDidChange,
                 object: nil,
@@ -202,14 +198,12 @@ final class AIRuntimePollingService {
         if isSuppressed(terminalID: session.terminalID, now: now) {
             return true
         }
-        if session.state == .responding || session.state == .needsInput {
+        switch session.state {
+        case .responding, .needsInput:
             return true
-        }
-        if session.state == .idle {
+        case .idle:
             return session.hasCompletedTurn == false
         }
-        let silence = max(0, now - session.updatedAt)
-        return silence >= sessionSilenceThreshold
     }
 
     private func shouldSkipSnapshot(terminalID: UUID, pollStartedAt: TimeInterval, now: TimeInterval) -> Bool {

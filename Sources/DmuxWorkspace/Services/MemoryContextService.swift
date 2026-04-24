@@ -103,7 +103,9 @@ struct MemoryContextService: Sendable {
             return ""
         }
         return """
-        # Dmux AI Memory
+        Launch context for \(documentToolName(tool)).
+        Use only the parts that are relevant to the current task.
+        Prefer current repository state over stale memory.
 
         \(prompt)
         """
@@ -118,7 +120,7 @@ struct MemoryContextService: Sendable {
         let shouldInjectMemory = settings.memory.enabled && settings.memory.automaticInjectionEnabled
         var sections: [String] = []
         if let globalPrompt = normalizedNonEmptyString(settings.globalPrompt) {
-            sections.append(renderSummarySection(title: "Global user prompt", content: globalPrompt))
+            sections.append(renderSummarySection(title: "Global instructions", content: globalPrompt))
         }
         guard shouldInjectMemory else {
             return sections.joined(separator: "\n\n")
@@ -156,22 +158,25 @@ struct MemoryContextService: Sendable {
         let userWorkingUnique = uniqueOrderedEntries(userWorking)
         let projectWorkingUnique = uniqueOrderedEntries(projectWorking)
 
-        sections.append("You are working inside project '\(projectName)'. Use the following persistent memory as operating guidance.")
+        sections.append("""
+        Project context: \(projectName)
+        Apply relevant memory as guidance, not as source of truth.
+        """)
         if let userSummary, let content = normalizedNonEmptyString(userSummary.content) {
-            sections.append(renderSummarySection(title: "User summary memory", content: content))
+            sections.append(renderSummarySection(title: "User summary", content: content))
         } else if !userCoreFallback.isEmpty {
-            sections.append(renderSection(title: "User fallback memory", entries: uniqueOrderedEntries(userCoreFallback)))
+            sections.append(renderSection(title: "User notes", entries: uniqueOrderedEntries(userCoreFallback)))
         }
         if let projectSummary, let content = normalizedNonEmptyString(projectSummary.content) {
-            sections.append(renderSummarySection(title: "Project summary memory", content: content))
+            sections.append(renderSummarySection(title: "Project summary", content: content))
         } else if !projectCoreFallback.isEmpty {
-            sections.append(renderSection(title: "Project fallback memory", entries: uniqueOrderedEntries(projectCoreFallback)))
+            sections.append(renderSection(title: "Project notes", entries: uniqueOrderedEntries(projectCoreFallback)))
         }
         if !userWorkingUnique.isEmpty {
-            sections.append(renderSection(title: "Recent user working memory", entries: userWorkingUnique))
+            sections.append(renderSection(title: "Recent user notes", entries: userWorkingUnique))
         }
         if !projectWorkingUnique.isEmpty {
-            sections.append(renderSection(title: "Recent project working memory", entries: projectWorkingUnique))
+            sections.append(renderSection(title: "Recent project notes", entries: projectWorkingUnique))
         }
         return sections.joined(separator: "\n\n")
     }
@@ -186,20 +191,33 @@ struct MemoryContextService: Sendable {
     private func renderSection(title: String, entries: [MemoryEntry]) -> String {
         let lines = entries.map { entry in
             if let rationale = normalizedNonEmptyString(entry.rationale) {
-                return "- [\(entry.kind.rawValue)] \(entry.content) (context: \(rationale))"
+                return "- \(entry.content) [\(entry.kind.rawValue); \(rationale)]"
             }
-            return "- [\(entry.kind.rawValue)] \(entry.content)"
+            return "- \(entry.content) [\(entry.kind.rawValue)]"
         }
         return """
-        ## \(title)
+        [\(title)]
         \(lines.joined(separator: "\n"))
         """
     }
 
     private func renderSummarySection(title: String, content: String) -> String {
         """
-        ## \(title)
+        [\(title)]
         \(content)
         """
+    }
+
+    private func documentToolName(_ tool: String) -> String {
+        switch tool.lowercased() {
+        case "codex":
+            return "Codex"
+        case "claude", "claude-code":
+            return "Claude Code"
+        case "gemini":
+            return "Gemini"
+        default:
+            return tool
+        }
     }
 }

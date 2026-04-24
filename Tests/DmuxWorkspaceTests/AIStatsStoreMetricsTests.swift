@@ -3,6 +3,14 @@ import XCTest
 
 @MainActor
 final class AIStatsStoreMetricsTests: XCTestCase {
+    private final class ProjectListBox: @unchecked Sendable {
+        var value: [Project]
+
+        init(_ value: [Project]) {
+            self.value = value
+        }
+    }
+
     private var temporaryDirectoryURL: URL!
     private var databaseURL: URL!
 
@@ -319,6 +327,195 @@ final class AIStatsStoreMetricsTests: XCTestCase {
                 )
             )
         )
+    }
+
+    func testPetRefreshCoordinatorIgnoresRemovedProjectUsageThatStillExistsInStatsStore() {
+        let aiUsageStore = AIUsageStore(databaseURL: databaseURL)
+        let statsStore = makeStore(aiUsageStore: aiUsageStore)
+        let petStore = PetStore(storage: .inMemory)
+        let coordinator = PetRefreshCoordinator(petStore: petStore)
+        let projectA = makeProject(name: "Project A", path: "/tmp/project-a")
+        let projectB = makeProject(name: "Project B", path: "/tmp/project-b")
+
+        petStore.claim(option: .voidcat, customName: "")
+        guard let claimDate = petStore.claimedAt else {
+            return XCTFail("Expected claimed pet")
+        }
+
+        let currentProjects = ProjectListBox([projectA, projectB])
+        coordinator.configure(
+            totalNormalizedTokensByProject: {
+                statsStore.normalizedTokenTotalsForPet(currentProjects.value, claimedAt: petStore.claimedAt)
+            },
+            computedStats: {
+                statsStore.petStatsSinceClaimedAt(petStore.claimedAt, projects: currentProjects.value)
+            }
+        )
+
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectA,
+                externalSessionID: "a-seed",
+                firstSeenAt: claimDate.addingTimeInterval(60),
+                totalTokens: 120
+            )
+        )
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectB,
+                externalSessionID: "b-seed",
+                firstSeenAt: claimDate.addingTimeInterval(120),
+                totalTokens: 300
+            )
+        )
+        coordinator.refreshNow(reason: .bootstrap, now: claimDate.addingTimeInterval(180))
+        XCTAssertEqual(petStore.currentHatchTokens, 0)
+        XCTAssertEqual(petStore.projectNormalizedTokenWatermarks[projectA.id], 120)
+        XCTAssertEqual(petStore.projectNormalizedTokenWatermarks[projectB.id], 300)
+
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectA,
+                externalSessionID: "a-growth",
+                firstSeenAt: claimDate.addingTimeInterval(240),
+                totalTokens: 60
+            )
+        )
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectB,
+                externalSessionID: "b-growth",
+                firstSeenAt: claimDate.addingTimeInterval(300),
+                totalTokens: 40
+            )
+        )
+        coordinator.refreshNow(reason: .periodic, now: claimDate.addingTimeInterval(360))
+        XCTAssertEqual(petStore.currentHatchTokens, 100)
+
+        petStore.forgetProjectBaseline(projectB.id)
+        currentProjects.value = [projectA]
+
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectB,
+                externalSessionID: "b-after-removal",
+                firstSeenAt: claimDate.addingTimeInterval(420),
+                totalTokens: 600
+            )
+        )
+        coordinator.refreshNow(reason: .periodic, now: claimDate.addingTimeInterval(480))
+
+        XCTAssertEqual(petStore.currentHatchTokens, 100)
+        XCTAssertEqual(petStore.currentExperienceTokens, 0)
+        XCTAssertNil(petStore.projectNormalizedTokenWatermarks[projectB.id])
+        XCTAssertEqual(petStore.globalNormalizedTotalWatermark, 180)
+
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectA,
+                externalSessionID: "a-after-removal",
+                firstSeenAt: claimDate.addingTimeInterval(540),
+                totalTokens: 80
+            )
+        )
+        coordinator.refreshNow(reason: .periodic, now: claimDate.addingTimeInterval(600))
+        XCTAssertEqual(petStore.currentHatchTokens, 180)
+        XCTAssertEqual(petStore.currentExperienceTokens, 0)
+    }
+
+    func testPetRefreshCoordinatorTreatsReaddedProjectAsFreshBaseline() {
+        let aiUsageStore = AIUsageStore(databaseURL: databaseURL)
+        let statsStore = makeStore(aiUsageStore: aiUsageStore)
+        let petStore = PetStore(storage: .inMemory)
+        let coordinator = PetRefreshCoordinator(petStore: petStore)
+        let projectA = makeProject(name: "Project A", path: "/tmp/project-a")
+        let projectB = makeProject(name: "Project B", path: "/tmp/project-b")
+        let reopenedProjectB = makeProject(name: "Project B", path: "/tmp/project-b")
+
+        petStore.claim(option: .voidcat, customName: "")
+        guard let claimDate = petStore.claimedAt else {
+            return XCTFail("Expected claimed pet")
+        }
+
+        let currentProjects = ProjectListBox([projectA, projectB])
+        coordinator.configure(
+            totalNormalizedTokensByProject: {
+                statsStore.normalizedTokenTotalsForPet(currentProjects.value, claimedAt: petStore.claimedAt)
+            },
+            computedStats: {
+                statsStore.petStatsSinceClaimedAt(petStore.claimedAt, projects: currentProjects.value)
+            }
+        )
+
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectA,
+                externalSessionID: "a-seed",
+                firstSeenAt: claimDate.addingTimeInterval(60),
+                totalTokens: 120
+            )
+        )
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectB,
+                externalSessionID: "b-seed",
+                firstSeenAt: claimDate.addingTimeInterval(120),
+                totalTokens: 300
+            )
+        )
+        coordinator.refreshNow(reason: .bootstrap, now: claimDate.addingTimeInterval(180))
+
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectA,
+                externalSessionID: "a-growth",
+                firstSeenAt: claimDate.addingTimeInterval(240),
+                totalTokens: 60
+            )
+        )
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: projectB,
+                externalSessionID: "b-growth",
+                firstSeenAt: claimDate.addingTimeInterval(300),
+                totalTokens: 40
+            )
+        )
+        coordinator.refreshNow(reason: .periodic, now: claimDate.addingTimeInterval(360))
+        XCTAssertEqual(petStore.currentHatchTokens, 100)
+
+        petStore.forgetProjectBaseline(projectB.id)
+        currentProjects.value = [projectA]
+        coordinator.refreshNow(reason: .periodic, now: claimDate.addingTimeInterval(420))
+        XCTAssertEqual(petStore.currentHatchTokens, 100)
+
+        currentProjects.value = [projectA, reopenedProjectB]
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: reopenedProjectB,
+                externalSessionID: "b-readded-history",
+                firstSeenAt: claimDate.addingTimeInterval(480),
+                totalTokens: 900
+            )
+        )
+        coordinator.refreshNow(reason: .periodic, now: claimDate.addingTimeInterval(540))
+
+        XCTAssertEqual(petStore.currentHatchTokens, 100)
+        XCTAssertEqual(petStore.currentExperienceTokens, 0)
+        XCTAssertEqual(petStore.projectNormalizedTokenWatermarks[reopenedProjectB.id], 900)
+
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: reopenedProjectB,
+                externalSessionID: "b-readded-growth",
+                firstSeenAt: claimDate.addingTimeInterval(600),
+                totalTokens: 80
+            )
+        )
+        coordinator.refreshNow(reason: .periodic, now: claimDate.addingTimeInterval(660))
+
+        XCTAssertEqual(petStore.currentHatchTokens, 180)
+        XCTAssertEqual(petStore.currentExperienceTokens, 0)
     }
 
     private func makeStore(aiUsageStore: AIUsageStore? = nil) -> AIStatsStore {

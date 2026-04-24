@@ -13,7 +13,6 @@ else
 fi
 hook_payload="$(cat)"
 notification_type=""
-should_send_response_event=1
 
 if [[ -n "${hook_owner:-}" && "${DMUX_RUNTIME_OWNER:-}" != "${hook_owner}" ]]; then
   exit 0
@@ -24,16 +23,6 @@ if [[ -z "${DMUX_SESSION_ID:-}" || -z "${DMUX_PROJECT_ID:-}" || -z "${tool_name:
 fi
 
 case "${action}" in
-  session-start)
-    response_state="idle"
-    ;;
-  prompt-submit|pre-tool-use|post-tool-use|post-tool-use-failure|before-agent|permission-request)
-    response_state="responding"
-    ;;
-  permission-denied|elicitation|elicitation-result)
-    response_state=""
-    should_send_response_event=0
-    ;;
   notification)
     notification_type="$(HOOK_PAYLOAD="${hook_payload}" /usr/bin/python3 - <<'PY'
 import json
@@ -66,21 +55,8 @@ if value:
     print(value)
 PY
 )"
-    if [[ "${notification_type:-}" == "idle_prompt" ]]; then
-      response_state="idle"
-    else
-      response_state=""
-      should_send_response_event=0
-    fi
     ;;
-  stop|stop-failure|session-end|idle|after-agent)
-    response_state="idle"
-    ;;
-  codex-prompt-submit|codex-stop)
-    response_state=""
-    ;;
-  codex-pre-tool-use|codex-post-tool-use)
-    response_state="responding"
+  session-start|prompt-submit|before-agent|permission-request|permission-denied|elicitation|elicitation-result|stop|stop-failure|session-end|idle|after-agent|codex-session-start|codex-prompt-submit|codex-stop)
     ;;
   *)
     exit 0
@@ -475,10 +451,6 @@ write_claude_session_map() {
   log_line "claude map write session=${DMUX_SESSION_ID} externalSession=${external_session_id}"
 }
 
-clear_response_file() {
-  return 0
-}
-
 send_runtime_event() {
   local payload="$1"
   [[ -n "${DMUX_RUNTIME_SOCKET:-}" ]] || {
@@ -510,8 +482,9 @@ write_ai_hook_event() {
   local notification_value="${6:-}"
   local source_value="${7:-}"
   local reason_value="${8:-}"
-  local target_tool_name="${9:-}"
-  local message_value="${10:-}"
+  local cwd_value="${9:-}"
+  local target_tool_name="${10:-}"
+  local message_value="${11:-}"
   [[ -n "${total_tokens}" ]] || total_tokens="null"
   local event_json
   event_json="$(
@@ -556,6 +529,9 @@ write_ai_hook_event() {
       if [[ -n "${reason_value}" ]]; then
         print -rn -- ",\"reason\":\"$(json_escape "${reason_value}")\""
       fi
+      if [[ -n "${cwd_value}" ]]; then
+        print -rn -- ",\"cwd\":\"$(json_escape "${cwd_value}")\""
+      fi
       if [[ -n "${target_tool_name}" ]]; then
         print -rn -- ",\"targetToolName\":\"$(json_escape "${target_tool_name}")\""
       fi
@@ -591,7 +567,9 @@ case "${action}" in
       "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)" \
       "" \
       "" \
-      "user-input"
+      "user-input" \
+      "" \
+      "$(extract_first_hook_field cwd current_working_directory working_directory)"
     exit 0
     ;;
   codex-stop)
@@ -606,7 +584,8 @@ case "${action}" in
       "$(extract_first_hook_field transcript_path transcriptPath)" \
       "" \
       "" \
-      "$(extract_first_hook_field stop_reason reason)"
+      "$(extract_first_hook_field stop_reason reason)" \
+      "$(extract_first_hook_field cwd current_working_directory working_directory)"
     exit 0
     ;;
 esac
@@ -650,6 +629,7 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
           "permission-request" \
           "" \
           "permission-request" \
+          "" \
           "$(extract_first_hook_field tool_name toolName tool)" \
           "$(extract_first_hook_field message prompt)"
       elif [[ "${action}" == "permission-denied" ]]; then
@@ -662,6 +642,7 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
           "permission-denied" \
           "" \
           "permission-denied" \
+          "" \
           "$(extract_first_hook_field tool_name toolName tool)" \
           "$(extract_first_hook_field message prompt)"
       elif [[ "${action}" == "elicitation" ]]; then
@@ -674,6 +655,7 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
           "elicitation" \
           "" \
           "elicitation" \
+          "" \
           "" \
           "$(extract_first_hook_field message prompt)"
       elif [[ "${action}" == "elicitation-result" ]]; then
@@ -729,8 +711,7 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
         "" \
         "" \
         "$(extract_first_hook_field reason)"
-      log_line "claude hook action=${action} clear-response session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
-      clear_response_file
+      log_line "claude hook action=${action} session-end session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
       clear_claude_session_map
       ;;
   esac
@@ -784,6 +765,7 @@ if [[ "${tool_name}" == "gemini" ]]; then
           "${gemini_notification_type}" \
           "" \
           "${gemini_notification_type}" \
+          "" \
           "$(extract_first_hook_field tool_name toolName tool)" \
           "$(extract_first_hook_field message)"
       fi
@@ -802,27 +784,3 @@ if [[ "${tool_name}" == "gemini" ]]; then
       ;;
   esac
 fi
-
-if [[ "${should_send_response_event}" != "1" || -z "${DMUX_RUNTIME_SOCKET:-}" ]]; then
-  exit 0
-fi
-
-response_json="$(
-  {
-    print -rn -- '{"kind":"response","payload":{'
-    print -rn -- "\"sessionId\":\"$(json_escape "${DMUX_SESSION_ID}")\","
-    print -rn -- "\"sessionInstanceId\":\"$(json_escape "${DMUX_SESSION_INSTANCE_ID:-}")\","
-    if [[ -n "${DMUX_ACTIVE_AI_INVOCATION_ID:-}" ]]; then
-      print -rn -- "\"invocationId\":\"$(json_escape "${DMUX_ACTIVE_AI_INVOCATION_ID}")\","
-    else
-      print -rn -- "\"invocationId\":null,"
-    fi
-    print -rn -- "\"projectId\":\"$(json_escape "${DMUX_PROJECT_ID}")\","
-    print -rn -- "\"projectPath\":\"$(json_escape "${DMUX_PROJECT_PATH:-}")\","
-    print -rn -- "\"tool\":\"$(json_escape "${tool_name}")\","
-    print -rn -- "\"responseState\":\"$(json_escape "${response_state}")\","
-    print -rn -- "\"updatedAt\":$(now)"
-    print -rn -- '}}'
-  }
-)"
-send_runtime_event "${response_json}"

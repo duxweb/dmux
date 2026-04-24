@@ -2,30 +2,25 @@ import XCTest
 @testable import DmuxWorkspace
 
 final class AppModelActivityResolutionTests: XCTestCase {
-    func testResolveDisplayedActivityPhaseUsesRuntimeOnlyForRealtimeCachedPhase() {
+    func testResolveDisplayedActivityPhasePrefersRuntime() {
+        let finishedAt = Date(timeIntervalSince1970: 100)
+
         let resolved = AppModel.resolveDisplayedActivityPhase(
-            runtimePhase: .idle,
-            cachedPhase: .completed(tool: "codex", finishedAt: .init(timeIntervalSince1970: 100), exitCode: nil),
-            completionPhase: .idle,
-            cachedPayloadTool: nil,
-            hasLiveRuntimeSessions: false,
-            isRealtimeTool: { ["codex", "claude", "gemini", "opencode"].contains($0) }
+            runtimePhase: .running(tool: "codex"),
+            completionPhase: .completed(tool: "claude", finishedAt: finishedAt, exitCode: 0)
         )
 
-        XCTAssertEqual(resolved, .idle)
+        XCTAssertEqual(resolved, .running(tool: "codex"))
     }
 
-    func testResolveDisplayedActivityPhaseFallsBackToCachedForNonRealtimePayload() {
+    func testResolveDisplayedActivityPhaseFallsBackToCompletionPresentation() {
         let finishedAt = Date(timeIntervalSince1970: 100)
+
         let resolved = AppModel.resolveDisplayedActivityPhase(
             runtimePhase: .idle,
-            cachedPhase: .completed(tool: "buildkite", finishedAt: finishedAt, exitCode: 0),
-            completionPhase: .idle,
-            cachedPayloadTool: "buildkite",
-            hasLiveRuntimeSessions: false,
-            isRealtimeTool: { ["codex", "claude", "gemini", "opencode"].contains($0) }
+            completionPhase: .completed(tool: "codex", finishedAt: finishedAt, exitCode: 0)
         )
 
-        XCTAssertEqual(resolved, .completed(tool: "buildkite", finishedAt: finishedAt, exitCode: 0))
+        XCTAssertEqual(resolved, .completed(tool: "codex", finishedAt: finishedAt, exitCode: 0))
     }
 }

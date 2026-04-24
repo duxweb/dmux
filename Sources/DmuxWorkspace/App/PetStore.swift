@@ -299,6 +299,19 @@ final class PetStore {
         }
 
         if sanitizedTotalsByProject.isEmpty == false {
+            let currentProjectIDs = Set(sanitizedTotalsByProject.keys)
+            let staleProjectIDs = projectNormalizedTokenWatermarks.keys.filter { !currentProjectIDs.contains($0) }
+            if staleProjectIDs.isEmpty == false {
+                for projectID in staleProjectIDs {
+                    projectNormalizedTokenWatermarks.removeValue(forKey: projectID)
+                }
+                didChange = true
+                debugLog.log(
+                    Self.ledgerLogCategory,
+                    "prune-stale-project-watermarks removed=\(staleProjectIDs.count) remaining=\(projectNormalizedTokenWatermarks.count)"
+                )
+            }
+
             for (projectID, total) in sanitizedTotalsByProject {
                 if let previousTotal = projectNormalizedTokenWatermarks[projectID] {
                     let projectDelta = max(0, total - previousTotal)

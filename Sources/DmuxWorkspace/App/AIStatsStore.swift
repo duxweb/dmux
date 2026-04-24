@@ -2,10 +2,6 @@ import Darwin
 import Foundation
 import Observation
 
-extension Notification.Name {
-    static let dmuxAIRuntimeActivityPulse = Notification.Name("dmuxAIRuntimeActivityPulse")
-}
-
 @MainActor
 @Observable
 final class AIStatsStore {

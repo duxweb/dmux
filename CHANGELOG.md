@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.11] - 2026-04-24
+
+### Changed
+
+- Simplified project activity tracking to rely on live runtime sessions plus UI completion presentation, removing stale cached status fallbacks from sidebar loading and completion handling.
+- Removed legacy dmux state auto-merge compatibility and old memory extraction response schema compatibility that are no longer used by current Codux releases.
+
+### Fixed
+
+- Hardened pet progression around project add, remove, and reopen flows so stale project baselines are pruned automatically and historical tokens cannot be replayed into hatch or XP progress.
+- Tightened runtime hook and polling coordination by ignoring tool-use/internal Codex memory sessions more precisely and matching managed hook cleanup by tool, reducing stale activity updates and duplicate hook state.
+- Fixed memory extraction queue recovery for missing projects so abandoned extraction tasks are dropped cleanly instead of surfacing a persistent failure state.
+
 ## [0.5.10] - 2026-04-24
 
 ### Added

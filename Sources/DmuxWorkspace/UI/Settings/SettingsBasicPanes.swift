@@ -175,9 +175,6 @@ struct AISettingsPane: View {
                             set: { model.updateToolDefaultModel($0, for: tool) }
                         )
                     )
-                    Text(String(localized: "settings.ai.tool.default_model_help", defaultValue: "Leave blank to use the CLI's own default model. Codux only adds a model argument when this field is set.", bundle: .module))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
                 }
             }
 

@@ -38544,29 +38544,6 @@
         }
       }
     },
-    "settings.ai.tool.default_model_help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leave blank to use the CLI's own default model. Codux only adds a model argument when this field is set."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "留空则使用 CLI 自己的默认模型。只有填写后 Codux 才会添加模型参数。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "留空則使用 CLI 自己的預設模型。只有填寫後 Codux 才會加入模型參數。"
-          }
-        }
-      }
-    },
     "settings.ai.global_prompt": {
       "extractionState": "manual",
       "localizations": {

@@ -8,83 +8,19 @@ enum ProjectActivityPhase: Equatable {
     case completed(tool: String, finishedAt: Date, exitCode: Int?)
 }
 
-struct ProjectActivityPayload: Codable, Equatable {
-    var tool: String
-    var phase: String
-    var updatedAt: Double
-    var finishedAt: Double?
-    var exitCode: Int?
-}
-
 struct ProjectActivityService: @unchecked Sendable {
-    private let runningPhaseLifetime: TimeInterval = 15
-    private let fileManager = FileManager.default
-    private let runtimeBridgeService = AIRuntimeBridgeService()
     private let externalNotificationService = AppExternalNotificationService.shared
+    private let notificationCenter = UNUserNotificationCenter.current()
 
     private var supportsSystemNotifications: Bool {
         Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil
-    }
-
-    func statusDirectoryURL() -> URL {
-        runtimeBridgeService.statusDirectoryURL()
-    }
-
-    func loadStatuses(projects: [Project]) -> [UUID: ProjectActivityPayload] {
-        var result: [UUID: ProjectActivityPayload] = [:]
-        for project in projects {
-            guard let payload = loadStatus(projectID: project.id) else {
-                continue
-            }
-            result[project.id] = payload
-        }
-        return result
-    }
-
-    func loadStatus(projectID: UUID) -> ProjectActivityPayload? {
-        let fileURL = statusFileURL(for: projectID)
-        guard let data = try? Data(contentsOf: fileURL),
-              let payload = try? JSONDecoder().decode(ProjectActivityPayload.self, from: data) else {
-            return nil
-        }
-        return payload
-    }
-
-    func phase(for payload: ProjectActivityPayload?) -> ProjectActivityPhase {
-        guard let payload else { return .idle }
-        switch payload.phase {
-        case "running":
-            let age = Date().timeIntervalSince1970 - payload.updatedAt
-            if age > runningPhaseLifetime {
-                return .idle
-            }
-            return .running(tool: payload.tool)
-        case "completed":
-            return .completed(
-                tool: payload.tool,
-                finishedAt: Date(timeIntervalSince1970: payload.finishedAt ?? payload.updatedAt),
-                exitCode: payload.exitCode
-            )
-        default:
-            return .idle
-        }
-    }
-
-    func completionToken(for payload: ProjectActivityPayload) -> String {
-        "\(payload.tool)-\(payload.updatedAt)-\(payload.exitCode ?? -999)"
     }
 
     func requestNotificationPermission() {
         guard supportsSystemNotifications else {
             return
         }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-            if let error {
-                AppDebugLog.shared.log("notifications", "authorization error=\(error.localizedDescription)")
-                return
-            }
-            AppDebugLog.shared.log("notifications", "authorization granted=\(granted)")
-        }
+        requestAuthorization(logPrefix: "authorization")
     }
 
     func notifyCompletion(projectName: String, tool: String, exitCode: Int?, settings: AppNotificationSettings) {
@@ -139,7 +75,7 @@ struct ProjectActivityService: @unchecked Sendable {
         requestLogPrefix: String,
         onAuthorized: @escaping @Sendable () -> Void
     ) {
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
+        notificationCenter.getNotificationSettings { settings in
             AppDebugLog.shared.log(
                 "notifications",
                 "\(statusLogMessage) status=\(settings.authorizationStatus.rawValue)"
@@ -149,18 +85,7 @@ struct ProjectActivityService: @unchecked Sendable {
             case .authorized, .provisional, .ephemeral:
                 onAuthorized()
             case .notDetermined:
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-                    if let error {
-                        AppDebugLog.shared.log("notifications", "\(requestLogPrefix) error=\(error.localizedDescription)")
-                        return
-                    }
-                    AppDebugLog.shared.log("notifications", "\(requestLogPrefix) granted=\(granted)")
-                    guard granted else {
-                        AppDebugLog.shared.log("notifications", "\(requestLogPrefix) denied")
-                        return
-                    }
-                    onAuthorized()
-                }
+                requestAuthorization(logPrefix: requestLogPrefix, onGranted: onAuthorized)
             case .denied:
                 AppDebugLog.shared.log("notifications", "\(statusLogMessage) skipped status=denied")
             @unknown default:
@@ -170,11 +95,14 @@ struct ProjectActivityService: @unchecked Sendable {
     }
 
     private func enqueueNotification(projectName: String, tool: String, exitCode: Int?) {
+        let event = AppExternalNotificationEvent(
+            projectName: projectName,
+            tool: tool,
+            exitCode: exitCode
+        )
         let content = UNMutableNotificationContent()
-        content.title = String(format: String(localized: "project.activity.completed_format", defaultValue: "%@ completed", bundle: .module), tool)
-        content.body = exitCode == nil || exitCode == 0
-            ? String(format: String(localized: "project.activity.finished_successfully_format", defaultValue: "%@ finished successfully", bundle: .module), projectName)
-            : String(format: String(localized: "project.activity.finished_with_exit_code_format", defaultValue: "%@ finished with exit code %@", bundle: .module), projectName, "\(exitCode ?? -1)")
+        content.title = event.title
+        content.body = event.body
         content.sound = .default
 
         let request = UNNotificationRequest(
@@ -182,13 +110,11 @@ struct ProjectActivityService: @unchecked Sendable {
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                AppDebugLog.shared.log("notifications", "enqueue failed error=\(error.localizedDescription)")
-            } else {
-                AppDebugLog.shared.log("notifications", "enqueue success project=\(projectName) tool=\(tool)")
-            }
-        }
+        enqueue(
+            request,
+            successLogMessage: "enqueue success project=\(projectName) tool=\(tool)",
+            failureLogMessage: "enqueue failed"
+        )
     }
 
     private func enqueueNeedsInputNotification(
@@ -204,12 +130,71 @@ struct ProjectActivityService: @unchecked Sendable {
             defaultValue: "Action required",
             bundle: .module
         )
+        content.body = needsInputBody(
+            projectName: projectName,
+            tool: tool,
+            notificationType: notificationType,
+            targetToolName: targetToolName,
+            message: message
+        )
+        content.sound = .default
 
-        let body: String
+        let request = UNNotificationRequest(
+            identifier: "project-activity-waiting-\(projectName)-\(tool)-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil
+        )
+        enqueue(
+            request,
+            successLogMessage: "waiting-input enqueue success project=\(projectName) tool=\(tool)",
+            failureLogMessage: "waiting-input enqueue failed"
+        )
+    }
+
+    private func enqueue(
+        _ request: UNNotificationRequest,
+        successLogMessage: String,
+        failureLogMessage: String
+    ) {
+        notificationCenter.add(request) { error in
+            if let error {
+                AppDebugLog.shared.log("notifications", "\(failureLogMessage) error=\(error.localizedDescription)")
+            } else {
+                AppDebugLog.shared.log("notifications", successLogMessage)
+            }
+        }
+    }
+
+    private func requestAuthorization(
+        logPrefix: String,
+        onGranted: (@Sendable () -> Void)? = nil
+    ) {
+        notificationCenter.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error {
+                AppDebugLog.shared.log("notifications", "\(logPrefix) error=\(error.localizedDescription)")
+                return
+            }
+            AppDebugLog.shared.log("notifications", "\(logPrefix) granted=\(granted)")
+            guard granted else {
+                AppDebugLog.shared.log("notifications", "\(logPrefix) denied")
+                return
+            }
+            onGranted?()
+        }
+    }
+
+    private func needsInputBody(
+        projectName: String,
+        tool: String,
+        notificationType: String?,
+        targetToolName: String?,
+        message: String?
+    ) -> String {
         if let message, !message.isEmpty {
-            body = message
-        } else if let targetToolName, !targetToolName.isEmpty {
-            body = String(
+            return message
+        }
+        if let targetToolName, !targetToolName.isEmpty {
+            return String(
                 format: String(
                     localized: "project.activity.permission_request_format",
                     defaultValue: "%@ needs confirmation for %@ in %@",
@@ -219,8 +204,9 @@ struct ProjectActivityService: @unchecked Sendable {
                 targetToolName,
                 projectName
             )
-        } else if let notificationType, !notificationType.isEmpty {
-            body = String(
+        }
+        if let notificationType, !notificationType.isEmpty {
+            return String(
                 format: String(
                     localized: "project.activity.notification_request_format",
                     defaultValue: "%@ is waiting for %@ in %@",
@@ -230,50 +216,15 @@ struct ProjectActivityService: @unchecked Sendable {
                 notificationType,
                 projectName
             )
-        } else {
-            body = String(
-                format: String(
-                    localized: "project.activity.generic_input_request_format",
-                    defaultValue: "%@ is waiting for your input in %@",
-                    bundle: .module
-                ),
-                tool,
-                projectName
-            )
         }
-
-        content.body = body
-        content.sound = .default
-
-        let request = UNNotificationRequest(
-            identifier: "project-activity-waiting-\(projectName)-\(tool)-\(Date().timeIntervalSince1970)",
-            content: content,
-            trigger: nil
+        return String(
+            format: String(
+                localized: "project.activity.generic_input_request_format",
+                defaultValue: "%@ is waiting for your input in %@",
+                bundle: .module
+            ),
+            tool,
+            projectName
         )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                AppDebugLog.shared.log("notifications", "waiting-input enqueue failed error=\(error.localizedDescription)")
-            } else {
-                AppDebugLog.shared.log("notifications", "waiting-input enqueue success project=\(projectName) tool=\(tool)")
-            }
-        }
-    }
-
-    func clearStatus(for projectID: UUID) {
-        try? fileManager.removeItem(at: statusFileURL(for: projectID))
-    }
-
-    func clearAllStatuses() {
-        let directory = statusDirectoryURL()
-        guard let fileURLs = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
-            return
-        }
-        for fileURL in fileURLs where fileURL.pathExtension == "json" {
-            try? fileManager.removeItem(at: fileURL)
-        }
-    }
-
-    private func statusFileURL(for projectID: UUID) -> URL {
-        statusDirectoryURL().appendingPathComponent("\(projectID.uuidString).json")
     }
 }

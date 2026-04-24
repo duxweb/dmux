@@ -106,7 +106,7 @@ def build_env(tool: str, socket_path: Path, tmpdir: Path) -> dict[str, str]:
     env["DMUX_PROJECT_PATH"] = str(ROOT)
     env["DMUX_SESSION_TITLE"] = "runtime-hook-smoke"
     env["DMUX_SESSION_CWD"] = str(ROOT)
-    env["DMUX_STATUS_DIR"] = str(tmpdir / "status")
+    env["DMUX_OPENCODE_SESSION_MAP_DIR"] = str(tmpdir / "opencode-session-map")
     env["DMUX_CLAUDE_SESSION_MAP_DIR"] = str(tmpdir / "claude-session-map")
     env["DMUX_LOG_FILE"] = str(tmpdir / f"{tool}.log")
     for key in [
@@ -117,7 +117,7 @@ def build_env(tool: str, socket_path: Path, tmpdir: Path) -> dict[str, str]:
         "DMUX_EXTERNAL_SESSION_ID",
     ]:
         env.pop(key, None)
-    os.makedirs(env["DMUX_STATUS_DIR"], exist_ok=True)
+    os.makedirs(env["DMUX_OPENCODE_SESSION_MAP_DIR"], exist_ok=True)
     os.makedirs(env["DMUX_CLAUDE_SESSION_MAP_DIR"], exist_ok=True)
     return env
 

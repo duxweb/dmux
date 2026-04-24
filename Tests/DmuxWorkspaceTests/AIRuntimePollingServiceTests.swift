@@ -304,8 +304,7 @@ final class AIRuntimePollingServiceTests: XCTestCase {
             toolDriverFactory: AIToolDriverFactory(drivers: [driver]),
             notificationCenter: notificationCenter,
             interval: 60,
-            hookSuppressionWindow: 0.05,
-            sessionSilenceThreshold: 18
+            hookSuppressionWindow: 0.05
         )
         defer { service.stop() }
 
@@ -385,8 +384,7 @@ final class AIRuntimePollingServiceTests: XCTestCase {
             toolDriverFactory: AIToolDriverFactory(drivers: [driver]),
             notificationCenter: notificationCenter,
             interval: 60,
-            hookSuppressionWindow: 0.05,
-            sessionSilenceThreshold: 18
+            hookSuppressionWindow: 0.05
         )
         defer { service.stop() }
 
@@ -457,8 +455,7 @@ final class AIRuntimePollingServiceTests: XCTestCase {
             aiSessionStore: store,
             toolDriverFactory: AIToolDriverFactory(drivers: [driver]),
             notificationCenter: notificationCenter,
-            interval: 60,
-            sessionSilenceThreshold: 18
+            interval: 60
         )
         defer { service.stop() }
 
@@ -534,8 +531,7 @@ final class AIRuntimePollingServiceTests: XCTestCase {
             toolDriverFactory: AIToolDriverFactory(drivers: [driver]),
             notificationCenter: notificationCenter,
             interval: 60,
-            hookSuppressionWindow: 2,
-            sessionSilenceThreshold: 18
+            hookSuppressionWindow: 2
         )
 
         let expectation = expectation(description: "runtime poll notification")

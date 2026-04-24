@@ -358,7 +358,6 @@ final class AIRuntimeIngressService {
 
     private func postRuntimeBridgeDidChange(kind: String, asynchronously: Bool = false) {
         let deliver = {
-            NotificationCenter.default.post(name: .dmuxAIRuntimeActivityPulse, object: nil)
             NotificationCenter.default.post(
                 name: .dmuxAIRuntimeBridgeDidChange,
                 object: nil,

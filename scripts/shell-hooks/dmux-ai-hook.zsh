@@ -43,18 +43,6 @@ _dmux_new_invocation_id() {
   uuidgen | tr '[:upper:]' '[:lower:]'
 }
 
-_dmux_status_path() {
-  [[ -n "${DMUX_STATUS_DIR:-}" && -n "${DMUX_PROJECT_ID:-}" ]] || return 1
-  print -r -- "${DMUX_STATUS_DIR}/${DMUX_PROJECT_ID}.json"
-}
-
-_dmux_send_runtime_event() {
-  local payload="$1"
-  [[ -n "${DMUX_RUNTIME_SOCKET:-}" ]] || return 0
-  command -v /usr/bin/nc >/dev/null 2>&1 || return 0
-  print -r -- "${payload}" | /usr/bin/nc -U -w 1 "${DMUX_RUNTIME_SOCKET}" >/dev/null 2>&1 || true
-}
-
 _dmux_reset_terminal_input_modes() {
   [[ -t 1 ]] || return 0
   printf '\033[<u' || true
@@ -65,58 +53,6 @@ _dmux_prepend_wrapper_bin() {
   typeset -gaU path
   path=("${DMUX_WRAPPER_BIN}" ${path:#"${DMUX_WRAPPER_BIN}"})
   export PATH
-}
-
-_dmux_write_usage_event() {
-  local phase="${1:-running}"
-  local payload=""
-  local now
-  now="$(_dmux_now)"
-  payload="$(
-    {
-      print -rn -- '{"kind":"usage","payload":{'
-      print -rn -- "\"sessionId\":\"$(_dmux_json_escape "${DMUX_SESSION_ID}")\","
-      print -rn -- "\"sessionInstanceId\":\"$(_dmux_json_escape "${DMUX_SESSION_INSTANCE_ID:-}")\","
-      if [[ -n "${DMUX_ACTIVE_AI_INVOCATION_ID:-}" ]]; then
-        print -rn -- "\"invocationId\":\"$(_dmux_json_escape "${DMUX_ACTIVE_AI_INVOCATION_ID}")\","
-      else
-        print -rn -- "\"invocationId\":null,"
-      fi
-      print -rn -- "\"projectId\":\"$(_dmux_json_escape "${DMUX_PROJECT_ID}")\","
-      print -rn -- "\"projectName\":\"$(_dmux_json_escape "${DMUX_PROJECT_NAME:-Workspace}")\","
-      print -rn -- "\"projectPath\":\"$(_dmux_json_escape "${DMUX_PROJECT_PATH:-}")\","
-      print -rn -- "\"sessionTitle\":\"$(_dmux_json_escape "${DMUX_SESSION_TITLE:-Terminal}")\","
-      print -rn -- "\"tool\":\"$(_dmux_json_escape "${DMUX_ACTIVE_AI_TOOL}")\","
-      print -rn -- "\"model\":null,"
-      print -rn -- "\"status\":\"$(_dmux_json_escape "${phase}")\","
-      if [[ "${phase}" == "running" && ( "${DMUX_ACTIVE_AI_TOOL}" == "codex" || "${DMUX_ACTIVE_AI_TOOL}" == "claude" || "${DMUX_ACTIVE_AI_TOOL}" == "claude-code" || "${DMUX_ACTIVE_AI_TOOL}" == "gemini" || "${DMUX_ACTIVE_AI_TOOL}" == "opencode" ) ]]; then
-        print -rn -- "\"responseState\":null,"
-      else
-        print -rn -- "\"responseState\":\"idle\","
-      fi
-      print -rn -- "\"updatedAt\":${now},"
-      print -rn -- "\"startedAt\":${DMUX_ACTIVE_AI_STARTED_AT:-$now},"
-      if [[ "${phase}" == "running" ]]; then
-        print -rn -- "\"finishedAt\":null,"
-      else
-        print -rn -- "\"finishedAt\":${now},"
-      fi
-      print -rn -- "\"inputTokens\":0,"
-      print -rn -- "\"outputTokens\":0,"
-      print -rn -- "\"totalTokens\":0,"
-      print -rn -- "\"contextWindow\":null,"
-      print -rn -- "\"contextUsedTokens\":null,"
-      print -rn -- "\"contextUsagePercent\":null"
-      print -rn -- '}}'
-    }
-  )"
-  _dmux_send_runtime_event "${payload}"
-}
-
-_dmux_clear_status() {
-  local path
-  path="$(_dmux_status_path)" || return 0
-  /bin/rm -f -- "${path}"
 }
 
 _dmux_resolve_tool_from_command() {
@@ -164,18 +100,11 @@ _dmux_ai_preexec() {
   export DMUX_ACTIVE_AI_RESOLVED_PATH
   _dmux_prepend_wrapper_bin
   _dmux_log_line "preexec tool=${tool} resolved=${resolved_path:-nil} wrapper=${DMUX_WRAPPER_BIN:-nil} session=${DMUX_SESSION_ID:-nil} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil}"
-  _dmux_clear_status
-  if [[ "${tool}" != "codex" && "${tool}" != "claude" && "${tool}" != "claude-code" && "${tool}" != "gemini" && "${tool}" != "opencode" ]]; then
-    _dmux_write_usage_event running
-  fi
 }
 
 _dmux_ai_precmd() {
-  local exit_code=$?
   [[ -n "${DMUX_ACTIVE_AI_TOOL}" ]] || return 0
   _dmux_reset_terminal_input_modes
-  _dmux_write_usage_event completed "${exit_code}"
-  _dmux_clear_status
   DMUX_ACTIVE_AI_TOOL=""
   DMUX_ACTIVE_AI_STARTED_AT=""
   DMUX_ACTIVE_AI_INVOCATION_ID=""
@@ -189,8 +118,6 @@ _dmux_ai_precmd() {
 _dmux_ai_zshexit() {
   if [[ -n "${DMUX_ACTIVE_AI_TOOL}" ]]; then
     _dmux_reset_terminal_input_modes
-    _dmux_write_usage_event completed "$?"
-    _dmux_clear_status
   fi
   DMUX_ACTIVE_AI_TOOL=""
   DMUX_ACTIVE_AI_STARTED_AT=""

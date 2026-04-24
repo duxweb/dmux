@@ -22,11 +22,7 @@ actor MemoryCoordinator {
     }
 
     func currentStatusSnapshot() async -> MemoryExtractionStatusSnapshot {
-        do {
-            return try store.extractionStatusSnapshot()
-        } catch {
-            return MemoryExtractionStatusSnapshot(status: .idle, pendingCount: 0, runningCount: 0, lastError: nil, updatedAt: Date())
-        }
+        statusSnapshot(fallback: .idle)
     }
 
     func recoverInterruptedExtractions() async {
@@ -94,18 +90,10 @@ actor MemoryCoordinator {
         while true {
             let task: MemoryExtractionTask
             do {
-                if let nextTask = try store.nextPendingExtractionTask() {
-                    task = nextTask
-                } else if let retryTask = try store.retryableFailedExtractionTask() {
-                    try store.resetExtractionTaskForRetry(retryTask.id)
-                    debugLog.log(
-                        "memory-extraction",
-                        "retry task=\(retryTask.id.uuidString) attempts=\(retryTask.attempts) error=\(retryTask.error ?? "")"
-                    )
-                    task = retryTask
-                } else {
+                guard let nextTask = try nextExtractionTask() else {
                     break
                 }
+                task = nextTask
             } catch {
                 break
             }
@@ -118,9 +106,9 @@ actor MemoryCoordinator {
                 )
                 publishStatus(.processing)
                 guard let project = projectsByID[task.projectID] else {
-                    try store.markExtractionTaskFailed(task.id, error: "Missing project for extraction task.")
-                    debugLog.log("memory-extraction", "failed task=\(task.id.uuidString) reason=missing-project", level: .error)
-                    publishStatus(.failed)
+                    try store.markExtractionTaskDone(task.id)
+                    debugLog.log("memory-extraction", "drop task=\(task.id.uuidString) reason=missing-project")
+                    publishStatus(.idle)
                     continue
                 }
 
@@ -172,13 +160,7 @@ actor MemoryCoordinator {
     }
 
     private func publishStatus(_ fallback: MemoryExtractionStatus) {
-        let snapshot = (try? store.extractionStatusSnapshot()) ?? MemoryExtractionStatusSnapshot(
-            status: fallback,
-            pendingCount: fallback == .queued ? 1 : 0,
-            runningCount: fallback == .processing ? 1 : 0,
-            lastError: nil,
-            updatedAt: Date()
-        )
+        let snapshot = statusSnapshot(fallback: fallback)
         Task { @MainActor in
             NotificationCenter.default.post(
                 name: .dmuxMemoryExtractionStatusDidChange,
@@ -186,6 +168,35 @@ actor MemoryCoordinator {
                 userInfo: ["snapshot": snapshot]
             )
         }
+    }
+
+    private func nextExtractionTask() throws -> MemoryExtractionTask? {
+        if let nextTask = try store.nextPendingExtractionTask() {
+            return nextTask
+        }
+        guard let retryTask = try store.retryableFailedExtractionTask() else {
+            return nil
+        }
+        try store.resetExtractionTaskForRetry(retryTask.id)
+        debugLog.log(
+            "memory-extraction",
+            "retry task=\(retryTask.id.uuidString) attempts=\(retryTask.attempts) error=\(retryTask.error ?? "")"
+        )
+        return retryTask
+    }
+
+    private func statusSnapshot(fallback: MemoryExtractionStatus) -> MemoryExtractionStatusSnapshot {
+        (try? store.extractionStatusSnapshot()) ?? fallbackStatusSnapshot(for: fallback)
+    }
+
+    private func fallbackStatusSnapshot(for status: MemoryExtractionStatus) -> MemoryExtractionStatusSnapshot {
+        MemoryExtractionStatusSnapshot(
+            status: status,
+            pendingCount: status == .queued ? 1 : 0,
+            runningCount: status == .processing ? 1 : 0,
+            lastError: nil,
+            updatedAt: Date()
+        )
     }
 
     private func apply(response: MemoryExtractionResponse, task: MemoryExtractionTask, settings: AppAISettings) throws {
@@ -283,13 +294,11 @@ actor MemoryCoordinator {
 
         Return JSON with this exact shape and no extra keys:
         {
-          "schema_version": "dmux-memory-v2",
           "user_summary": "merged durable user memory, or empty string to keep unchanged",
           "project_summary": "merged durable project memory, or empty string to keep unchanged",
           "working_add": [{"scope":"user|project","kind":"preference|convention|decision|fact|bug_lesson","content":"...","rationale":"..."}],
           "working_archive": ["uuid"],
-          "merged_entry_ids": ["uuid"],
-          "no_memory_reason": "brief reason when nothing changed, otherwise empty string"
+          "merged_entry_ids": ["uuid"]
         }
 
         Stable extraction keywords and categories:
@@ -512,27 +521,8 @@ private struct MemoryExtractionResponse: Decodable {
     struct Item: Decodable {
         var scope: MemoryScope?
         var kind: MemoryKind
-        var tier: MemoryTier?
         var content: String
         var rationale: String?
-    }
-
-    struct SupersedeItem: Decodable {
-        var oldID: String
-        var scope: MemoryScope
-        var kind: MemoryKind
-        var tier: MemoryTier
-        var content: String
-        var rationale: String?
-
-        enum CodingKeys: String, CodingKey {
-            case oldID = "old_id"
-            case scope
-            case kind
-            case tier
-            case content
-            case rationale
-        }
     }
 
     var userSummary: String?
@@ -540,26 +530,6 @@ private struct MemoryExtractionResponse: Decodable {
     var workingAdd: [Item]
     var workingArchive: [String]
     var mergedEntryIDs: [String]
-    var reason: String?
-    var userAdd: [Item]
-    var projectAdd: [Item]
-    var supersede: [SupersedeItem]
-    var archive: [String]
-    var drop: [String]
-
-    var legacyWorkingItems: [Item] {
-        userAdd.map { item in
-            Item(scope: .user, kind: item.kind, tier: item.tier, content: item.content, rationale: item.rationale)
-        } + projectAdd.map { item in
-            Item(scope: .project, kind: item.kind, tier: item.tier, content: item.content, rationale: item.rationale)
-        } + supersede.map { item in
-            Item(scope: item.scope, kind: item.kind, tier: item.tier, content: item.content, rationale: item.rationale)
-        }
-    }
-
-    var legacyMergedEntryIDs: [UUID] {
-        supersede.compactMap { UUID(uuidString: $0.oldID) }
-    }
 
     enum CodingKeys: String, CodingKey {
         case userSummary = "user_summary"
@@ -567,12 +537,6 @@ private struct MemoryExtractionResponse: Decodable {
         case workingAdd = "working_add"
         case workingArchive = "working_archive"
         case mergedEntryIDs = "merged_entry_ids"
-        case reason
-        case userAdd = "user_add"
-        case projectAdd = "project_add"
-        case supersede
-        case archive
-        case drop
     }
 
     init(from decoder: Decoder) throws {
@@ -582,11 +546,5 @@ private struct MemoryExtractionResponse: Decodable {
         workingAdd = try container.decodeIfPresent([Item].self, forKey: .workingAdd) ?? []
         workingArchive = try container.decodeIfPresent([String].self, forKey: .workingArchive) ?? []
         mergedEntryIDs = try container.decodeIfPresent([String].self, forKey: .mergedEntryIDs) ?? []
-        reason = try container.decodeIfPresent(String.self, forKey: .reason)
-        userAdd = try container.decodeIfPresent([Item].self, forKey: .userAdd) ?? []
-        projectAdd = try container.decodeIfPresent([Item].self, forKey: .projectAdd) ?? []
-        supersede = try container.decodeIfPresent([SupersedeItem].self, forKey: .supersede) ?? []
-        archive = try container.decodeIfPresent([String].self, forKey: .archive) ?? []
-        drop = try container.decodeIfPresent([String].self, forKey: .drop) ?? []
     }
 }

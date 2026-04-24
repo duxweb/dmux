@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process"
 
 const socketPath = process.env.DMUX_RUNTIME_SOCKET ?? ""
 const logFile = process.env.DMUX_LOG_FILE ?? ""
-const statusDir = process.env.DMUX_STATUS_DIR ?? ""
+const opencodeSessionMapDir = process.env.DMUX_OPENCODE_SESSION_MAP_DIR ?? ""
 const runtimeSessionID = process.env.DMUX_SESSION_ID ?? ""
 
 function log(message, extra) {
@@ -20,15 +20,15 @@ function nowSeconds() {
 }
 
 function sessionMapPath() {
-  if (!statusDir || !runtimeSessionID) return null
-  return `${statusDir}/opencode-session-${runtimeSessionID}.json`
+  if (!opencodeSessionMapDir || !runtimeSessionID) return null
+  return `${opencodeSessionMapDir}/opencode-session-${runtimeSessionID}.json`
 }
 
 function writeSessionMap({ externalSessionID, model }) {
   const path = sessionMapPath()
   if (!path || !externalSessionID) return
   try {
-    fs.mkdirSync(statusDir, { recursive: true })
+    fs.mkdirSync(opencodeSessionMapDir, { recursive: true })
     fs.writeFileSync(
       path,
       JSON.stringify(

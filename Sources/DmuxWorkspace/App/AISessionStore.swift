@@ -7,11 +7,6 @@ final class AISessionStore {
     static let shared = AISessionStore()
     let runningPhaseLifetime: TimeInterval = 30
 
-    private enum PromptSubmittedSource {
-        case userInput
-        case toolUse
-    }
-
     enum State: String, Codable, Equatable, Sendable {
         case idle
         case responding
@@ -856,29 +851,23 @@ final class AISessionStore {
     }
 
     private func shouldIgnoreToolActivityEvent(event: AIHookEvent) -> Bool {
-        guard promptSubmittedSource(for: event) == .toolUse else {
-            return false
-        }
-        return true
+        normalizedNonEmptyString(event.metadata?.source) == "tool-use"
     }
 
     private func shouldIgnoreInternalCodexEvent(event: AIHookEvent) -> Bool {
-        guard normalizedNonEmptyString(event.tool)?.lowercased() == "codex",
-              let projectPath = normalizedProjectPath(event.projectPath) else {
+        guard normalizedNonEmptyString(event.tool)?.lowercased() == "codex" else {
             return false
         }
 
         let memoriesPath = codexMemoriesRootPath
-        return projectPath == memoriesPath || projectPath.hasPrefix(memoriesPath + "/")
-    }
-
-    private func promptSubmittedSource(for event: AIHookEvent) -> PromptSubmittedSource {
-        switch normalizedNonEmptyString(event.metadata?.source) {
-        case "tool-use", "pre-tool-use", "post-tool-use", "post-tool-use-failure":
-            return .toolUse
-        default:
-            return .userInput
+        if let cwdPath = normalizedProjectPath(event.metadata?.cwd),
+           cwdPath == memoriesPath || cwdPath.hasPrefix(memoriesPath + "/") {
+            return true
         }
+        guard let projectPath = normalizedProjectPath(event.projectPath) else {
+            return false
+        }
+        return projectPath == memoriesPath || projectPath.hasPrefix(memoriesPath + "/")
     }
 
     private func makeFreshSessionState(

@@ -345,6 +345,38 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
     }
 
+    func testInternalCodexMemoryPromptSubmittedIsIgnoredWhenOnlyHookCWDPointsToMemories() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let projectPath = "/tmp/codux-project"
+        let memoriesPath = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".codex/memories", isDirectory: true)
+            .path
+
+        XCTAssertFalse(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-1",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    projectPath: projectPath,
+                    sessionTitle: "Codex Memory",
+                    tool: "codex",
+                    aiSessionID: "codex-memory-session",
+                    model: "gpt-5.4",
+                    totalTokens: nil,
+                    updatedAt: 100,
+                    metadata: .init(source: "user-input", cwd: memoriesPath)
+                )
+            )
+        )
+
+        XCTAssertNil(store.session(for: terminalID))
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+    }
+
     func testCompletedTurnRemainsVisibleAsLiveSnapshotDuringCompletionWindow() throws {
         let terminalID = UUID()
         let projectID = UUID()
@@ -521,7 +553,7 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
     }
 
-    func testRespondingPhaseRemainsRunningUntilExplicitCompletion() throws {
+    func testRespondingSessionStateRemainsActiveAfterVisibilityTimeout() throws {
         let terminalID = UUID()
         let projectID = UUID()
 
@@ -542,11 +574,11 @@ final class AISessionStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
         XCTAssertTrue(store.isRunning(terminalID: terminalID))
     }
 
-    func testStaleRespondingSessionStillSuppressesOlderCompletedPhase() throws {
+    func testStaleRespondingSessionHidesLoadingButStillSuppressesOlderCompletedPhase() throws {
         let completedTerminalID = UUID()
         let staleRespondingTerminalID = UUID()
         let projectID = UUID()
@@ -586,7 +618,7 @@ final class AISessionStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
         XCTAssertNil(store.completedPhase(projectID: projectID))
     }
 

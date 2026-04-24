@@ -28,10 +28,16 @@ enum RightPanelKind: String, Codable, Equatable {
 @Observable
 final class AppModel {
     struct ProjectCompletionPresentation: Equatable {
-        var token: String
         var tool: String
         var finishedAt: Date
         var exitCode: Int?
+    }
+
+    struct ProjectActivityCache: Equatable {
+        var completionPresentation: ProjectCompletionPresentation? = nil
+        var lastCompletionToken: String? = nil
+        var lastWaitingInputToken: String? = nil
+        var lastResolutionLogToken: String? = nil
     }
 
     struct TerminalRecoveryIssue: Equatable {
@@ -95,21 +101,13 @@ final class AppModel {
     let toolDriverFactory = AIToolDriverFactory.shared
     let debugLog = AppDebugLog.shared
     var selectedProjectIDChangeSource = "init"
-    var activityStatusWatcher: DispatchSourceFileSystemObject?
     var appActivationObservers: [NSObjectProtocol] = []
     var terminalFocusObserver: NSObjectProtocol?
     var runtimeBridgeObserver: NSObjectProtocol?
-    var runtimeActivityObserver: NSObjectProtocol?
     var memoryExtractionStatusObserver: NSObjectProtocol?
     var pendingActivityRefreshTask: Task<Void, Never>?
     var pendingActivityRefreshShouldNotify = false
-    var pendingActivityRefreshShouldRefreshAIStats = false
-    var pendingActivityRefreshRequiresStatusReload = false
-    var cachedActivityPayloadByProjectID: [UUID: ProjectActivityPayload] = [:]
-    var completionPresentationByProjectID: [UUID: ProjectCompletionPresentation] = [:]
-    var lastCompletionTokenByProjectID: [UUID: String] = [:]
-    var lastWaitingInputTokenByProjectID: [UUID: String] = [:]
-    var lastActivityResolutionLogTokenByProjectID: [UUID: String] = [:]
+    var activityCacheByProjectID: [UUID: ProjectActivityCache] = [:]
     var isSystemUIReady = false
     private var isTerminalStartupUnlocked = false
     private var hasLoggedRootViewAppearance = false
@@ -147,7 +145,6 @@ final class AppModel {
 
         refreshGitState()
         resetActivityState()
-        activityService.clearAllStatuses()
         runtimeIngressService.resetEphemeralState()
         runtimeBridgeService.prepareManagedRuntimeSupportIfNeeded()
         runtimePollingService.start()
@@ -168,10 +165,15 @@ final class AppModel {
                 guard let self else {
                     return [:]
                 }
-                return self.aiStatsStore.normalizedTokenTotalsForPet(
-                    self.projects,
+                let currentProjects = self.projects
+                var totals = self.aiStatsStore.normalizedTokenTotalsForPet(
+                    currentProjects,
                     claimedAt: self.petStore.claimedAt
                 )
+                for project in currentProjects where totals[project.id] == nil {
+                    totals[project.id] = 0
+                }
+                return totals
             },
             computedStats: { [weak self] in
                 guard let self else {
@@ -252,11 +254,7 @@ final class AppModel {
         aiSessionStore.reset()
         activityByProjectID = [:]
         activityRenderVersion = 0
-        cachedActivityPayloadByProjectID.removeAll()
-        completionPresentationByProjectID.removeAll()
-        lastCompletionTokenByProjectID.removeAll()
-        lastWaitingInputTokenByProjectID.removeAll()
-        lastActivityResolutionLogTokenByProjectID.removeAll()
+        activityCacheByProjectID.removeAll()
     }
 
     var allowsDeferredTerminalStartup: Bool {

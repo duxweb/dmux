@@ -13,6 +13,7 @@ struct AIHookEventMetadata: Codable, Equatable, Sendable {
     var notificationType: String? = nil
     var source: String? = nil
     var reason: String? = nil
+    var cwd: String? = nil
     var targetToolName: String? = nil
     var message: String? = nil
     var wasInterrupted: Bool? = nil

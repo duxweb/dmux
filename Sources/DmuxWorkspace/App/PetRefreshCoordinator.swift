@@ -13,13 +13,18 @@ final class PetRefreshCoordinator {
 
     private let petStore: PetStore
     private let logger = AppDebugLog.shared
+    private let liveRefreshDelay: Duration
     private var totalNormalizedTokensByProjectProvider: (@MainActor () -> [UUID: Int])?
     private var computedStatsProvider: (@MainActor () -> PetStats)?
     private var pendingRefreshTask: Task<Void, Never>?
     private var periodicRefreshTimer: Timer?
 
-    init(petStore: PetStore) {
+    init(
+        petStore: PetStore,
+        liveRefreshDelay: Duration = PetRefreshCoordinator.liveDebounceDelay
+    ) {
         self.petStore = petStore
+        self.liveRefreshDelay = liveRefreshDelay
     }
 
     func configure(
@@ -47,10 +52,10 @@ final class PetRefreshCoordinator {
         periodicRefreshTimer = nil
     }
 
-    func scheduleRefresh(reason: Reason, delay: Duration = PetRefreshCoordinator.liveDebounceDelay) {
+    func scheduleRefresh(reason: Reason, delay: Duration? = nil) {
         pendingRefreshTask?.cancel()
         pendingRefreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: delay)
+            try? await Task.sleep(for: delay ?? self?.liveRefreshDelay ?? PetRefreshCoordinator.liveDebounceDelay)
             guard let self, !Task.isCancelled else {
                 return
             }
