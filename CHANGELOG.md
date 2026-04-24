@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-04-24
+
+### Fixed
+
+- Fixed release-build floating tooltips being stretched by their SwiftUI overlay container, keeping hover labels compact and anchored to the hovered control.
+
 ## [0.5.6] - 2026-04-24
 
 ### Fixed

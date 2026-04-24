@@ -15,14 +15,15 @@ private struct FloatingTooltipBubbleView: View {
             .foregroundStyle(AppTheme.textPrimary)
             .multilineTextAlignment(.leading)
             .lineLimit(nil)
-            .frame(maxWidth: Self.maxWidth - 20, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: Self.maxWidth - 20, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(AppTheme.panel.opacity(0.98))
             )
-            .fixedSize(horizontal: false, vertical: true)
+            .fixedSize(horizontal: true, vertical: true)
             .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 4)
             .allowsHitTesting(false)
     }
