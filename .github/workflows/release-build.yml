@@ -141,17 +141,6 @@ jobs:
           cp dist/*.dmg "$release_assets_dir/"
           cp dist/*.zip "$release_assets_dir/"
 
-          DMUX_CONFIGURATION=Debug \
-          DMUX_PACKAGE_VERSION="${DMUX_VERSION}-debug" \
-          DMUX_LOG_PROFILE=verbose \
-          DMUX_APP_VARIANT_SUFFIX="-debug" \
-          DMUX_APP_DISPLAY_NAME="Codux-debug" \
-          DMUX_APP_BUNDLE_NAME="Codux-debug" \
-          DMUX_BUNDLE_IDENTIFIER_SUFFIX=".debug" \
-          scripts/release/package-local-dmg.sh
-
-          cp dist/*-debug-macos-universal.dmg "$release_assets_dir/"
-
           (
             cd "$release_assets_dir"
             shasum -a 256 *.dmg *.zip > SHA256SUMS.txt
@@ -203,7 +192,6 @@ jobs:
           path: |
             dist/Codux-${{ steps.meta.outputs.version }}-macos-universal.dmg
             dist/Codux-${{ steps.meta.outputs.version }}-macos-universal.zip
-            dist/Codux-debug-${{ steps.meta.outputs.version }}-debug-macos-universal.dmg
             dist/appcast.xml
             dist/SHA256SUMS.txt
           if-no-files-found: error
@@ -218,7 +206,6 @@ jobs:
           files: |
             dist/Codux-${{ steps.meta.outputs.version }}-macos-universal.dmg
             dist/Codux-${{ steps.meta.outputs.version }}-macos-universal.zip
-            dist/Codux-debug-${{ steps.meta.outputs.version }}-debug-macos-universal.dmg
             dist/appcast.xml
             dist/SHA256SUMS.txt
 
