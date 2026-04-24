@@ -1,6 +1,7 @@
 import Foundation
 
 struct AIToolEnvironmentService {
+    private static let fallbackExecutablePath = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
     private static let allowedDotEnvKeys: Set<String> = [
         "GEMINI_API_KEY",
         "GEMINI_MODEL",
@@ -18,6 +19,7 @@ struct AIToolEnvironmentService {
         "ALL_PROXY",
         "NO_PROXY",
     ]
+    private static let loginShellPathCache = LoginShellPathCache()
 
     private let fileManager: FileManager
     private let homeDirectory: URL
@@ -58,7 +60,7 @@ struct AIToolEnvironmentService {
 
     private func mergedExecutablePath(_ currentPath: String?, includeBundledWrappers: Bool) -> String {
         let bundledWrapperPath = WorkspacePaths.repositoryResourceURL("scripts/wrappers/bin").path
-        let defaultPath = currentPath.flatMap(normalizedNonEmptyString) ?? "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
+        let defaultPath = currentPath.flatMap(normalizedNonEmptyString) ?? Self.fallbackExecutablePath
         let userToolPaths = [
             "/opt/homebrew/bin",
             "/usr/local/bin",
@@ -67,12 +69,91 @@ struct AIToolEnvironmentService {
             homeDirectory.appendingPathComponent(".cargo/bin", isDirectory: true).path,
             homeDirectory.appendingPathComponent(".opencode/bin", isDirectory: true).path,
         ]
-        let extraPaths = includeBundledWrappers ? [bundledWrapperPath] + userToolPaths : userToolPaths
+        let excludedPaths = includeBundledWrappers ? Set<String>() : [bundledWrapperPath]
+        let loginShellPaths = resolvedLoginShellPathComponents(excluding: excludedPaths)
+        let extraPaths = includeBundledWrappers ? [bundledWrapperPath] + loginShellPaths + userToolPaths : loginShellPaths + userToolPaths
         var seen = Set<String>()
         return (extraPaths + defaultPath.components(separatedBy: ":"))
             .compactMap(normalizedNonEmptyString)
             .filter { seen.insert($0).inserted }
             .joined(separator: ":")
+    }
+
+    private func resolvedLoginShellPathComponents(excluding excludedPaths: Set<String>) -> [String] {
+        guard let path = Self.loginShellPathCache.value(for: loginShellPathCacheKey(), loader: resolveLoginShellPath()) else {
+            return []
+        }
+        return path
+            .components(separatedBy: ":")
+            .compactMap(normalizedNonEmptyString)
+            .filter { !excludedPaths.contains($0) }
+    }
+
+    private func loginShellPathCacheKey() -> String {
+        [
+            preferredShellPath(),
+            homeDirectory.path,
+            ProcessInfo.processInfo.environment["USER"] ?? "",
+        ].joined(separator: "|")
+    }
+
+    private func preferredShellPath() -> String {
+        let candidates = [
+            ProcessInfo.processInfo.environment["SHELL"],
+            "/bin/zsh",
+            "/bin/bash",
+        ]
+        for candidate in candidates {
+            guard let path = normalizedNonEmptyString(candidate),
+                  fileManager.isExecutableFile(atPath: path) else {
+                continue
+            }
+            return path
+        }
+        return "/bin/zsh"
+    }
+
+    private func resolveLoginShellPath() -> String? {
+        let shellPath = preferredShellPath()
+        let beginMarker = "__DMUX_LOGIN_PATH_BEGIN__"
+        let endMarker = "__DMUX_LOGIN_PATH_END__"
+        let process = Process()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: shellPath)
+        process.arguments = [
+            "-lic",
+            "printf '\(beginMarker)%s\(endMarker)' \"$PATH\"",
+        ]
+        process.environment = [
+            "HOME": homeDirectory.path,
+            "USER": ProcessInfo.processInfo.environment["USER"] ?? NSUserName(),
+            "LOGNAME": ProcessInfo.processInfo.environment["LOGNAME"] ?? NSUserName(),
+            "PATH": Self.fallbackExecutablePath + ":/opt/homebrew/bin",
+        ]
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: outputData, encoding: .utf8),
+              let beginRange = output.range(of: beginMarker),
+              let endRange = output.range(of: endMarker, range: beginRange.upperBound..<output.endIndex) else {
+            return nil
+        }
+        let path = String(output[beginRange.upperBound..<endRange.lowerBound])
+        return normalizedNonEmptyString(path)
     }
 
     private func dotenvURLs() -> [URL] {
@@ -115,5 +196,28 @@ struct AIToolEnvironmentService {
             values[key] = value
         }
         return values
+    }
+}
+
+private final class LoginShellPathCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String: String] = [:]
+
+    func value(for key: String, loader: @autoclosure () -> String?) -> String? {
+        lock.lock()
+        if let cached = storage[key] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        guard let resolved = loader() else {
+            return nil
+        }
+
+        lock.lock()
+        storage[key] = resolved
+        lock.unlock()
+        return resolved
     }
 }

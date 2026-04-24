@@ -41,7 +41,12 @@ final class FloatingTooltipManager {
     func show(text: String, from anchorView: NSView, placement: FloatingTooltipPlacement) {
         guard let window = anchorView.window else { return }
 
-        let anchorRectInWindow = anchorView.convert(anchorView.bounds, to: nil)
+        let anchorRectInWindow: NSRect
+        if let superview = anchorView.superview {
+            anchorRectInWindow = superview.convert(anchorView.frame, to: nil)
+        } else {
+            anchorRectInWindow = anchorView.convert(anchorView.bounds, to: nil)
+        }
         let anchorRectOnScreen = window.convertToScreen(anchorRectInWindow)
         let contentSize = FloatingTooltipBubbleView.size(for: text)
         let origin = tooltipOrigin(

@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-04-24
+
+### 修复
+
+- 修复正式版 AI 记忆提取后台 worker 的 CLI 路径解析，现在会从用户登录 shell 环境读取真实 PATH；即使 Codux 从 Finder 启动，也能找到本机安装的 Codex、Claude、Gemini、OpenCode。
+- 修复正式版标题栏浮动提示的锚点坐标计算，改为基于真实 AppKit 控件 frame 定位，避免打包后 hover 提示仍然漂移到按钮下方其他位置。
+
 ## [0.5.2] - 2026-04-24
 
 ### 调整

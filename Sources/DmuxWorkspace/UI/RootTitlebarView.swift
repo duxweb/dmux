@@ -435,10 +435,10 @@ private struct TitlebarOpenSplitButton: View {
             : String(localized: "open.project.finder", defaultValue: "Open Project in Finder", bundle: .module),
             placement: .below
         )
-        .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
         .onHover { hovering in
             isHovered = hovering
         }
+        .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
         .opacity(isEnabled ? 1 : 0.6)
     }
 }
@@ -491,11 +491,11 @@ private struct TitlebarAITodayLevelButton: View {
         }
         .fixedSize(horizontal: true, vertical: false)
         .buttonStyle(.plain)
-        .floatingTooltip(String(localized: "ai.today_level", defaultValue: "Today's Level", bundle: .module), enabled: !isShowingPopover, placement: .below)
         .popover(isPresented: $isShowingPopover, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
             AITodayLevelPopover(model: model, tokens: tokens, currentLevel: level)
         }
         .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
+        .floatingTooltip(String(localized: "ai.today_level", defaultValue: "Today's Level", bundle: .module), enabled: !isShowingPopover, placement: .below)
         .onHover { hovering in
             isHovered = hovering
         }

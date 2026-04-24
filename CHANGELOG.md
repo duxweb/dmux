@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-04-24
+
+### Fixed
+
+- Fixed release-build AI memory extraction by resolving CLI paths from the user's login shell environment, so background Codex, Claude, Gemini, and OpenCode workers can find user-installed binaries even when Codux is launched from Finder.
+- Fixed title-bar floating tooltips in release builds by resolving the anchor from the control's real AppKit frame, keeping hover labels attached to the correct button after packaging.
+
 ## [0.5.2] - 2026-04-24
 
 ### Changed
