@@ -107,8 +107,8 @@ function sendAIHookPayload(payload) {
   })
 }
 
-function basePayload({ externalSessionID, responseState, model }) {
-  const phase = "running"
+function basePayload({ externalSessionID, responseState, model, status }) {
+  const phase = status ?? (responseState === "idle" ? "idle" : "running")
   const currentTime = nowSeconds()
   return {
     sessionId: process.env.DMUX_SESSION_ID,
@@ -124,7 +124,7 @@ function basePayload({ externalSessionID, responseState, model }) {
     status: phase,
     responseState: responseState ?? null,
     updatedAt: currentTime,
-    startedAt: Number(process.env.DMUX_ACTIVE_AI_STARTED_AT ?? currentTime),
+    startedAt: activePromptStartedAt ?? Number(process.env.DMUX_ACTIVE_AI_STARTED_AT ?? currentTime),
     finishedAt: null,
     inputTokens: 0,
     outputTokens: 0,
@@ -158,41 +158,57 @@ function pickFirstString(input, keys) {
   return null
 }
 
+function pickDirectString(input, keys) {
+  if (!input || typeof input !== "object") return null
+  for (const key of keys) {
+    const direct = readString(input[key])
+    if (direct) return direct
+  }
+  return null
+}
+
 function sessionIDFrom(properties) {
-  return pickFirstString(properties, ["sessionID", "sessionId"])
-    ?? pickFirstString(properties, ["id"])
+  return pickDirectString(properties, ["sessionID", "sessionId"])
+    ?? pickDirectString(readObject(properties.session), ["id", "sessionID", "sessionId"])
+    ?? pickDirectString(properties, ["id"])
 }
 
 function messageRoleFrom(properties) {
-  return pickFirstString(properties, ["role"])
+  return pickDirectString(properties, ["role"])
+    ?? pickDirectString(readObject(properties.message), ["role"])
 }
 
 function modelFrom(properties) {
-  return pickFirstString(properties, ["modelID", "modelId", "model"])
+  return pickDirectString(properties, ["modelID", "modelId", "model"])
+    ?? pickDirectString(readObject(properties.model), ["id", "modelID", "modelId", "model"])
+    ?? pickDirectString(readObject(properties.message), ["modelID", "modelId", "model"])
 }
 
 function messageIDFrom(properties) {
-  return pickFirstString(properties, ["messageID", "messageId", "id"])
+  return pickDirectString(properties, ["messageID", "messageId", "id"])
+    ?? pickDirectString(readObject(properties.message), ["id", "messageID", "messageId"])
 }
 
 function commandNameFrom(properties) {
-  return pickFirstString(properties, ["command", "name"])
+  return pickDirectString(properties, ["command", "name"])
 }
 
 function messageFrom(properties) {
-  return pickFirstString(properties, ["message", "prompt", "description"])
+  return pickDirectString(properties, ["message", "prompt", "description"])
 }
 
 function toolNameFrom(properties) {
-  return pickFirstString(properties, ["toolName", "tool", "name"])
+  return pickDirectString(properties, ["toolName", "tool", "name"])
 }
 
 let currentSessionID = readString(process.env.DMUX_EXTERNAL_SESSION_ID)
 let currentModel = null
 let lastUserMessageID = null
 let lastSignature = null
+let hasActivePrompt = false
+let activePromptStartedAt = null
 
-function dispatchUpdate({ externalSessionID, responseState, model, reason }) {
+function dispatchUpdate({ externalSessionID, responseState, model, status, reason }) {
   const nextExternalSessionID = readString(externalSessionID) ?? currentSessionID
   if (!nextExternalSessionID) {
     log("skip-dispatch-missing-session", { reason })
@@ -211,6 +227,7 @@ function dispatchUpdate({ externalSessionID, responseState, model, reason }) {
       externalSessionID: nextExternalSessionID,
       responseState,
       model: currentModel,
+      status,
     }),
   )
   log("dispatch", { reason, externalSessionID: nextExternalSessionID, responseState: responseState ?? null, model: currentModel })
@@ -280,8 +297,7 @@ export const DmuxRuntimePlugin = async ({ client }) => {
       const properties = readObject(event?.properties) ?? {}
 
       switch (type) {
-        case "session.created":
-        case "session.updated": {
+        case "session.created": {
           dispatchAIHook({
             kind: "sessionStarted",
             externalSessionID: sessionIDFrom(properties),
@@ -297,11 +313,24 @@ export const DmuxRuntimePlugin = async ({ client }) => {
           })
           return
         }
+        case "session.updated": {
+          const sessionID = sessionIDFrom(properties)
+          const model = modelFrom(properties)
+          if (sessionID) {
+            currentSessionID = sessionID
+            currentModel = model ?? currentModel
+            writeSessionMap({ externalSessionID: currentSessionID, model: currentModel })
+          }
+          log("session-updated", { externalSessionID: sessionID ?? null, model: model ?? null })
+          return
+        }
         case "session.status": {
           const sessionID = sessionIDFrom(properties)
           const status = readObject(properties.status)
           const statusType = readString(status?.type)
           if (statusType === "busy" || statusType === "retry") {
+            hasActivePrompt = true
+            activePromptStartedAt = activePromptStartedAt ?? nowSeconds()
             dispatchUpdate({
               externalSessionID: sessionID,
               responseState: "responding",
@@ -315,16 +344,33 @@ export const DmuxRuntimePlugin = async ({ client }) => {
               externalSessionID: sessionID,
               responseState: "idle",
               model: modelFrom(properties),
-              reason: "status:idle",
+              status: "idle",
+              reason: `status:${statusType}`,
             })
+            log("status-idle", { externalSessionID: sessionID ?? null })
           }
           return
         }
         case "session.idle": {
+          const sessionID = sessionIDFrom(properties)
+          if (!hasActivePrompt) {
+            log("ignore-session-idle", { externalSessionID: sessionID ?? null, reason: "no-active-prompt" })
+            return
+          }
+          hasActivePrompt = false
+          activePromptStartedAt = null
+          dispatchAIHook({
+            kind: "turnCompleted",
+            externalSessionID: sessionID,
+            model: modelFrom(properties),
+            totalTokens: null,
+            reason: type,
+          })
           dispatchUpdate({
-            externalSessionID: sessionIDFrom(properties),
+            externalSessionID: sessionID,
             responseState: "idle",
             model: modelFrom(properties),
+            status: "completed",
             reason: type,
           })
           return
@@ -348,6 +394,8 @@ export const DmuxRuntimePlugin = async ({ client }) => {
             const messageID = messageIDFrom(properties) ?? `user-${Date.now()}`
             if (messageID === lastUserMessageID) return
             lastUserMessageID = messageID
+            hasActivePrompt = true
+            activePromptStartedAt = nowSeconds()
             dispatchUpdate({
               externalSessionID: sessionID,
               responseState: "responding",
@@ -362,6 +410,9 @@ export const DmuxRuntimePlugin = async ({ client }) => {
               reason: "message:user",
             })
             return
+          }
+          if (role) {
+            log("ignore-message-updated", { role, externalSessionID: sessionID ?? null })
           }
           if (model) {
             currentModel = model

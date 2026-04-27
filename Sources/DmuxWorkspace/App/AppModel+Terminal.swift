@@ -362,6 +362,14 @@ extension AppModel {
     }
 
     func createSplitTerminal(command: String, axis: PaneAxis) -> UUID? {
+        createSplitTerminal(command: command, axis: axis, runCommandInsideShell: false)
+    }
+
+    func createSplitTerminalRunningCommandInShell(command: String, axis: PaneAxis) -> UUID? {
+        createSplitTerminal(command: command, axis: axis, runCommandInsideShell: true)
+    }
+
+    private func createSplitTerminal(command: String, axis: PaneAxis, runCommandInsideShell: Bool) -> UUID? {
         guard let selectedProjectID,
               let project = projects.first(where: { $0.id == selectedProjectID }),
               let index = workspaces.firstIndex(where: { $0.projectID == selectedProjectID }) else {
@@ -373,7 +381,7 @@ extension AppModel {
         }
 
         var updatedWorkspaces = workspaces
-        let session = TerminalSession.make(project: project, command: command)
+        let session = TerminalSession.make(project: project, command: runCommandInsideShell ? "" : command)
         updatedWorkspaces[index].sessions.append(session)
 
         switch axis {
@@ -390,9 +398,33 @@ extension AppModel {
         refreshAIStatsIfNeeded()
         debugLog.log(
             "terminal-command",
-            "split-created session=\(session.id.uuidString) axis=\(axis == .horizontal ? "horizontal" : "vertical") command=\(command)"
+            "split-created session=\(session.id.uuidString) axis=\(axis == .horizontal ? "horizontal" : "vertical") mode=\(runCommandInsideShell ? "shell-send" : "direct") command=\(command)"
         )
+        if runCommandInsideShell {
+            sendTerminalCommandWhenShellReady(command, sessionID: session.id)
+        }
         return session.id
+    }
+
+    private func sendTerminalCommandWhenShellReady(_ command: String, sessionID: UUID) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for attempt in 1...30 {
+                if let shellPID = DmuxTerminalBackend.shared.registry.shellPID(for: sessionID), shellPID > 0 {
+                    let didSend = DmuxTerminalBackend.shared.registry.sendText(command + "\n", to: sessionID)
+                    self.debugLog.log(
+                        "terminal-command",
+                        "shell-send session=\(sessionID.uuidString) shellPID=\(shellPID) attempt=\(attempt) sent=\(didSend) command=\(command)"
+                    )
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            self.debugLog.log(
+                "terminal-command",
+                "shell-send-failed session=\(sessionID.uuidString) reason=shell-timeout command=\(command)"
+            )
+        }
     }
 
     func tryReuseSelectedTopTerminalForCommand(_ command: String) -> Bool {

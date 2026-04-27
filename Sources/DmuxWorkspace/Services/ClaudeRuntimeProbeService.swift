@@ -193,6 +193,7 @@ actor ClaudeRuntimeLogCache {
                     in: fileURL,
                     projectPath: projectPath,
                     startingAt: 0,
+                    existingSessionIDs: [],
                     existingUsageTotalsByKey: [:]
                 )
                 fileStates[path] = FileState(
@@ -215,6 +216,7 @@ actor ClaudeRuntimeLogCache {
                 in: fileURL,
                 projectPath: projectPath,
                 startingAt: existing.offset,
+                existingSessionIDs: Set(existing.sessions.keys),
                 existingUsageTotalsByKey: existing.usageTotalsByKey
             )
             var mergedSessions = existing.sessions
@@ -291,6 +293,7 @@ actor ClaudeRuntimeLogCache {
         in fileURL: URL,
         projectPath: String,
         startingAt offset: UInt64,
+        existingSessionIDs: Set<String>,
         existingUsageTotalsByKey: [CountedUsageKey: UsageTotals]
     ) -> (sessions: [String: SessionAggregate], usageTotalsByKey: [CountedUsageKey: UsageTotals]) {
         var sessions: [String: SessionAggregate] = [:]
@@ -299,7 +302,7 @@ actor ClaudeRuntimeLogCache {
             guard let row = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                   let cwd = row["cwd"] as? String,
                   let sessionID = row["sessionId"] as? String,
-                  pathsEquivalent(cwd, projectPath) else {
+                  pathsEquivalent(cwd, projectPath) || sessions[sessionID] != nil || existingSessionIDs.contains(sessionID) else {
                 return true
             }
 

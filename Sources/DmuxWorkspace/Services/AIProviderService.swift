@@ -236,33 +236,64 @@ private struct HeadlessToolProviderClient: AIProviderClient {
                     : " stderr=\(stderrPreview) stdout=\(stdoutPreview)"
                 throw AIProviderError.processFailure("\(binaryName) timed out after \(Int(Self.timeoutSeconds)) seconds.\(suffix)")
             }
-            guard process.terminationStatus == 0 else {
-                throw AIProviderError.processFailure(
-                    processFailureMessage(
-                        binaryName: binaryName,
-                        terminationStatus: process.terminationStatus,
-                        stderrPreview: stderrPreview,
-                        stdoutPreview: stdoutPreview
-                    )
-                )
-            }
-
             let outputData: Data
-            if let outputFileURL,
-               let fileData = try? Data(contentsOf: outputFileURL),
-               !fileData.isEmpty {
+            let outputFileData = outputFileURL.flatMap { try? Data(contentsOf: $0) }
+            if let fileData = outputFileData, !fileData.isEmpty {
                 outputData = fileData
-                try? FileManager.default.removeItem(at: outputFileURL)
+                if process.terminationStatus == 0 || Self.looksLikeJSONResponse(fileData) {
+                    try? outputFileURL.map { try FileManager.default.removeItem(at: $0) }
+                }
             } else {
                 outputData = stdoutData
             }
             let output = String(data: outputData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if process.terminationStatus != 0 {
+                if Self.looksLikeJSONResponse(outputData), !output.isEmpty {
+                    return output
+                }
+                throw AIProviderError.processFailure(
+                    processFailureMessage(
+                        binaryName: binaryName,
+                        terminationStatus: process.terminationStatus,
+                        stderrPreview: Self.conciseProcessOutput(stderrPreview),
+                        stdoutPreview: Self.conciseProcessOutput(stdoutPreview)
+                    )
+                )
+            }
             guard !output.isEmpty else {
                 throw AIProviderError.emptyResponse
             }
             return output
         }.value
+    }
+
+    private static func looksLikeJSONResponse(_ data: Data) -> Bool {
+        guard let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              text.hasPrefix("{") else {
+            return false
+        }
+        guard let jsonData = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            return false
+        }
+        return object["working_add"] != nil || object["user_summary"] != nil || object["project_summary"] != nil
+    }
+
+    private static func conciseProcessOutput(_ output: String) -> String {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return trimmed }
+        if trimmed.contains("OpenAI Codex") && trimmed.contains("<system>") {
+            if let lastLine = trimmed.split(separator: "\n").last(where: { line in
+                let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty == false && value != "--------" && value != "user"
+            }) {
+                return "Codex CLI exited before returning a final JSON message. Last stderr line: \(lastLine)"
+            }
+            return "Codex CLI exited before returning a final JSON message."
+        }
+        guard trimmed.count > 600 else { return trimmed }
+        return "\(trimmed.prefix(600))..."
     }
 
     private func outputPreview(_ data: Data) -> String {

@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0D0C0D0C0D0C0D0C0D00001 /* RemoteHostService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D0C0D0C0D0C0D0C0D10001 /* RemoteHostService.swift */; };
+		C0D0C0D0C0D0C0D0C0D00002 /* AppModel+Remote.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D0C0D0C0D0C0D0C0D10002 /* AppModel+Remote.swift */; };
+		C0D0C0D0C0D0C0D0C0D00003 /* SettingsRemotePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D0C0D0C0D0C0D0C0D10003 /* SettingsRemotePane.swift */; };
 		011BED1E652A34A9642CEDEA /* Package.swift in CopyFiles */ = {isa = PBXBuildFile; fileRef = 8AF9CB866BDB2AF3ECA35178 /* Package.swift */; };
 		0677DA593A0554DAC639D0A3 /* AppReleaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6E2D396499849AD4FC84FC /* AppReleaseService.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* AppUpdaterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5E /* AppUpdaterService.swift */; };
@@ -297,6 +300,9 @@
 		E4DFD3851711A42A405F5E7D /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = System/Library/Frameworks/Carbon.framework; sourceTree = SDKROOT; };
 		ED37E17B7F68D17CEE7E83E4 /* CodexHookRuntimeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookRuntimeService.swift; sourceTree = "<group>"; };
 		FFE6C21DB9D84B024B4A9FC4 /* AIStatsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIStatsPanelView.swift; sourceTree = "<group>"; };
+		C0D0C0D0C0D0C0D0C0D10001 /* RemoteHostService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHostService.swift; sourceTree = "<group>"; };
+		C0D0C0D0C0D0C0D0C0D10002 /* AppModel+Remote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Remote.swift"; sourceTree = "<group>"; };
+		C0D0C0D0C0D0C0D0C0D10003 /* SettingsRemotePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRemotePane.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -516,6 +522,7 @@
 				C10000000000000000000013 /* AppModel+Git.swift */,
 				C10000000000000000000042 /* AppModel+GitRemote.swift */,
 				C10000000000000000000014 /* AppModel+Settings.swift */,
+				C0D0C0D0C0D0C0D0C0D10002 /* AppModel+Remote.swift */,
 				C10000000000000000000015 /* AppModel+Activity.swift */,
 				1E6B5C4D3A2F1E0D9C8B7A6E /* AppPerformanceMonitorStore.swift */,
 				210000000000000000000001 /* AppAISettings.swift */,
@@ -546,6 +553,7 @@
 				C10000000000000000000031 /* SettingsNotificationsPane.swift */,
 				C10000000000000000000032 /* SettingsShortcutsPane.swift */,
 				C10000000000000000000033 /* SettingsSupport.swift */,
+				C0D0C0D0C0D0C0D0C0D10003 /* SettingsRemotePane.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -590,6 +598,7 @@
 				9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */,
 				ED37E17B7F68D17CEE7E83E4 /* CodexHookRuntimeService.swift */,
 				8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */,
+				C0D0C0D0C0D0C0D0C0D10001 /* RemoteHostService.swift */,
 				377788C9C2C0ECF640DBAA6D /* GitCredentialStore.swift */,
 				4BF246B9127D41605A990516 /* GitService.swift */,
 				812A0EDEE4527FA414569297 /* PersistenceService.swift */,
@@ -815,6 +824,9 @@
 				B10000000000000000000034 /* RootWindowSupport.swift in Sources */,
 				B10000000000000000000035 /* RootSplitContainer.swift in Sources */,
 				B10000000000000000000036 /* RootTitlebarView.swift in Sources */,
+				C0D0C0D0C0D0C0D0C0D00001 /* RemoteHostService.swift in Sources */,
+				C0D0C0D0C0D0C0D0C0D00002 /* AppModel+Remote.swift in Sources */,
+				C0D0C0D0C0D0C0D0C0D00003 /* SettingsRemotePane.swift in Sources */,
 				1144DC09253CDEA30AC56B0E /* SettingsView.swift in Sources */,
 				B10000000000000000000029 /* SettingsBasicPanes.swift in Sources */,
 				B10000000000000000000030 /* SettingsAppearancePane.swift in Sources */,

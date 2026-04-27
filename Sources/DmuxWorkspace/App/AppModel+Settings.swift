@@ -781,3 +781,28 @@ extension AppModel {
         AppDelegate.scheduleRelaunch(at: Bundle.main.bundleURL)
     }
 }
+
+
+extension AppModel {
+    func updateRemoteSettings(_ remote: AppRemoteSettings, reconnect: Bool = true) {
+        var settings = appSettings
+        settings.remote = remote
+        appSettings = settings
+        persist()
+        if reconnect {
+            remoteHostService.applySettings()
+        }
+    }
+
+    func updateRemoteEnabled(_ enabled: Bool) {
+        var remote = appSettings.remote
+        remote.isEnabled = enabled
+        updateRemoteSettings(remote)
+    }
+
+    func updateRemoteServerURL(_ serverURL: String) {
+        var remote = appSettings.remote
+        remote.serverURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        updateRemoteSettings(remote)
+    }
+}

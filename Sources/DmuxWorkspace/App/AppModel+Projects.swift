@@ -479,7 +479,7 @@ extension AppModel {
             aiSessionStore.clearExpectedLogicalSession(terminalID: selectedSessionID)
         }
 
-        guard let newSessionID = createSplitTerminal(command: command, axis: .horizontal) else {
+        guard let newSessionID = createSplitTerminalRunningCommandInShell(command: command, axis: .horizontal) else {
             statusMessage = String(localized: "workspace.split.create_failed", defaultValue: "Unable to create a new split pane.", bundle: .module)
             return
         }

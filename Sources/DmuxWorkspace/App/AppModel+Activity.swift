@@ -403,7 +403,8 @@ extension AppModel {
             return
         }
 
-        let token = completionActivityToken(tool: tool, finishedAt: finishedAt)
+        let token = aiSessionStore.completedNotificationToken(projectID: project.id)
+            ?? completionActivityToken(tool: tool, finishedAt: finishedAt)
 
         guard activityCacheByProjectID[project.id]?.lastCompletionToken != token else {
             return

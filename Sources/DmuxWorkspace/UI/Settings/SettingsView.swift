@@ -7,6 +7,7 @@ enum SettingsSectionTab: String, CaseIterable, Identifiable {
     case pet
     case ai
     case notifications
+    case remote
     case shortcuts
     case developer
 
@@ -19,6 +20,7 @@ enum SettingsSectionTab: String, CaseIterable, Identifiable {
         case .pet: return "pawprint"
         case .ai: return "brain.head.profile"
         case .notifications: return "bell.badge"
+        case .remote: return "iphone.radiowaves.left.and.right"
         case .shortcuts: return "keyboard"
         case .developer: return "wrench.and.screwdriver"
         }
@@ -36,6 +38,8 @@ enum SettingsSectionTab: String, CaseIterable, Identifiable {
             return 640
         case .notifications:
             return 620
+        case .remote:
+            return 640
         case .shortcuts:
             return 320
         case .developer:
@@ -79,6 +83,12 @@ struct SettingsView: View {
                     Label(String(localized: "settings.tab.notifications", defaultValue: "Notifications", bundle: .module), systemImage: SettingsSectionTab.notifications.symbol)
                 }
                 .tag(SettingsSectionTab.notifications)
+
+            RemoteSettingsPane(model: model)
+                .tabItem {
+                    Label(String(localized: "settings.tab.remote", defaultValue: "Remote", bundle: .module), systemImage: SettingsSectionTab.remote.symbol)
+                }
+                .tag(SettingsSectionTab.remote)
 
             ShortcutSettingsPane(model: model)
                 .tabItem {

@@ -359,13 +359,22 @@ final class AISessionStore {
             return false
         }
         let kind: AIHookEventKind
+        let metadata: AIHookEventMetadata?
         switch envelope.responseState {
         case .responding:
             kind = .promptSubmitted
+            metadata = nil
         case .idle:
-            kind = envelope.status == "completed" ? .turnCompleted : .sessionStarted
+            if envelope.status == "completed" {
+                kind = .turnCompleted
+                metadata = .init(wasInterrupted: false, hasCompletedTurn: true)
+            } else {
+                kind = .turnCompleted
+                metadata = .init(wasInterrupted: true, hasCompletedTurn: false)
+            }
         case nil:
             kind = envelope.status == "running" ? .promptSubmitted : .turnCompleted
+            metadata = nil
         }
         return apply(
             AIHookEvent(
@@ -383,7 +392,7 @@ final class AISessionStore {
                 cachedInputTokens: envelope.cachedInputTokens,
                 totalTokens: envelope.totalTokens,
                 updatedAt: envelope.updatedAt,
-                metadata: nil
+                metadata: metadata
             )
         )
     }
@@ -523,6 +532,14 @@ final class AISessionStore {
             if let normalizedModel {
                 session.model = normalizedModel
             }
+            if shouldIgnoreRuntimeSnapshot(session: session, snapshot: snapshot) {
+                logger.log(
+                    "ai-session-store",
+                    "ignore-runtime-snapshot terminal=\(targetTerminalID.uuidString) tool=\(snapshot.tool) external=\(snapshot.externalSessionID ?? "nil") state=\(session.state.rawValue) response=\(snapshot.responseState?.rawValue ?? "nil") completed=\(snapshot.hasCompletedTurn) total=\(snapshot.totalTokens)"
+                )
+                continue
+            }
+
             resolveBaselineIfNeeded(&session, snapshot: snapshot)
             applyRuntimeLifecycle(&session, snapshot: snapshot, previousState: previousState)
             session.committedInputTokens = max(session.committedInputTokens, snapshot.inputTokens)
@@ -574,14 +591,60 @@ final class AISessionStore {
 
     private func applyTurnCompleted(_ session: inout TerminalSessionState, event: AIHookEvent) {
         let wasInterrupted = event.metadata?.wasInterrupted == true
+        let hasCompletedTurn = event.metadata?.hasCompletedTurn ?? !wasInterrupted
         session.state = .idle
-        session.activeTurnStartedAt = nil
+        if wasInterrupted || hasCompletedTurn == false {
+            session.activeTurnStartedAt = nil
+        } else if session.activeTurnStartedAt == nil {
+            session.activeTurnStartedAt = event.updatedAt
+        }
         session.runtimeTurnStartedAt = nil
         session.wasInterrupted = wasInterrupted
-        session.hasCompletedTurn = event.metadata?.hasCompletedTurn ?? !wasInterrupted
+        session.hasCompletedTurn = hasCompletedTurn
         session.notificationType = nil
         session.targetToolName = nil
         session.interactionMessage = nil
+    }
+
+    private func shouldIgnoreRuntimeSnapshot(
+        session: TerminalSessionState,
+        snapshot: AIRuntimeContextSnapshot
+    ) -> Bool {
+        guard canonicalToolName(snapshot.tool.isEmpty ? session.tool : snapshot.tool) == "opencode" else {
+            return false
+        }
+
+        if session.state == .responding || session.state == .needsInput {
+            return shouldIgnoreActiveOpenCodeRuntimeSnapshot(session: session, snapshot: snapshot)
+        }
+
+        if session.state == .idle,
+           session.hasCompletedTurn == false,
+           snapshot.responseState == .idle,
+           snapshot.hasCompletedTurn,
+           snapshot.source == .probe {
+            return true
+        }
+
+        return false
+    }
+
+    private func shouldIgnoreActiveOpenCodeRuntimeSnapshot(
+        session: TerminalSessionState,
+        snapshot: AIRuntimeContextSnapshot
+    ) -> Bool {
+
+        if snapshot.responseState == nil,
+           snapshot.hasCompletedTurn == false,
+           snapshot.totalTokens == 0 {
+            return true
+        }
+
+        guard snapshot.responseState == .idle else {
+            return false
+        }
+
+        return snapshot.source == .probe
     }
 
     private func applyRuntimeLifecycle(

@@ -40,6 +40,7 @@ protocol DmuxTerminalBackendRegistry: AnyObject {
     func sessionInstanceID(for sessionID: UUID) -> String?
     func activeSessionInstanceIDs() -> Set<String>
     func sendText(_ text: String, to sessionID: UUID) -> Bool
+    func resize(columns: UInt16, rows: UInt16, sessionID: UUID) -> Bool
     func sendInterrupt(to sessionID: UUID) -> Bool
     func sendEscape(to sessionID: UUID) -> Bool
     func focus(sessionID: UUID) -> Bool

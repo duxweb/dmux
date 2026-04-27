@@ -93,6 +93,7 @@ final class AppModel {
     let diagnosticsExportService = AppDiagnosticsExportService()
     let toolPermissionSettingsService = AIToolPermissionSettingsService()
     let appUpdaterService = AppUpdaterService(isEnabled: AppUpdaterService.isSupportedConfiguration)
+    @ObservationIgnored lazy var remoteHostService = RemoteHostService(model: self)
     private let runtimeBridgeService = AIRuntimeBridgeService()
     let memoryCoordinator = MemoryCoordinator()
     let runtimeIngressService = AIRuntimeIngressService.shared
@@ -142,6 +143,7 @@ final class AppModel {
         self.activeBackgroundColorPreset = resolvedSettings.backgroundColorPreset
 
         DmuxTerminalBackend.shared.configure(using: appSettings)
+        remoteHostService.applySettings()
 
         refreshGitState()
         resetActivityState()

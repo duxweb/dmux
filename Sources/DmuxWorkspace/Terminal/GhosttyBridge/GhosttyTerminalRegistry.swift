@@ -126,6 +126,14 @@ final class GhosttyTerminalRegistry {
         return true
     }
 
+    func resize(columns: UInt16, rows: UInt16, sessionID: UUID) -> Bool {
+        guard let container = containers[sessionID] else {
+            return false
+        }
+        container.resizeTerminal(columns: columns, rows: rows)
+        return true
+    }
+
     func sendInterrupt(to sessionID: UUID) -> Bool {
         guard let container = containers[sessionID] else {
             return false

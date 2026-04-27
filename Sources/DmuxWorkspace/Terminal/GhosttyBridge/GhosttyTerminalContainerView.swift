@@ -292,6 +292,10 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         processBridge.sendText(text)
     }
 
+    func resizeTerminal(columns: UInt16, rows: UInt16) {
+        processBridge.resize(columns: columns, rows: rows)
+    }
+
     func sendInterrupt() {
         notifyInteraction()
         processBridge.sendInterrupt()

@@ -57,6 +57,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
     private var dividerColor: NSColor
     private let minimumPaneWidth: CGFloat = 220
     private var isApplyingLayout = false
+    private var hasAppliedInitialRatios = false
     init(model: AppModel, workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
         self.model = model
         self.currentWorkspace = workspace
@@ -123,6 +124,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
     private func rebuildPanes(for workspace: ProjectWorkspace) {
         guard currentSessionIDs != workspace.topSessionIDs else { return }
         currentSessionIDs = workspace.topSessionIDs
+        hasAppliedInitialRatios = false
 
         let activeSessionIDs = Set(workspace.topSessionIDs)
         let inactiveSessionIDs = Set(paneHosts.keys).subtracting(activeSessionIDs)
@@ -248,6 +250,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
         }
 
         paneSplitView.adjustSubviews()
+        hasAppliedInitialRatios = true
     }
 
     static func shouldResetTopPaneDistribution(from currentWorkspace: ProjectWorkspace, to nextWorkspace: ProjectWorkspace) -> Bool {
@@ -257,6 +260,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
         guard !isApplyingLayout,
+              hasAppliedInitialRatios,
               currentSessionIDs.count > 1,
               model.selectedProjectID == currentWorkspace.projectID else { return }
         let widths = paneSplitView.subviews.prefix(currentSessionIDs.count).map { $0.frame.width }

@@ -124,7 +124,8 @@ private func fetchOpenCodeSessionSnapshot(
            COALESCE(json_extract(m.data, '$.time.completed'), '') AS completed_at_text,
            COALESCE(json_extract(m.data, '$.path.root'), s.directory, '') AS root_path,
            m.time_created AS message_created_at,
-           s.time_updated AS session_updated_at
+           s.time_updated AS session_updated_at,
+           COALESCE(json_extract(m.data, '$.finish'), '') AS finish_reason
     FROM session s
     LEFT JOIN message m ON m.session_id = s.id
     WHERE s.id = ?
@@ -176,12 +177,15 @@ private func fetchOpenCodeSessionSnapshot(
         let completedAtText = sqlite3_column_text(statement, 7).map { String(cString: $0) }
         let messageCreatedAt = sqlite3_column_double(statement, 9) / 1000
         let sessionUpdatedAt = sqlite3_column_double(statement, 10) / 1000
+        let finishReason = sqlite3_column_text(statement, 11).map { String(cString: $0) } ?? ""
         let createdAt = parseOpenCodeRuntimeTimestamp(createdAtText) ?? messageCreatedAt
         let completedAt = parseOpenCodeRuntimeTimestamp(completedAtText)
         if role == "user" {
             lastUserAt = max(lastUserAt, createdAt)
         } else if role == "assistant" {
-            lastCompletionAt = max(lastCompletionAt, completedAt ?? createdAt)
+            if isOpenCodeFinalAssistantFinish(finishReason, completedAt: completedAt) {
+                lastCompletionAt = max(lastCompletionAt, completedAt ?? createdAt)
+            }
         }
         updatedAt = max(updatedAt, createdAt)
         updatedAt = max(updatedAt, completedAt ?? 0)
@@ -221,6 +225,12 @@ private func fetchOpenCodeSessionSnapshot(
         sessionOrigin: totalTokens > 0 ? .restored : .fresh,
         source: .probe
     )
+}
+
+private func isOpenCodeFinalAssistantFinish(_ value: String, completedAt: Double?) -> Bool {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard normalized.isEmpty == false else { return completedAt != nil }
+    return normalized != "tool-calls"
 }
 
 private func parseOpenCodeRuntimeTimestamp(_ value: String?) -> Double? {

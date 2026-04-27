@@ -9,19 +9,33 @@ current_path="${PATH:-}"
 orig_path="${DMUX_ORIGINAL_PATH:-}"
 search_path=""
 
-if [[ -n "$current_path" ]]; then
-  path_without_wrapper_parts=()
-  path_parts=(${(s/:/)current_path})
+is_wrapper_bin_dir() {
+  local dir="$1"
+  [[ -n "$dir" ]] || return 1
+  local normalized="${dir:A}"
+  [[ "$normalized" == "${wrapper_bin_dir:A}" ]] && return 0
+  [[ "$normalized" == */Contents/Resources/runtime-root/scripts/wrappers/bin ]]
+}
+
+filtered_tool_search_path() {
+  local source_path="${1:-}"
+  local -a path_parts filtered_parts
+  path_parts=(${(s/:/)source_path})
+  local dir
   for dir in "${path_parts[@]}"; do
-    [[ -z "$dir" ]] && continue
-    [[ "$dir" == "$wrapper_bin_dir" ]] && continue
-    path_without_wrapper_parts+=("$dir")
+    [[ -n "$dir" ]] || continue
+    is_wrapper_bin_dir "$dir" && continue
+    filtered_parts+=("$dir")
   done
-  search_path="${(j/:/)path_without_wrapper_parts}"
+  print -r -- "${(j/:/)filtered_parts}"
+}
+
+if [[ -n "$current_path" ]]; then
+  search_path="$(filtered_tool_search_path "$current_path")"
 fi
 
 if [[ -z "$search_path" ]]; then
-  search_path="$orig_path"
+  search_path="$(filtered_tool_search_path "$orig_path")"
 fi
 
 system_bin_prefix="/usr/bin:/bin:/usr/sbin:/sbin"
@@ -31,7 +45,7 @@ resolve_from_search_path() {
   local binary_name="$1"
   local resolved=""
   resolved="$(PATH="$search_path" whence -p "$binary_name" 2>/dev/null || true)"
-  if [[ -n "$resolved" && -x "$resolved" && "$resolved" != "$wrapper_bin_dir/"* ]]; then
+  if [[ -n "$resolved" && -x "$resolved" ]] && ! is_wrapper_bin_dir "${resolved:h}"; then
     print -r -- "$resolved"
     return 0
   fi
@@ -51,8 +65,8 @@ apply_process_limit_cap() {
 
 find_real_binary() {
   if [[ -n "${DMUX_ACTIVE_AI_RESOLVED_PATH:-}" \
-    && -x "${DMUX_ACTIVE_AI_RESOLVED_PATH}" \
-    && "${DMUX_ACTIVE_AI_RESOLVED_PATH}" != "$wrapper_bin_dir/$tool_name" ]]; then
+    && -x "${DMUX_ACTIVE_AI_RESOLVED_PATH}" ]] \
+    && ! is_wrapper_bin_dir "${DMUX_ACTIVE_AI_RESOLVED_PATH:h}"; then
     print -r -- "${DMUX_ACTIVE_AI_RESOLVED_PATH}"
     return 0
   fi

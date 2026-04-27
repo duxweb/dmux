@@ -34,6 +34,7 @@ extension NSColor {
 
 final class GhosttyPTYProcessBridge: @unchecked Sendable {
     let sessionID: UUID
+    let suppressPromptEolMark: Bool
     let processInstanceID = UUID().uuidString.lowercased()
     lazy var terminalSession = InMemoryTerminalSession(
         write: { [weak self] data in
@@ -45,6 +46,7 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
     )
 
     var onFirstOutput: (() -> Void)?
+    var onOutput: ((Data) -> Void)?
     var onProcessTerminated: ((Int32?) -> Void)?
 
     private let logger = AppDebugLog.shared
@@ -62,8 +64,9 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
     private var pendingResizeWorkItem: DispatchWorkItem?
     private let resizeDebounceDelay: TimeInterval = 0.05
 
-    init(sessionID: UUID) {
+    init(sessionID: UUID, suppressPromptEolMark: Bool = false) {
         self.sessionID = sessionID
+        self.suppressPromptEolMark = suppressPromptEolMark
     }
 
     deinit {
@@ -104,6 +107,9 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
             _ = chdir(cwd)
             var env = Dictionary(uniqueKeysWithValues: environment)
             env["DMUX_SESSION_INSTANCE_ID"] = processInstanceID
+            if suppressPromptEolMark {
+                env["PROMPT_EOL_MARK"] = "%{%}"
+            }
             if env["TERM"] == nil {
                 env["TERM"] = "xterm-256color"
             }
@@ -190,6 +196,10 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
             return
         }
         writeToProcess(data)
+    }
+
+    func resize(columns: UInt16, rows: UInt16) {
+        resizeProcess(InMemoryTerminalViewport(columns: columns, rows: rows))
     }
 
     func sendInterrupt() {
@@ -282,6 +292,10 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
                 lock.unlock()
 
                 terminalSession.receive(data)
+                DispatchQueue.main.async { [sessionID, weak self] in
+                    self?.onOutput?(data)
+                    NotificationCenter.default.post(name: .coduxTerminalOutputDidReceive, object: nil, userInfo: ["sessionID": sessionID, "data": data])
+                }
                 if fireFirstOutput {
                     DispatchQueue.main.async { [weak self] in
                         self?.onFirstOutput?()

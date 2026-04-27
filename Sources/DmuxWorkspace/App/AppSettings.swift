@@ -35,6 +35,7 @@ struct AppSettings: Codable, Equatable {
     var developer = AppDeveloperSettings()
     var shortcuts = AppShortcutConfiguration.defaults
     var pet = AppPetSettings()
+    var remote = AppRemoteSettings()
 
     init() {}
 
@@ -56,6 +57,7 @@ struct AppSettings: Codable, Equatable {
         case developer
         case shortcuts
         case pet
+        case remote
     }
 
     init(from decoder: Decoder) throws {
@@ -84,6 +86,7 @@ struct AppSettings: Codable, Equatable {
         shortcuts = (try container.decodeIfPresent(AppShortcutConfiguration.self, forKey: .shortcuts) ?? .defaults)
             .migratedFromLegacyDefaultsIfNeeded()
         pet = try container.decodeIfPresent(AppPetSettings.self, forKey: .pet) ?? .init()
+        remote = try container.decodeIfPresent(AppRemoteSettings.self, forKey: .remote) ?? .init()
     }
 
     func encode(to encoder: Encoder) throws {
@@ -105,12 +108,21 @@ struct AppSettings: Codable, Equatable {
         try container.encode(developer, forKey: .developer)
         try container.encode(shortcuts, forKey: .shortcuts)
         try container.encode(pet, forKey: .pet)
+        try container.encode(remote, forKey: .remote)
     }
 
     var toolPermissions: AppAIToolPermissionSettings {
         get { ai.runtimeTools }
         set { ai.runtimeTools = newValue }
     }
+}
+
+
+struct AppRemoteSettings: Codable, Equatable {
+    var isEnabled = false
+    var serverURL = "http://127.0.0.1:8088"
+    var hostID = ""
+    var hostToken = ""
 }
 
 struct AppPetSettings: Codable, Equatable {

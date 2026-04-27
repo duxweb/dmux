@@ -48,6 +48,29 @@ _dmux_reset_terminal_input_modes() {
   printf '\033[<u' || true
 }
 
+_dmux_is_wrapper_bin_dir() {
+  local dir="$1"
+  [[ -n "${dir}" ]] || return 1
+  local normalized="${dir:A}"
+  if [[ -n "${DMUX_WRAPPER_BIN:-}" && "${normalized}" == "${DMUX_WRAPPER_BIN:A}" ]]; then
+    return 0
+  fi
+  [[ "${normalized}" == */Contents/Resources/runtime-root/scripts/wrappers/bin ]]
+}
+
+_dmux_filtered_tool_search_path() {
+  local source_path="${1:-}"
+  local -a parts filtered
+  parts=(${(s/:/)source_path})
+  local dir
+  for dir in "${parts[@]}"; do
+    [[ -n "${dir}" ]] || continue
+    _dmux_is_wrapper_bin_dir "${dir}" && continue
+    filtered+=("${dir}")
+  done
+  print -r -- "${(j/:/)filtered}"
+}
+
 _dmux_prepend_wrapper_bin() {
   [[ -n "${DMUX_WRAPPER_BIN:-}" && -d "${DMUX_WRAPPER_BIN}" ]] || return 0
   typeset -gaU path
@@ -92,7 +115,12 @@ _dmux_ai_preexec() {
   DMUX_ACTIVE_AI_STARTED_AT="$(_dmux_now)"
   DMUX_ACTIVE_AI_INVOCATION_ID="$(_dmux_new_invocation_id)"
   local resolved_path=""
-  resolved_path="$(PATH="${DMUX_ORIGINAL_PATH:-$PATH}" whence -p "${tool}" 2>/dev/null || true)"
+  local resolve_search_path=""
+  resolve_search_path="$(_dmux_filtered_tool_search_path "${DMUX_ORIGINAL_PATH:-$PATH}")"
+  resolved_path="$(PATH="${resolve_search_path}" whence -p "${tool}" 2>/dev/null || true)"
+  if [[ -n "${resolved_path}" ]] && _dmux_is_wrapper_bin_dir "${resolved_path:h}"; then
+    resolved_path=""
+  fi
   DMUX_ACTIVE_AI_RESOLVED_PATH="${resolved_path}"
   export DMUX_ACTIVE_AI_TOOL
   export DMUX_ACTIVE_AI_STARTED_AT

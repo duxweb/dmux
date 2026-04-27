@@ -2066,4 +2066,396 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertEqual(tool, "claude")
         XCTAssertNil(exitCode)
     }
+
+    func testOpencodeNonCompletedIdleClearsRespondingAsInterrupted() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 100,
+                    updatedAt: now,
+                    metadata: nil
+                )
+            )
+        )
+
+        XCTAssertTrue(
+            store.applyOpencodeEnvelope(
+                AIToolUsageEnvelope(
+                    sessionId: terminalID.uuidString,
+                    sessionInstanceId: "instance-opencode",
+                    externalSessionID: "ses_opencode",
+                    projectId: projectID.uuidString,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    model: "minimax-m2.5-free",
+                    status: "running",
+                    responseState: .idle,
+                    updatedAt: now + 1,
+                    startedAt: now,
+                    inputTokens: nil,
+                    outputTokens: nil,
+                    totalTokens: nil
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertTrue(session.wasInterrupted)
+        XCTAssertFalse(session.hasCompletedTurn)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+        XCTAssertNil(store.completedPhase(projectID: projectID))
+    }
+
+    func testOpencodeCompletedIdleProducesCompletedTurn() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 100,
+                    updatedAt: now,
+                    metadata: nil
+                )
+            )
+        )
+
+        XCTAssertTrue(
+            store.applyOpencodeEnvelope(
+                AIToolUsageEnvelope(
+                    sessionId: terminalID.uuidString,
+                    sessionInstanceId: "instance-opencode",
+                    externalSessionID: "ses_opencode",
+                    projectId: projectID.uuidString,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    model: "minimax-m2.5-free",
+                    status: "completed",
+                    responseState: .idle,
+                    updatedAt: now + 1,
+                    startedAt: now,
+                    inputTokens: nil,
+                    outputTokens: nil,
+                    totalTokens: nil
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertFalse(session.wasInterrupted)
+        XCTAssertTrue(session.hasCompletedTurn)
+        guard case .completed(let tool, _, let exitCode) = store.completedPhase(projectID: projectID) else {
+            return XCTFail("expected completed project phase")
+        }
+        XCTAssertEqual(tool, "opencode")
+        XCTAssertNil(exitCode)
+    }
+
+
+    func testOpencodeCompletionTokenChangesAfterInterruptedTurn() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 100,
+                    updatedAt: now,
+                    metadata: nil
+                )
+            )
+        )
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .turnCompleted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 120,
+                    updatedAt: now + 1,
+                    metadata: .init(wasInterrupted: false, hasCompletedTurn: true)
+                )
+            )
+        )
+        let firstToken = try XCTUnwrap(store.completedNotificationToken(projectID: projectID))
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 120,
+                    updatedAt: now + 10,
+                    metadata: nil
+                )
+            )
+        )
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .turnCompleted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 130,
+                    updatedAt: now + 11,
+                    metadata: .init(wasInterrupted: true, hasCompletedTurn: false)
+                )
+            )
+        )
+        XCTAssertNil(store.completedNotificationToken(projectID: projectID))
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 130,
+                    updatedAt: now + 20,
+                    metadata: nil
+                )
+            )
+        )
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .turnCompleted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 180,
+                    updatedAt: now + 30,
+                    metadata: .init(wasInterrupted: false, hasCompletedTurn: true)
+                )
+            )
+        )
+        let secondToken = try XCTUnwrap(store.completedNotificationToken(projectID: projectID))
+        XCTAssertNotEqual(firstToken, secondToken)
+    }
+    func testOpencodeIgnoresEmptyRuntimeSnapshotDuringRespondingTurn() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 0,
+                    updatedAt: now,
+                    metadata: nil
+                )
+            )
+        )
+
+        XCTAssertFalse(
+            store.applyRuntimeSnapshot(
+                terminalID: terminalID,
+                snapshot: AIRuntimeContextSnapshot(
+                    tool: "opencode",
+                    externalSessionID: "ses_opencode",
+                    model: nil,
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    cachedInputTokens: 0,
+                    totalTokens: 0,
+                    updatedAt: now + 0.1,
+                    startedAt: nil,
+                    completedAt: nil,
+                    responseState: nil,
+                    wasInterrupted: false,
+                    hasCompletedTurn: false,
+                    sessionOrigin: .fresh,
+                    source: .probe
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertFalse(session.hasCompletedTurn)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "opencode"))
+    }
+
+    func testOpencodeIgnoresOldCompletedRuntimeSnapshotDuringRespondingTurn() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 0,
+                    updatedAt: now,
+                    metadata: nil
+                )
+            )
+        )
+
+        XCTAssertFalse(
+            store.applyRuntimeSnapshot(
+                terminalID: terminalID,
+                snapshot: AIRuntimeContextSnapshot(
+                    tool: "opencode",
+                    externalSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    inputTokens: 10,
+                    outputTokens: 5,
+                    cachedInputTokens: 0,
+                    totalTokens: 15,
+                    updatedAt: now + 0.2,
+                    startedAt: now - 20,
+                    completedAt: now - 10,
+                    responseState: .idle,
+                    wasInterrupted: false,
+                    hasCompletedTurn: true,
+                    sessionOrigin: .restored,
+                    source: .probe
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertFalse(session.hasCompletedTurn)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "opencode"))
+    }
+
+    func testOpencodeIgnoresCurrentCompletedRuntimeSnapshotDuringRespondingTurn() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let now = Date().timeIntervalSince1970
+
+        XCTAssertTrue(
+            store.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: terminalID,
+                    terminalInstanceID: "instance-opencode",
+                    projectID: projectID,
+                    projectName: "Codux",
+                    sessionTitle: "OpenCode",
+                    tool: "opencode",
+                    aiSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    totalTokens: 0,
+                    updatedAt: now,
+                    metadata: nil
+                )
+            )
+        )
+
+        XCTAssertFalse(
+            store.applyRuntimeSnapshot(
+                terminalID: terminalID,
+                snapshot: AIRuntimeContextSnapshot(
+                    tool: "opencode",
+                    externalSessionID: "ses_opencode",
+                    model: "minimax-m2.5-free",
+                    inputTokens: 20,
+                    outputTokens: 10,
+                    cachedInputTokens: 0,
+                    totalTokens: 30,
+                    updatedAt: now + 4,
+                    startedAt: now + 1,
+                    completedAt: now + 3,
+                    responseState: .idle,
+                    wasInterrupted: false,
+                    hasCompletedTurn: true,
+                    sessionOrigin: .fresh,
+                    source: .probe
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertFalse(session.hasCompletedTurn)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "opencode"))
+    }
+
 }
