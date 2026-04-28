@@ -11,6 +11,8 @@
 <p align="center">
   <a href="https://codux.dux.cn">Website</a> &middot;
   <a href="https://github.com/duxweb/codux/releases">Download</a> &middot;
+  <a href="https://github.com/duxweb/codux-flutter/releases">Mobile</a> &middot;
+  <a href="https://github.com/duxweb/codux-service/releases">Relay Service</a> &middot;
   <a href="https://github.com/duxweb/codux/issues">Feedback</a>
 </p>
 
@@ -24,50 +26,91 @@
 
 ## Why Codux?
 
-In the age of AI-assisted development, your IDE is no longer the center of your workflow — **the terminal is**.
+Codux is for developers who spend most of their AI coding time in terminal tools such as Claude Code, Codex, Gemini CLI, and OpenCode.
 
-Tools like Claude Code, GitHub Copilot CLI, Cursor, and Aider are turning the terminal into your primary development environment. But traditional terminals weren't designed for this:
+| Problem | What Codux gives you |
+|:--|:--|
+| Terminal windows multiply across projects | A project-aware workspace where each project keeps its own sessions, split layout, and state. |
+| AI work finishes while you are in another project | Activity indicators and notifications show which project is running, waiting, or completed. |
+| Git requires another app | A built-in Git panel for branches, diffs, staging, commits, history, and sync. |
+| AI token usage is hard to understand | A live usage dashboard shows tool, model, request, token, and daily trend breakdowns. |
+| Useful AI decisions get buried in history | Local AI memory extracts durable preferences, project conventions, and lessons from completed sessions. |
+| You want to check or control work from your phone | Codux Mobile connects to the Mac host through Codux Service and runs remote terminal sessions securely. |
+| Electron terminals feel heavy | Codux is native SwiftUI + AppKit. No Electron, no WebKit terminal surface. |
 
-- **Tab and split management is painful** — juggling multiple sessions across projects is slow and clunky
-- **No project awareness** — no way to organize, switch, or get notifications per project
-- **Git needs a separate app** — you're constantly switching between terminal, GitKraken, or Tower
-- **AI usage is a black box** — you have no idea how many tokens you've burned today or which model is draining your quota
-- **AI tools forget project context** — useful decisions, conventions, and bug lessons get buried in terminal history
-- **Electron-based alternatives are resource hogs** — they eat RAM and battery for what should be a lightweight tool
+## Core Features
 
-**Codux fixes all of this.** A native macOS terminal workspace purpose-built for AI CLI tools — multi-project, multi-pane, with built-in Git and real-time AI usage tracking. No Electron. No WebKit. Just pure SwiftUI + AppKit, fast and light.
-
-## Features
-
-| Screenshot | Feature | Description |
+| Area | What You Get | Where It Lives |
 |:--|:--|:--|
-| ![Codux Split Workspace](docs/images/screenshot.png) | Multi-Project Workspace | Organize all your projects in one place. Each project keeps its own terminal sessions, split layout, and state, with activity monitoring that helps you switch context without missing task completion. |
-| ![Codux Git Panel](docs/images/git.png) | Built-in Git Panel | Manage branches, staged changes, file diffs, commit history, and remote sync directly in the sidebar instead of jumping to a separate Git app. |
-| ![Codux AI Stats](docs/images/ai-stats.png) | AI Usage Dashboard | Track token usage, model usage, tool breakdowns, daily trends, and live sessions for AI coding tools running inside your terminal. |
-| ![Codux AI Stats](docs/images/ai-stats.png) | AI Memory | Extract durable user and project memory from completed AI sessions, then inject concise context and global prompts into supported tools when new terminal sessions start. |
-| ![Codux Daily Level](docs/images/level.png) | Daily Level Ladder | See your current daily AI usage rank at a glance with the live ladder: `Idle`, `Light`, `Active`, `Focus`, `Intense`, `Grind`, `Limit`, `Godlike`. |
-| ![Codux Pet System](docs/images/pet.png) | Coding Pet Companion | Claim an egg, grow a companion, unlock evolutions, fill the dex, and get contextual bubble reactions while you work. |
+| Multi-project terminal workspace | Per-project terminals, tabs, splits, restored state, and project activity status. | Main window |
+| Built-in Git | Branches, staged changes, diffs, commit history, and remote sync. | Sidebar Git panel |
+| AI usage dashboard | Token totals, model breakdowns, tool rankings, daily trends, and live session state. | AI panel |
+| AI memory | Local `memory.sqlite3` storage, automatic extraction, provider tests, global prompts, and app-private launch context for supported tools. | Settings > AI and title-bar memory indicator |
+| Remote workspace | Pair mobile devices, create mobile-only terminal sessions on the Mac host, browse files, upload images, and operate terminals from Android. | Settings > Remote and Codux Mobile |
+| Daily level | A lightweight daily usage ladder from `Idle` to `Godlike`. | Title bar / AI stats |
+| Pet companion | Optional companion that grows with AI coding activity and shows contextual reminders. | Title bar pet button and Settings > Pet |
 
-### Beautiful & Intuitive
+## Screenshots
 
-Crafted with attention to every pixel. Glass vibrancy backgrounds, smooth animations, carefully balanced typography, and a clean visual hierarchy that stays out of your way. Light and dark mode are fully polished — not an afterthought. Customizable terminal themes, app icons, and keyboard shortcuts let you make it yours.
+| Workspace | Git | AI Usage |
+|:--|:--|:--|
+| ![Codux Split Workspace](docs/images/screenshot.png) | ![Codux Git Panel](docs/images/git.png) | ![Codux AI Stats](docs/images/ai-stats.png) |
 
-### Native & Lightweight
+| Daily Level | Pet |
+|:--|:--|
+| ![Codux Daily Level](docs/images/level.png) | ![Codux Pet System](docs/images/pet.png) |
 
-100% SwiftUI + AppKit. No Electron, no WebKit, no hidden browser eating your RAM. Launches instantly, idles at near-zero CPU, and respects your battery. This is what a macOS app should feel like.
+## Remote Access
 
-### AI Memory
+Codux remote access is split into three parts so you can self-host the relay and keep the Mac as the real terminal host.
 
-Codux can turn completed AI coding sessions into durable memory. It stores user preferences, project conventions, decisions, facts, and bug lessons locally in SQLite, then prepares concise launch context for supported tools. Memory is injected from Codux-managed runtime files, not written into your repository, and it is treated as guidance while the current repo remains the source of truth.
+| Component | Purpose | Download |
+|:--|:--|:--|
+| Codux for macOS | Main desktop app. It owns projects, terminals, Git, AI stats, memory, and remote host sessions. | [macOS Releases](https://github.com/duxweb/codux/releases) |
+| Codux Mobile | Android client for pairing with the Mac, opening remote terminal sessions, browsing project files, and uploading images. | [Mobile Releases](https://github.com/duxweb/codux-flutter/releases) |
+| Codux Service | Lightweight Go relay for device pairing and encrypted WebSocket message forwarding. | [Service Releases](https://github.com/duxweb/codux-service/releases) |
 
-Highlights:
+For a quick trial, enter the official trial relay `https://codux-node.dux.plus` in **Settings > Remote**. For production or long-term use, self-hosting `codux-service` is recommended.
 
-- Local `memory.sqlite3` storage for user and project memory
-- Automatic extraction from completed Claude, Codex, Gemini, and OpenCode sessions
-- Automatic extraction provider selection, with per-provider test buttons in **Settings > AI**
-- Global prompt support for all supported tools
-- App-private `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` launch context generation
-- Title-bar memory status indicator for queued, running, and failed extraction states
+### Remote Setup Flow
+
+| Step | Action |
+|:--|:--|
+| 1 | Use the official trial relay `https://codux-node.dux.plus`, or deploy `codux-service` on your own server, VPS, or LAN machine. |
+| 2 | Put HTTPS/WSS in front of the service for production use. Edge/CDN products can proxy WebSocket traffic, but the Go relay should run as a normal long-lived process. |
+| 3 | Open Codux for macOS, go to **Settings > Remote**, enter the relay server URL, and enable remote access. |
+| 4 | Click the pairing button to show a one-time QR code. |
+| 5 | Install Codux Mobile, scan the QR code, compare the matching code, and confirm the device on macOS. |
+| 6 | Use Codux Mobile to open remote terminal sessions that run on the Mac host without inserting those sessions into the visible Mac split layout. |
+
+Remote terminal input, output, file payloads, project lists, and AI stats are wrapped as end-to-end encrypted payloads between Codux for macOS and Codux Mobile. The relay sees routing metadata such as host ID, device ID, pairing state, and online state, but not decrypted terminal content.
+
+## AI Memory
+
+Codux can turn completed AI coding sessions into durable memory. It stores user preferences, project conventions, decisions, facts, and bug lessons locally in SQLite, then prepares concise launch context for supported tools. Memory is injected from Codux-managed runtime files, not written into your repository, and the current repo remains the source of truth.
+
+| Capability | Details |
+|:--|:--|
+| Storage | Local `memory.sqlite3` for user and project memory. |
+| Extraction | Completed Claude, Codex, Gemini, and OpenCode sessions can be summarized automatically. |
+| Provider control | Automatic provider selection plus per-provider test buttons in **Settings > AI**. |
+| Launch context | App-private `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` are generated for supported tool launches. |
+| Status | The title bar shows queued, running, and failed memory extraction states. |
+
+## Pet Companion
+
+The pet system is optional and intentionally lightweight. It turns AI coding activity into a small companion loop without becoming a separate game screen.
+
+| Item | Description |
+|:--|:--|
+| Entry | Click the title-bar pet button. If no pet exists, Codux opens the egg claim dialog. |
+| Growth | AI coding activity contributes to hatching, level growth, traits, evolutions, dex unlocks, and inheritance history. |
+| Reminders | Hydration, sedentary, and late-night reminders can be configured in **Settings > Pet**. |
+| Control | You can disable the pet or switch to static sprite mode in **Settings > Pet**. |
+
+## Native macOS Experience
+
+Codux is built with SwiftUI + AppKit. It launches quickly, idles quietly, supports light/dark mode, and keeps terminal, Git, AI stats, memory, and remote state in one native workspace.
 
 ## Getting Started
 
@@ -112,66 +155,6 @@ brew upgrade --cask codux
 | Switch Project | `⌘1` - `⌘9` |
 
 All shortcuts can be customized in **Settings > Shortcuts**.
-
-## Pet System
-
-### What It Is
-
-The pet system is a lightweight companion layer built into Codux. It turns your everyday AI coding activity into a long-term progression loop: hatch an egg, grow a companion, unlock evolutions, fill the dex, and eventually inherit your fully grown pet into history.
-
-### Current Pet Lineup
-
-| Species | Base Stages | Route A | Route B |
-|:--|:--|:--|:--|
-| `VoidCat` | `Huahua` → `Shadow Cat` → `Voidcat` | `Tomecat` → `Inkspirit` | `Shadecat` → `Nightspirit` |
-| `RustHound` | `Furball` → `Flop-Eared Pup` → `Rusthound` | `Blazehound` → `Sunflare` | `Ironwolf` → `Bloodmoon` |
-| `Goose` | `Chirpy` → `Dozy` → `Goosey` | `Dawnwing` → `Wildfire` | `Windwing` → `Tempest` |
-
-### How To Claim A Pet
-
-- Open Codux and look at the title bar pet button.
-- If you have not claimed a pet yet, click the pet button to open the egg claim dialog.
-- Choose one egg, optionally enter a custom name, then confirm the claim.
-- After claiming, the pet starts growing with your AI coding activity.
-
-### Where To Find It
-
-- `Title bar`: open the current pet popover, view hatching / level / traits, and access the dex
-- `Pet Dex`: view unlocked stages, current pet details, and inheritance history
-- `Settings > Pet`: configure pet enable state, static sprite mode, hydration reminders, sedentary reminders, and late-night reminders
-
-### Menus And UI Entry Points
-
-- The pet is not a separate app window by default; the main entry is the title bar pet button.
-- Clicking the title bar pet button opens:
-  - egg selection if no pet has been claimed
-  - the pet popover if a pet is active
-- The dex is opened from the pet popover.
-
-### Hidden Pet Unlock
-
-- One egg option is a random egg.
-- The random egg has a chance to hatch a hidden species.
-- The base chance is `15%`.
-- If you have actively used `2` or more AI tools in the last `7` days, the chance increases directly to `50%`.
-
-### Personality Dimensions
-
-- `Wisdom`: longer, deeper requests and sustained high-context work
-- `Chaos`: fast, frequent, short-cycle interaction
-- `Night`: late-night usage patterns
-- `Stamina`: long-running sessions and sustained active time
-- `Empathy`: iterative back-and-forth debugging and repair-style work
-
-### Reminders
-
-In **Settings > Pet**, you can configure:
-
-- hydration reminder interval
-- sedentary reminder interval
-- late-night reminder interval
-- pet enable / disable
-- static pet sprite mode
 
 ## System Requirements
 
