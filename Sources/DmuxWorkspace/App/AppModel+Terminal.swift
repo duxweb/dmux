@@ -257,7 +257,12 @@ extension AppModel {
             "terminal-lifecycle",
             "release-request session=\(sessionID.uuidString) reason=close-workspace selected=\(selectedSessionID?.uuidString ?? "nil")"
         )
+        var didCloseSession = false
+        var didCreateReplacementSession = false
         mutateSelectedWorkspace { workspace, project in
+            guard workspace.containsSession(sessionID) || workspace.containsVisibleSession(sessionID) else {
+                return
+            }
             let shouldRebuildLastTerminal = workspace.visibleSessionCount <= 1
             let replacementSession = shouldRebuildLastTerminal
                 ? TerminalSession.make(project: project, command: project.defaultCommand)
@@ -265,24 +270,32 @@ extension AppModel {
 
             workspace.removeSession(sessionID)
             if let replacementSession {
+                didCreateReplacementSession = true
                 workspace.sessions.append(replacementSession)
                 _ = workspace.addTopSession(replacementSession.id)
                 terminalFocusRequestID = replacementSession.id
                 terminalFocusRenderVersion &+= 1
             }
 
-            runtimeIngressService.clearLiveState(sessionID: sessionID)
-            aiStatsStore.handleTerminalSessionClosed(
-                sessionID: sessionID,
-                project: selectedProject,
-                projects: projects,
-                selectedSessionID: selectedSessionID
-            )
-            DmuxTerminalBackend.shared.registry.release(sessionID: sessionID)
-            clearTerminalRecoveryState(for: sessionID)
+            didCloseSession = true
             statusMessage = replacementSession == nil
                 ? String(localized: "terminal.closed", defaultValue: "Closed terminal.", bundle: .module)
                 : String(localized: "terminal.rebuilt", defaultValue: "Restarted terminal.", bundle: .module)
+        }
+        guard didCloseSession else {
+            return
+        }
+        runtimeIngressService.clearLiveState(sessionID: sessionID)
+        aiStatsStore.handleTerminalSessionClosed(
+            sessionID: sessionID,
+            project: selectedProject,
+            projects: projects,
+            selectedSessionID: selectedSessionID
+        )
+        DmuxTerminalBackend.shared.registry.release(sessionID: sessionID)
+        clearTerminalRecoveryState(for: sessionID)
+        if didCreateReplacementSession == false {
+            terminalFocusRenderVersion &+= 1
         }
     }
 

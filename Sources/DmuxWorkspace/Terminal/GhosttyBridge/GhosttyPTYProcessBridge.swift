@@ -146,6 +146,10 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
     }
 
     func terminateProcessTree() {
+        terminateProcessTree(signal: SIGHUP)
+    }
+
+    func terminateProcessTree(signal: Int32) {
         let pid: Int32
         let fd: Int32
         let shouldCloseOnCancel: Bool
@@ -179,8 +183,8 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
             return
         }
 
-        kill(-pid, SIGTERM)
-        kill(pid, SIGTERM)
+        kill(-pid, signal)
+        kill(pid, signal)
 
         ioQueue.asyncAfter(deadline: .now() + 1.0) {
             guard kill(pid, 0) == 0 else {
