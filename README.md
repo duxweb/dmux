@@ -70,13 +70,20 @@ Codux remote access is split into three parts so you can self-host the relay and
 | Codux Mobile | Android client for pairing with the Mac, opening remote terminal sessions, browsing project files, and uploading images. | [Mobile Releases](https://github.com/duxweb/codux-flutter/releases) |
 | Codux Service | Lightweight Go relay for device pairing and encrypted WebSocket message forwarding. | [Service Releases](https://github.com/duxweb/codux-service/releases) |
 
-For a quick trial, enter the official trial relay `https://codux-node.dux.plus` in **Settings > Remote**. For production or long-term use, self-hosting `codux-service` is recommended.
+For a quick trial, enter one of the official trial relays in **Settings > Remote**:
+
+| Node | URL |
+|:--|:--|
+| China relay direct | `https://codux-service.dux.plus` |
+| Global transit acceleration | `https://codux-node.dux.plus` |
+
+For production or long-term use, self-hosting `codux-service` is recommended.
 
 ### Remote Setup Flow
 
 | Step | Action |
 |:--|:--|
-| 1 | Use the official trial relay `https://codux-node.dux.plus`, or deploy `codux-service` on your own server, VPS, or LAN machine. |
+| 1 | Use one of the official trial relays above, or deploy `codux-service` on your own server, VPS, or LAN machine. |
 | 2 | Put HTTPS/WSS in front of the service for production use. Edge/CDN products can proxy WebSocket traffic, but the Go relay should run as a normal long-lived process. |
 | 3 | Open Codux for macOS, go to **Settings > Remote**, enter the relay server URL, and enable remote access. |
 | 4 | Click the pairing button to show a one-time QR code. |
