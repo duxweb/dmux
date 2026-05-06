@@ -4,15 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-05-06
+
+### Added
+
+- Added project-scoped task memos for terminal sessions, including queued, waiting, and completed states, duplicate memo support, and manual send controls.
+- Added automatic queued memo dispatch after an AI turn completes for the same project and terminal session.
+
 ### Changed
 
 - Reduced AI memory token pressure with smaller default injection budgets, summary truncation, transcript extraction limits, and per-session extraction cooldowns.
+- Moved split-pane terminal controls into the terminal overlay layer so they no longer reserve a separate layout column.
+- Refined task memo status controls with full-width capsule hit areas, localized labels, and reusable focused multiline inputs.
 
 ### Fixed
 
 - Reduced short CPU spikes and main-thread stalls while resizing Codex terminal windows by coalescing Ghostty viewport refreshes and ignoring transient tiny layout sizes.
 - Fixed AI memory compaction so newly extracted working memories stay browseable, stable items can be promoted to core memory, and only stale working entries are automatically merged into summaries.
 - Cleaned invalid version-only memory summaries so broken extraction responses no longer leave empty summary panels.
+- Fixed split-pane task memo button hit testing and queued-state styling so it remains clickable and no longer clips a corner badge.
 
 ## [0.9.1] - 2026-05-06
 

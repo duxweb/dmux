@@ -23,6 +23,7 @@ enum RightPanelKind: String, Codable, Equatable {
     case git
     case aiStats
     case files
+    case taskMemos
 }
 
 @MainActor
@@ -62,6 +63,8 @@ final class AppModel {
     var activeTerminalBackgroundPreset: AppTerminalBackgroundPreset
     var activeBackgroundColorPreset: AppBackgroundColorPreset
     var rightPanel: RightPanelKind?
+    var taskMemos: [TaskMemoItem] = []
+    var taskMemoFocusedSessionID: UUID?
     var commitMessage = ""
     var statusMessage = ""
     var isSidebarExpanded = false
@@ -135,12 +138,14 @@ final class AppModel {
             self.selectedProjectID = snapshot.selectedProjectID ?? snapshot.projects.first?.id
             resolvedSettings = snapshot.appSettings ?? AppSettings()
             self.appSettings = resolvedSettings
+            self.taskMemos = snapshot.taskMemos ?? []
         } else {
             self.projects = []
             self.workspaces = []
             self.selectedProjectID = nil
             resolvedSettings = AppSettings()
             self.appSettings = resolvedSettings
+            self.taskMemos = []
         }
         self.activeTerminalBackgroundPreset = resolvedSettings.terminalBackgroundPreset
         self.activeBackgroundColorPreset = resolvedSettings.backgroundColorPreset
@@ -799,7 +804,8 @@ final class AppModel {
             projects: projects,
             workspaces: workspaces,
             selectedProjectID: selectedProjectID,
-            appSettings: appSettings
+            appSettings: appSettings,
+            taskMemos: taskMemos
         )
         persistenceService.save(snapshot)
     }

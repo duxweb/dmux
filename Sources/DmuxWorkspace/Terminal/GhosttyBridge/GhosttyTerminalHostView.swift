@@ -104,6 +104,7 @@ struct GhosttyTerminalHostView: NSViewRepresentable {
         coordinator.lastShouldFocus = shouldFocus
     }
 
+    @MainActor
     final class Coordinator {
         weak var containerView: GhosttyTerminalContainerView?
         var bindGeneration: UInt64 = 0
@@ -116,7 +117,6 @@ struct GhosttyTerminalHostView: NSViewRepresentable {
         var onGeometryChanged: (() -> Void)?
         private var lastGeometrySignature: String = ""
         private var pendingGeometryNotification: DispatchWorkItem?
-        private let geometryNotificationDelay: TimeInterval = 0.12
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -149,10 +149,7 @@ struct GhosttyTerminalHostView: NSViewRepresentable {
                 self.onGeometryChanged?()
             }
             pendingGeometryNotification = workItem
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + geometryNotificationDelay,
-                execute: workItem
-            )
+            DispatchQueue.main.async(execute: workItem)
         }
     }
 
@@ -179,6 +176,134 @@ struct GhosttyTerminalSessionResources {
     let pendingFocusRequest: Bool
     let hasReportedStartupFailure: Bool
 }
+
+@MainActor
+struct GhosttyTerminalPortalNativeAccessoryView: NSViewRepresentable {
+    let isVisible: Bool
+    let preferredSize: NSSize
+    let makeAccessoryView: () -> NSView
+    let updateAccessoryView: (NSView) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(accessoryView: makeAccessoryView(), preferredSize: preferredSize)
+    }
+
+    func makeNSView(context: Context) -> GhosttyTerminalPortalAccessoryAnchorView {
+        let anchorView = GhosttyTerminalPortalAccessoryAnchorView(frame: .zero)
+        anchorView.wantsLayer = false
+        return anchorView
+    }
+
+    func updateNSView(_ nsView: GhosttyTerminalPortalAccessoryAnchorView, context: Context) {
+        let coordinator = context.coordinator
+        updateAccessoryView(coordinator.accessoryView)
+        coordinator.visibleInUI = isVisible
+        coordinator.preferredSize = preferredSize
+        coordinator.boundAnchorId = ObjectIdentifier(nsView)
+
+        nsView.onDidMoveToWindow = { [weak nsView, weak coordinator] in
+            guard let nsView, let coordinator else { return }
+            coordinator.bind(to: nsView, synchronizeAnchor: false)
+        }
+        nsView.onGeometryChanged = { [weak nsView, weak coordinator] in
+            guard let nsView, let coordinator else { return }
+            coordinator.bind(to: nsView, synchronizeAnchor: true)
+        }
+
+        coordinator.bind(to: nsView, synchronizeAnchor: nsView.window != nil)
+    }
+
+    static func dismantleNSView(_ nsView: GhosttyTerminalPortalAccessoryAnchorView, coordinator: Coordinator) {
+        nsView.onDidMoveToWindow = nil
+        nsView.onGeometryChanged = nil
+        GhosttyTerminalPortalRegistry.detachAccessory(
+            accessoryView: coordinator.accessoryView,
+            ifOwnedByAnchorId: coordinator.boundAnchorId
+        )
+        coordinator.boundAnchorId = nil
+    }
+
+    @MainActor
+    final class Coordinator {
+        let accessoryView: NSView
+        var visibleInUI = false
+        var boundAnchorId: ObjectIdentifier?
+        var preferredSize: NSSize
+
+        init(accessoryView: NSView, preferredSize: NSSize) {
+            self.accessoryView = accessoryView
+            self.preferredSize = preferredSize
+            accessoryView.translatesAutoresizingMaskIntoConstraints = true
+            accessoryView.autoresizingMask = [.width, .height]
+        }
+
+        func bind(to anchorView: NSView, synchronizeAnchor: Bool) {
+            guard anchorView.window != nil else {
+                GhosttyTerminalPortalRegistry.detachAccessory(
+                    accessoryView: accessoryView,
+                    ifOwnedByAnchorId: boundAnchorId
+                )
+                return
+            }
+
+            GhosttyTerminalPortalRegistry.bindAccessory(
+                accessoryView: accessoryView,
+                to: anchorView,
+                visibleInUI: visibleInUI,
+                preferredSize: preferredSize
+            )
+            if synchronizeAnchor {
+                GhosttyTerminalPortalRegistry.synchronizeAccessoryForAnchor(anchorView)
+            }
+        }
+    }
+}
+
+final class GhosttyTerminalPortalAccessoryAnchorView: NSView {
+    var onDidMoveToWindow: (() -> Void)?
+    var onGeometryChanged: (() -> Void)?
+    private var lastGeometrySignature: String = ""
+    private var pendingGeometryNotification: DispatchWorkItem?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onDidMoveToWindow?()
+        notifyGeometryChangedIfNeeded()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        notifyGeometryChangedIfNeeded()
+    }
+
+    override func layout() {
+        super.layout()
+        notifyGeometryChangedIfNeeded()
+    }
+
+    private func notifyGeometryChangedIfNeeded() {
+        let signature = "\(frame.debugDescription)|\(bounds.debugDescription)|\(window?.windowNumber ?? -1)|\(superview.map { ObjectIdentifier($0).debugDescription } ?? "nil")"
+        guard signature != lastGeometrySignature else {
+            return
+        }
+        lastGeometrySignature = signature
+        pendingGeometryNotification?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.pendingGeometryNotification = nil
+            self.onGeometryChanged?()
+        }
+        pendingGeometryNotification = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+}
+
 @MainActor
 enum GhosttyPortalHostRegistry {
     private final class WeakHostBox {
@@ -213,9 +338,22 @@ enum GhosttyPortalHostRegistry {
     }
 }
 private final class GhosttyTerminalPortalOverlayView: NSView {
+    var accessoryViews: [NSView] = []
+
     override func hitTest(_ point: NSPoint) -> NSView? {
+        for accessoryView in accessoryViews.reversed() where !accessoryView.isHidden && accessoryView.alphaValue > 0.001 {
+            guard accessoryView.superview === self, accessoryView.frame.contains(point) else {
+                continue
+            }
+            let converted = convert(point, to: accessoryView)
+            if let hit = accessoryView.hitTest(converted) {
+                return hit
+            }
+        }
+
         for subview in subviews.reversed() where !subview.isHidden && subview.alphaValue > 0.001 {
-            guard subview.frame.contains(point) else {
+            guard !accessoryViews.contains(where: { $0 === subview }),
+                  subview.frame.contains(point) else {
                 continue
             }
             let converted = convert(point, to: subview)
@@ -223,6 +361,7 @@ private final class GhosttyTerminalPortalOverlayView: NSView {
                 return hit
             }
         }
+
         return nil
     }
 }
@@ -312,10 +451,18 @@ private final class GhosttyWindowPortal {
         var visibleInUI: Bool
     }
 
+    struct AccessoryEntry {
+        weak var anchorView: NSView?
+        let accessoryView: NSView
+        var visibleInUI: Bool
+        var preferredSize: NSSize
+    }
+
     weak var window: NSWindow?
     weak var hostView: NSView?
     let overlayView: GhosttyTerminalPortalOverlayView
     private var entries: [ObjectIdentifier: Entry] = [:]
+    private var accessories: [ObjectIdentifier: AccessoryEntry] = [:]
     private var closeObserver: Any?
 
     init(window: NSWindow, hostView: NSView) {
@@ -371,10 +518,15 @@ private final class GhosttyWindowPortal {
             entry.mountedView.isHidden = true
             entry.mountedView.removeFromSuperview()
         }
+        for entry in accessories.values {
+            entry.accessoryView.removeFromSuperview()
+        }
 
         CATransaction.commit()
 
         entries.removeAll()
+        accessories.removeAll()
+        overlayView.accessoryViews = []
         overlayView.removeFromSuperview()
     }
 
@@ -406,6 +558,26 @@ private final class GhosttyWindowPortal {
         synchronizeHostedView(withId: hostedId)
     }
 
+    func bindAccessory(accessoryView: NSView, to anchorView: NSView, visibleInUI: Bool, preferredSize: NSSize) {
+        let accessoryId = ObjectIdentifier(accessoryView)
+        accessories[accessoryId] = AccessoryEntry(
+            anchorView: anchorView,
+            accessoryView: accessoryView,
+            visibleInUI: visibleInUI,
+            preferredSize: preferredSize
+        )
+
+        if accessoryView.superview !== overlayView {
+            accessoryView.removeFromSuperview()
+            overlayView.addSubview(accessoryView, positioned: .above, relativeTo: nil)
+        }
+        if !overlayView.accessoryViews.contains(where: { $0 === accessoryView }) {
+            overlayView.accessoryViews.append(accessoryView)
+        }
+
+        synchronizeAccessory(withId: accessoryId)
+    }
+
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard var entry = entries[hostedId] else { return }
         entry.anchorView = nil
@@ -430,10 +602,80 @@ private final class GhosttyWindowPortal {
         synchronizeHostedView(withId: hostedId)
     }
 
+    func detachAccessory(withId accessoryId: ObjectIdentifier) {
+        guard let entry = accessories.removeValue(forKey: accessoryId) else { return }
+        overlayView.accessoryViews.removeAll { $0 === entry.accessoryView }
+        entry.accessoryView.removeFromSuperview()
+    }
+
+    func accessoryAnchorId(for accessoryId: ObjectIdentifier) -> ObjectIdentifier? {
+        accessories[accessoryId]?.anchorView.map(ObjectIdentifier.init)
+    }
+
     func synchronizeHostedViewForAnchor(_ anchorView: NSView) {
         for hostedId in entries.keys where entries[hostedId]?.anchorView === anchorView {
             synchronizeHostedView(withId: hostedId)
         }
+    }
+
+    func synchronizeAccessoryForAnchor(_ anchorView: NSView) {
+        for accessoryId in accessories.keys where accessories[accessoryId]?.anchorView === anchorView {
+            synchronizeAccessory(withId: accessoryId)
+        }
+    }
+
+    private func synchronizeAccessory(withId accessoryId: ObjectIdentifier) {
+        guard let window, let hostView, let entry = accessories[accessoryId] else {
+            return
+        }
+
+        if overlayView.superview !== hostView {
+            overlayView.removeFromSuperview()
+            hostView.addSubview(overlayView, positioned: .above, relativeTo: nil)
+        }
+        overlayView.frame = hostView.bounds
+
+        guard entry.visibleInUI,
+              let anchorView = entry.anchorView,
+              anchorView.window === window,
+              anchorView.superview != nil,
+              !anchorView.bounds.isEmpty,
+              !anchorView.dmuxHasHiddenAncestor else {
+            entry.accessoryView.isHidden = true
+            entry.accessoryView.removeFromSuperview()
+            return
+        }
+
+        let anchorFrameInHost = anchorView.convert(anchorView.bounds, to: hostView).integral
+        guard anchorFrameInHost.width > 1, anchorFrameInHost.height > 1 else {
+            entry.accessoryView.isHidden = true
+            entry.accessoryView.removeFromSuperview()
+            return
+        }
+        let accessoryWidth = min(anchorFrameInHost.width, max(1, entry.preferredSize.width))
+        let accessoryHeight = min(anchorFrameInHost.height, max(1, entry.preferredSize.height))
+        let frameInHost = NSRect(
+            x: anchorFrameInHost.maxX - accessoryWidth,
+            y: anchorFrameInHost.maxY - accessoryHeight,
+            width: accessoryWidth,
+            height: accessoryHeight
+        ).integral
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
+        if entry.accessoryView.superview !== overlayView {
+            overlayView.addSubview(entry.accessoryView, positioned: .above, relativeTo: nil)
+        }
+        if !overlayView.accessoryViews.contains(where: { $0 === entry.accessoryView }) {
+            overlayView.accessoryViews.append(entry.accessoryView)
+        }
+        if entry.accessoryView.frame != frameInHost {
+            entry.accessoryView.frame = frameInHost
+        }
+        entry.accessoryView.isHidden = false
+
+        CATransaction.commit()
     }
 
     private func synchronizeHostedView(withId hostedId: ObjectIdentifier) {
@@ -496,6 +738,7 @@ private final class GhosttyWindowPortal {
         if entry.mountedView.frame != frameInHost {
             entry.mountedView.frame = frameInHost
         }
+        overlayView.addSubview(entry.mountedView, positioned: .below, relativeTo: overlayView.subviews.first { accessories.keys.contains(ObjectIdentifier($0)) })
         entry.mountedView.isHidden = false
         entry.hostedView.isHidden = false
 
@@ -571,9 +814,46 @@ enum GhosttyTerminalPortalRegistry {
         portalsByWindowId[windowId]?.updateEntryVisibility(for: hostedId, visibleInUI: visibleInUI)
     }
 
+    static func bindAccessory(accessoryView: NSView, to anchorView: NSView, visibleInUI: Bool, preferredSize: NSSize) {
+        guard let window = anchorView.window else {
+            accessoryView.removeFromSuperview()
+            return
+        }
+
+        portal(for: window).bindAccessory(
+            accessoryView: accessoryView,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            preferredSize: preferredSize
+        )
+    }
+
+    static func detachAccessory(accessoryView: NSView, ifOwnedByAnchorId ownerAnchorId: ObjectIdentifier?) {
+        guard let ownerAnchorId else {
+            return
+        }
+
+        guard let window = accessoryView.window ?? accessoryView.superview?.window else {
+            accessoryView.removeFromSuperview()
+            return
+        }
+
+        let accessoryId = ObjectIdentifier(accessoryView)
+        let portal = portal(for: window)
+        guard portal.accessoryAnchorId(for: accessoryId) == ownerAnchorId else {
+            return
+        }
+        portal.detachAccessory(withId: accessoryId)
+    }
+
     static func synchronizeForAnchor(_ anchorView: NSView) {
         guard let window = anchorView.window else { return }
         portal(for: window).synchronizeHostedViewForAnchor(anchorView)
+    }
+
+    static func synchronizeAccessoryForAnchor(_ anchorView: NSView) {
+        guard let window = anchorView.window else { return }
+        portal(for: window).synchronizeAccessoryForAnchor(anchorView)
     }
 
     static func removePortal(for window: NSWindow) {

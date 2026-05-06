@@ -12,6 +12,7 @@ struct TerminalPaneView: View {
     let onSelect: () -> Void
     let onClose: () -> Void
     let onDetach: (() -> Void)?
+    let onTaskMemos: () -> Void
     let showsCloseButton: Bool
 
     @State private var isHovered = false
@@ -25,16 +26,9 @@ struct TerminalPaneView: View {
         return model.terminalChromeColor
     }
 
-    private var hasPaneControls: Bool {
-        showsCloseButton || onDetach != nil
-    }
-
     private var terminalInsets: EdgeInsets {
         let base = CGFloat(10)
-        guard hasPaneControls else {
-            return EdgeInsets(top: base, leading: base, bottom: base, trailing: base)
-        }
-        return EdgeInsets(top: base, leading: base, bottom: base, trailing: 56)
+        return EdgeInsets(top: base, leading: base, bottom: base, trailing: base)
     }
 
     var body: some View {
@@ -62,50 +56,61 @@ struct TerminalPaneView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(terminalInsets)
 
-            if showsCloseButton || onDetach != nil {
-                VStack {
-                    HStack {
-                        Spacer()
-
-                        HStack(spacing: 6) {
-                            if let onDetach {
-                                Button(action: onDetach) {
-                                    Image(systemName: "square.on.square")
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundStyle(model.terminalMutedTextColor)
-                                        .frame(width: 20, height: 20)
-                                        .background(model.terminalChromeColor.opacity(0.96))
-                                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                                }
-                                .buttonStyle(.plain)
-                                .appCursor(.pointingHand)
-                            }
-
-                            if showsCloseButton {
-                                Button(action: onClose) {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundStyle(model.terminalMutedTextColor)
-                                        .frame(width: 20, height: 20)
-                                        .background(model.terminalChromeColor.opacity(0.96))
-                                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                                }
-                                .buttonStyle(.plain)
-                                .appCursor(.pointingHand)
-                            }
-                        }
-                    }
-
-                    Spacer()
-                }
-                .padding(10)
-                .opacity(isHovered || isFocused ? 1 : 0.82)
+            if showsPaneControls {
+                GhosttyTerminalPortalNativeAccessoryView(
+                    isVisible: isVisible,
+                    preferredSize: NSSize(width: paneControlsPreferredWidth, height: 52),
+                    makeAccessoryView: makePaneControlsAccessoryView,
+                    updateAccessoryView: updatePaneControlsAccessoryView
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovered = hovering
         }
+    }
+
+    private var showsPaneControls: Bool {
+        showsCloseButton || onDetach != nil
+    }
+
+    private var paneControlsPreferredWidth: CGFloat {
+        CGFloat(34 + (onDetach == nil ? 0 : 26) + (showsCloseButton ? 26 : 0))
+    }
+
+    private func makePaneControlsAccessoryView() -> NSView {
+        let accessory = TerminalPaneControlsAccessoryView()
+        accessory.configure(
+            mutedTextColor: NSColor(model.terminalMutedTextColor),
+            chromeColor: NSColor(model.terminalChromeColor),
+            taskMemoBackgroundColor: NSColor(taskMemoButtonBackground),
+            showsDetach: onDetach != nil,
+            showsClose: showsCloseButton,
+            taskMemoQueuedCount: taskMemoQueuedCount,
+            onTaskMemos: onTaskMemos,
+            onDetach: onDetach,
+            onClose: onClose
+        )
+        return accessory
+    }
+
+    private func updatePaneControlsAccessoryView(_ view: NSView) {
+        guard let accessory = view as? TerminalPaneControlsAccessoryView else {
+            return
+        }
+        accessory.configure(
+            mutedTextColor: NSColor(model.terminalMutedTextColor),
+            chromeColor: NSColor(model.terminalChromeColor),
+            taskMemoBackgroundColor: NSColor(taskMemoButtonBackground),
+            showsDetach: onDetach != nil,
+            showsClose: showsCloseButton,
+            taskMemoQueuedCount: taskMemoQueuedCount,
+            onTaskMemos: onTaskMemos,
+            onDetach: onDetach,
+            onClose: onClose
+        )
     }
 
     @ViewBuilder
@@ -133,6 +138,167 @@ struct TerminalPaneView: View {
 
     private func terminalEnvironment() -> [(String, String)] {
         terminalEnvironmentService.environmentResolution(for: session, aiSettings: model.appSettings.ai).pairs
+    }
+
+    private var taskMemoQueuedCount: Int {
+        model.taskMemoCounts(projectID: session.projectID, sessionID: session.id).queued
+    }
+
+    private var taskMemoButtonBackground: Color {
+        if model.rightPanel == .taskMemos && model.taskMemoFocusedSessionID == session.id {
+            return AppTheme.focus.opacity(0.22)
+        }
+        if taskMemoQueuedCount > 0 {
+            return AppTheme.success.opacity(0.2)
+        }
+        return model.terminalChromeColor.opacity(0.96)
+    }
+}
+
+@MainActor
+private final class TerminalPaneControlsAccessoryView: NSView {
+    private let taskMemoButton = TerminalPaneControlButton(symbolName: "checklist")
+    private let detachButton = TerminalPaneControlButton(symbolName: "square.on.square")
+    private let closeButton = TerminalPaneControlButton(symbolName: "xmark")
+
+    private var showsDetach = false
+    private var showsClose = false
+    private var onTaskMemos: (() -> Void)?
+    private var onDetach: (() -> Void)?
+    private var onClose: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = false
+
+        addSubview(taskMemoButton)
+        addSubview(detachButton)
+        addSubview(closeButton)
+
+        taskMemoButton.actionHandler = { [weak self] in self?.onTaskMemos?() }
+        detachButton.actionHandler = { [weak self] in self?.onDetach?() }
+        closeButton.actionHandler = { [weak self] in self?.onClose?() }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        for button in [taskMemoButton, detachButton, closeButton] where !button.isHidden {
+            addCursorRect(button.frame, cursor: .pointingHand)
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        layoutSubtreeIfNeeded()
+        for button in [taskMemoButton, detachButton, closeButton] where !button.isHidden {
+            if button.frame.contains(point) {
+                return button
+            }
+        }
+        return nil
+    }
+
+    func configure(
+        mutedTextColor: NSColor,
+        chromeColor: NSColor,
+        taskMemoBackgroundColor: NSColor,
+        showsDetach: Bool,
+        showsClose: Bool,
+        taskMemoQueuedCount: Int,
+        onTaskMemos: @escaping () -> Void,
+        onDetach: (() -> Void)?,
+        onClose: @escaping () -> Void
+    ) {
+        self.showsDetach = showsDetach
+        self.showsClose = showsClose
+        self.onTaskMemos = onTaskMemos
+        self.onDetach = onDetach
+        self.onClose = onClose
+
+        let hasQueuedTaskMemos = taskMemoQueuedCount > 0
+        let taskMemoAccentColor = NSColor(calibratedRed: 63 / 255, green: 193 / 255, blue: 123 / 255, alpha: 1)
+        taskMemoButton.configure(
+            foregroundColor: hasQueuedTaskMemos ? taskMemoAccentColor : mutedTextColor,
+            backgroundColor: taskMemoBackgroundColor,
+            borderColor: hasQueuedTaskMemos ? taskMemoAccentColor.withAlphaComponent(0.72) : nil
+        )
+        detachButton.configure(foregroundColor: mutedTextColor, backgroundColor: chromeColor.withAlphaComponent(0.96))
+        closeButton.configure(foregroundColor: mutedTextColor, backgroundColor: chromeColor.withAlphaComponent(0.96))
+
+        detachButton.isHidden = !showsDetach
+        closeButton.isHidden = !showsClose
+        needsLayout = true
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func layout() {
+        super.layout()
+
+        let buttonSize = CGSize(width: 20, height: 20)
+        let spacing = CGFloat(6)
+        let topPadding = CGFloat(10)
+        let trailingPadding = CGFloat(10)
+        var x = bounds.maxX - trailingPadding
+        let y = bounds.maxY - topPadding - buttonSize.height
+
+        let visibleButtons = [closeButton, detachButton, taskMemoButton].filter { !$0.isHidden }
+        for button in visibleButtons {
+            x -= buttonSize.width
+            button.frame = CGRect(origin: CGPoint(x: x, y: y), size: buttonSize)
+            x -= spacing
+        }
+    }
+}
+
+@MainActor
+private final class TerminalPaneControlButton: NSButton {
+    let symbolName: String
+    var actionHandler: (() -> Void)?
+
+    init(symbolName: String) {
+        self.symbolName = symbolName
+        super.init(frame: .zero)
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(symbolConfiguration)
+        imageScaling = .scaleProportionallyDown
+        imagePosition = .imageOnly
+        isBordered = false
+        bezelStyle = .regularSquare
+        setButtonType(.momentaryChange)
+        wantsLayer = true
+        layer?.cornerRadius = 7
+        layer?.masksToBounds = true
+        target = self
+        action = #selector(handlePress)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    func configure(foregroundColor: NSColor, backgroundColor: NSColor, borderColor: NSColor? = nil) {
+        contentTintColor = foregroundColor
+        layer?.backgroundColor = backgroundColor.cgColor
+        layer?.borderColor = borderColor?.cgColor
+        layer?.borderWidth = borderColor == nil ? 0 : 0.8
+    }
+
+    @objc private func handlePress() {
+        actionHandler?()
     }
 }
 
@@ -314,6 +480,7 @@ private struct DetachedTerminalWindowView: View {
                     onSelect: { model.requestTerminalFocus(session.id) },
                     onClose: {},
                     onDetach: nil,
+                    onTaskMemos: { model.openTaskMemoPanel(for: session.id) },
                     showsCloseButton: false
                 )
             } else {

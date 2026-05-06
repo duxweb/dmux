@@ -106,6 +106,43 @@ struct TerminalSession: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+enum TaskMemoStatus: String, CaseIterable, Codable, Hashable, Sendable {
+    case queued
+    case waiting
+    case completed
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        switch rawValue {
+        case Self.queued.rawValue:
+            self = .queued
+        case Self.waiting.rawValue, "stashed":
+            self = .waiting
+        case Self.completed.rawValue:
+            self = .completed
+        default:
+            self = .queued
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+struct TaskMemoItem: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID
+    var projectID: UUID
+    var sessionID: UUID
+    var content: String
+    var status: TaskMemoStatus
+    var createdAt: Date
+    var updatedAt: Date
+    var lastSentAt: Date?
+}
+
 struct RecentProjectCache<Value> {
     private struct Entry {
         var value: Value
@@ -507,4 +544,5 @@ struct AppSnapshot: Codable {
     var workspaces: [ProjectWorkspace]
     var selectedProjectID: UUID?
     var appSettings: AppSettings?
+    var taskMemos: [TaskMemoItem]?
 }

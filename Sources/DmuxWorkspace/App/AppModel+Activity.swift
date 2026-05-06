@@ -458,6 +458,7 @@ extension AppModel {
                 exitCode: exitCode
             )
         }
+        sendNextQueuedTaskMemoAfterCompletion(projectID: project.id, completionToken: token)
         activityService.notifyCompletion(
             projectName: project.name,
             tool: tool,

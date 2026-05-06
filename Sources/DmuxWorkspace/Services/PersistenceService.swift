@@ -234,10 +234,55 @@ struct PersistenceService {
             projects: sanitizedProjects,
             workspaces: sanitizedWorkspaces,
             selectedProjectID: sanitizedSelectedProjectID,
-            appSettings: snapshot.appSettings
+            appSettings: snapshot.appSettings,
+            taskMemos: sanitizeTaskMemos(snapshot.taskMemos ?? [], projects: sanitizedProjects, workspaces: sanitizedWorkspaces, didChange: &didChange)
         )
 
         return SanitizedSnapshot(snapshot: sanitizedSnapshot, didChange: didChange)
+    }
+
+    private func sanitizeTaskMemos(
+        _ taskMemos: [TaskMemoItem],
+        projects: [Project],
+        workspaces: [ProjectWorkspace],
+        didChange: inout Bool
+    ) -> [TaskMemoItem] {
+        let projectIDs = Set(projects.map(\.id))
+        let sessionIDsByProjectID = Dictionary(
+            uniqueKeysWithValues: workspaces.map { workspace in
+                (workspace.projectID, Set(workspace.sessions.map(\.id)))
+            }
+        )
+        var seenIDs = Set<UUID>()
+        var sanitizedItems: [TaskMemoItem] = []
+
+        for item in taskMemos {
+            guard projectIDs.contains(item.projectID),
+                  sessionIDsByProjectID[item.projectID]?.contains(item.sessionID) == true,
+                  seenIDs.insert(item.id).inserted else {
+                didChange = true
+                continue
+            }
+
+            var sanitized = item
+            sanitized.content = item.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if sanitized.content.isEmpty {
+                didChange = true
+                continue
+            }
+            if sanitized.updatedAt < sanitized.createdAt {
+                sanitized.updatedAt = sanitized.createdAt
+                didChange = true
+            }
+            if sanitized != item {
+                didChange = true
+            }
+            sanitizedItems.append(sanitized)
+        }
+
+        return sanitizedItems.sorted { lhs, rhs in
+            lhs.createdAt < rhs.createdAt
+        }
     }
 
     private func sanitizeWorkspace(_ workspace: ProjectWorkspace?, for project: Project) -> SanitizedWorkspace {

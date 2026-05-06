@@ -227,6 +227,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
             onSelect: { self.model.selectSession(sessionID) },
             onClose: { self.model.closeSession(sessionID) },
             onDetach: { self.model.detachSession(sessionID) },
+            onTaskMemos: { self.model.openTaskMemoPanel(for: sessionID) },
             showsCloseButton: true
         )
     }
@@ -341,6 +342,7 @@ struct BottomTabbedPaneView: View {
                         onSelect: { model.selectBottomTabSession(selectedBottomSessionID) },
                         onClose: { model.closeSession(selectedBottomSessionID) },
                         onDetach: { model.detachSession(selectedBottomSessionID) },
+                        onTaskMemos: { model.openTaskMemoPanel(for: selectedBottomSessionID) },
                         showsCloseButton: true
                     )
                 }

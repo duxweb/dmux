@@ -303,7 +303,7 @@ extension AppModel {
             self.persist()
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            if let data = try? encoder.encode(AppSnapshot(projects: self.projects, workspaces: self.workspaces, selectedProjectID: self.selectedProjectID)),
+            if let data = try? encoder.encode(AppSnapshot(projects: self.projects, workspaces: self.workspaces, selectedProjectID: self.selectedProjectID, appSettings: self.appSettings, taskMemos: self.taskMemos)),
                let encoded = String(data: data, encoding: .utf8) {
                 appendProjectEditLog("[PersistSnapshot] \(encoded)")
             }

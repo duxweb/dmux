@@ -96,6 +96,22 @@ extension AISessionStore {
         return [completed.tool, sessionID, String(Int(startedAt * 1000))].joined(separator: "|")
     }
 
+    func completedTerminalID(projectID: UUID) -> UUID? {
+        let trackedSessions = terminalSessionsByID.values
+            .filter { $0.projectID == projectID && $0.isLive }
+            .sorted(by: { $0.updatedAt > $1.updatedAt })
+
+        guard trackedSessions.contains(where: { $0.state == .responding || $0.state == .needsInput }) == false else {
+            return nil
+        }
+
+        return trackedSessions.first(where: {
+            $0.state == .idle
+                && $0.wasInterrupted == false
+                && $0.hasCompletedTurn
+        })?.terminalID
+    }
+
     func latestActiveStartedAt(projectID: UUID) -> Date? {
         terminalSessionsByID.values
             .filter { $0.projectID == projectID && $0.isLive }

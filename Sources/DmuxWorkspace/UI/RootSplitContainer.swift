@@ -20,6 +20,8 @@ struct RightPanelContainerView: View {
                     onRefresh: model.refreshCurrentAIIndexing,
                     onCancel: model.cancelCurrentAIIndexing
                 )
+            case .taskMemos:
+                TaskMemoPanelView(model: model)
             case nil:
                 Color.clear
             }
