@@ -287,6 +287,8 @@ struct BottomTabbedPaneView: View {
     let activeTerminalSessionID: UUID?
     let showsInactiveOverlay: Bool
 
+    static let statusBarHeight: CGFloat = 40
+
     private var selectedBottomSessionID: UUID? {
         if let selected = workspace.selectedBottomTabSessionID,
            workspace.bottomTabSessionIDs.contains(selected) {
@@ -297,7 +299,21 @@ struct BottomTabbedPaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            header
+
+            if workspace.hasBottomTabs {
+                bottomTerminalContent
+            }
+        }
+        .background(
+            Rectangle()
+                .fill(model.terminalChromeColor)
+        )
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            if workspace.hasBottomTabs {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Array(workspace.bottomTabSessionIDs.enumerated()), id: \.element) { index, sessionID in
@@ -317,40 +333,47 @@ struct BottomTabbedPaneView: View {
                     .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity)
-
-                bottomTabAddButton
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
-            .background(
-                Rectangle()
-                    .fill(model.terminalChromeColor)
-            )
-
-            ZStack {
-                if let selectedBottomSessionID,
-                   let session = workspace.sessions.first(where: { $0.id == selectedBottomSessionID }) {
-                    TerminalPaneView(
-                        model: model,
-                        session: session,
-                        terminalBackgroundPreset: model.terminalBackgroundPreset,
-                        backgroundColorPreset: model.backgroundColorPreset,
-                        isFocused: selectedBottomSessionID == activeTerminalSessionID,
-                        isVisible: true,
-                        showsInactiveOverlay: showsInactiveOverlay,
-                        onSelect: { model.selectBottomTabSession(selectedBottomSessionID) },
-                        onClose: { model.closeSession(selectedBottomSessionID) },
-                        onDetach: { model.detachSession(selectedBottomSessionID) },
-                        onTaskMemos: { model.openTaskMemoPanel(for: selectedBottomSessionID) },
-                        showsCloseButton: true
-                    )
+            } else {
+                HStack(spacing: 7) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(String(localized: "workspace.bottom_terminal.title", defaultValue: "Terminal", bundle: .module))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
                 }
+                .foregroundStyle(model.terminalMutedTextColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(
-                Rectangle()
-                    .fill(model.terminalChromeColor)
-            )
+
+            bottomTabAddButton
+        }
+        .padding(.horizontal, 10)
+        .frame(height: workspace.hasBottomTabs ? 46 : Self.statusBarHeight)
+        .background(
+            Rectangle()
+                .fill(model.terminalChromeColor)
+        )
+    }
+
+    private var bottomTerminalContent: some View {
+        ZStack {
+            if let selectedBottomSessionID,
+               let session = workspace.sessions.first(where: { $0.id == selectedBottomSessionID }) {
+                TerminalPaneView(
+                    model: model,
+                    session: session,
+                    terminalBackgroundPreset: model.terminalBackgroundPreset,
+                    backgroundColorPreset: model.backgroundColorPreset,
+                    isFocused: selectedBottomSessionID == activeTerminalSessionID,
+                    isVisible: true,
+                    showsInactiveOverlay: showsInactiveOverlay,
+                    onSelect: { model.selectBottomTabSession(selectedBottomSessionID) },
+                    onClose: { model.closeSession(selectedBottomSessionID) },
+                    onDetach: nil,
+                    onTaskMemos: { model.openTaskMemoPanel(for: selectedBottomSessionID) },
+                    showsCloseButton: false
+                )
+            }
         }
         .background(
             Rectangle()
@@ -402,6 +425,7 @@ final class SplitViewController<Top: View, Bottom: View>: NSViewController, NSSp
     private var hasCommittedInitialBottomLayout = false
     private let minimumTopHeight: CGFloat = 220
     private let minimumBottomHeight: CGFloat = 160
+    private let bottomStatusBarHeight = BottomTabbedPaneView.statusBarHeight
     init(model: AppModel, workspace: ProjectWorkspace, dividerColor: NSColor, hasBottomRegion: Bool, bottomHeight: CGFloat, top: Top, bottom: Bottom) {
         self.model = model
         self.currentWorkspace = workspace
@@ -482,7 +506,11 @@ final class SplitViewController<Top: View, Bottom: View>: NSViewController, NSSp
         }
 
         let totalHeight = splitView.bounds.height
-        let clampedBottomHeight = min(max(bottomHeight, minimumBottomHeight), max(minimumBottomHeight, totalHeight - minimumTopHeight))
+        let requestedMinimumBottomHeight = currentWorkspace.hasBottomTabs ? minimumBottomHeight : bottomStatusBarHeight
+        let clampedBottomHeight = min(
+            max(bottomHeight, requestedMinimumBottomHeight),
+            max(requestedMinimumBottomHeight, totalHeight - minimumTopHeight)
+        )
         let dividerPosition = max(minimumTopHeight, totalHeight - clampedBottomHeight)
         splitView.setPosition(dividerPosition, ofDividerAt: 0)
         splitView.adjustSubviews()
@@ -491,17 +519,25 @@ final class SplitViewController<Top: View, Bottom: View>: NSViewController, NSSp
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         guard hasBottomRegion else { return splitView.bounds.height }
+        guard currentWorkspace.hasBottomTabs else {
+            return splitView.bounds.height - bottomStatusBarHeight
+        }
         return minimumTopHeight
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         guard hasBottomRegion else { return splitView.bounds.height }
-        return splitView.bounds.height - minimumBottomHeight
+        guard currentWorkspace.hasBottomTabs else {
+            return splitView.bounds.height - bottomStatusBarHeight
+        }
+        let requestedMinimumBottomHeight = currentWorkspace.hasBottomTabs ? minimumBottomHeight : bottomStatusBarHeight
+        return splitView.bounds.height - requestedMinimumBottomHeight
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
         guard !isApplyingLayout,
               hasBottomRegion,
+              currentWorkspace.hasBottomTabs,
               hasCommittedInitialBottomLayout,
               model.selectedProjectID == currentWorkspace.projectID,
               splitView.bounds.height > 0 else { return }

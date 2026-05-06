@@ -285,7 +285,6 @@ extension AppModel {
             var updatedProjects = self.projects
             updatedProjects[index] = updatedProject
             self.projects = updatedProjects
-            NSLog("[ProjectEdit] save id=%@ symbol=%@ color=%@ text=%@", project.id.uuidString, updatedProject.badgeSymbol ?? "nil", updatedProject.badgeColorHex ?? "nil", updatedProject.badgeText ?? "nil")
 
             if let workspaceIndex = self.workspaces.firstIndex(where: { $0.projectID == projectID }) {
                 var updatedWorkspaces = self.workspaces
@@ -303,7 +302,7 @@ extension AppModel {
             self.persist()
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            if let data = try? encoder.encode(AppSnapshot(projects: self.projects, workspaces: self.workspaces, selectedProjectID: self.selectedProjectID, appSettings: self.appSettings, taskMemos: self.taskMemos)),
+            if let data = try? encoder.encode(AppSnapshot(projects: self.projects, workspaces: self.workspaces, selectedProjectID: self.selectedProjectID, appSettings: self.appSettings, taskMemos: self.taskMemos, sshProfiles: self.sshProfiles)),
                let encoded = String(data: data, encoding: .utf8) {
                 appendProjectEditLog("[PersistSnapshot] \(encoded)")
             }

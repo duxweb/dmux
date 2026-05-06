@@ -401,17 +401,17 @@ extension AppModel {
         createSplitTerminal(command: command, axis: axis, runCommandInsideShell: false)
     }
 
-    func createSplitTerminalRunningCommandInShell(command: String, axis: PaneAxis) -> UUID? {
-        createSplitTerminal(command: command, axis: axis, runCommandInsideShell: true)
+    func createSplitTerminalRunningCommandInShell(command: String, axis: PaneAxis, logCommand: String? = nil) -> UUID? {
+        createSplitTerminal(command: command, axis: axis, runCommandInsideShell: true, logCommand: logCommand)
     }
 
-    private func createSplitTerminal(command: String, axis: PaneAxis, runCommandInsideShell: Bool) -> UUID? {
+    private func createSplitTerminal(command: String, axis: PaneAxis, runCommandInsideShell: Bool, logCommand: String? = nil) -> UUID? {
         guard let selectedProjectID,
               let project = projects.first(where: { $0.id == selectedProjectID }),
               let index = workspaces.firstIndex(where: { $0.projectID == selectedProjectID }) else {
             debugLog.log(
                 "terminal-command",
-                "split-failed axis=\(axis == .horizontal ? "horizontal" : "vertical") reason=missing-selected-project command=\(command)"
+                "split-failed axis=\(axis == .horizontal ? "horizontal" : "vertical") reason=missing-selected-project command=\(logCommand ?? command)"
             )
             return nil
         }
@@ -434,15 +434,15 @@ extension AppModel {
         refreshAIStatsIfNeeded()
         debugLog.log(
             "terminal-command",
-            "split-created session=\(session.id.uuidString) axis=\(axis == .horizontal ? "horizontal" : "vertical") mode=\(runCommandInsideShell ? "shell-send" : "direct") command=\(command)"
+            "split-created session=\(session.id.uuidString) axis=\(axis == .horizontal ? "horizontal" : "vertical") mode=\(runCommandInsideShell ? "shell-send" : "direct") command=\(logCommand ?? command)"
         )
         if runCommandInsideShell {
-            sendTerminalCommandWhenShellReady(command, sessionID: session.id)
+            sendTerminalCommandWhenShellReady(command, sessionID: session.id, logCommand: logCommand)
         }
         return session.id
     }
 
-    private func sendTerminalCommandWhenShellReady(_ command: String, sessionID: UUID) {
+    private func sendTerminalCommandWhenShellReady(_ command: String, sessionID: UUID, logCommand: String? = nil) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             for attempt in 1...30 {
@@ -450,7 +450,7 @@ extension AppModel {
                     let didSend = DmuxTerminalBackend.shared.registry.sendText(command + "\n", to: sessionID)
                     self.debugLog.log(
                         "terminal-command",
-                        "shell-send session=\(sessionID.uuidString) shellPID=\(shellPID) attempt=\(attempt) sent=\(didSend) command=\(command)"
+                        "shell-send session=\(sessionID.uuidString) shellPID=\(shellPID) attempt=\(attempt) sent=\(didSend) command=\(logCommand ?? command)"
                     )
                     return
                 }
@@ -458,7 +458,7 @@ extension AppModel {
             }
             self.debugLog.log(
                 "terminal-command",
-                "shell-send-failed session=\(sessionID.uuidString) reason=shell-timeout command=\(command)"
+                "shell-send-failed session=\(sessionID.uuidString) reason=shell-timeout command=\(logCommand ?? command)"
             )
         }
     }

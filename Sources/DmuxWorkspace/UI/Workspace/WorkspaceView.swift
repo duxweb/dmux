@@ -39,8 +39,8 @@ private struct WorkspaceProjectView: View {
             model: model,
             workspace: workspace,
             dividerColor: model.terminalDividerNSColor,
-            hasBottomRegion: workspace.hasBottomTabs,
-            bottomHeight: workspace.hasBottomTabs ? workspace.bottomPaneHeight : 160,
+            hasBottomRegion: true,
+            bottomHeight: workspace.hasBottomTabs ? workspace.bottomPaneHeight : BottomTabbedPaneView.statusBarHeight,
             top: {
                 TopPaneRowView(
                     model: model,
@@ -53,17 +53,17 @@ private struct WorkspaceProjectView: View {
             bottom: {
                 AnyView(
                     Group {
-                        if workspace.hasBottomTabs {
-                            WorkspaceBottomRegion(
-                                model: model,
-                                workspace: workspace,
-                                activeTerminalSessionID: activeTerminalSessionID,
-                                showsInactiveOverlay: hasMultipleVisibleTerminalPanes
-                            )
-                                .frame(minHeight: 160, idealHeight: workspace.bottomPaneHeight, maxHeight: .infinity)
-                        } else {
-                            EmptyView()
-                        }
+                        WorkspaceBottomRegion(
+                            model: model,
+                            workspace: workspace,
+                            activeTerminalSessionID: activeTerminalSessionID,
+                            showsInactiveOverlay: hasMultipleVisibleTerminalPanes
+                        )
+                        .frame(
+                            minHeight: workspace.hasBottomTabs ? 160 : BottomTabbedPaneView.statusBarHeight,
+                            idealHeight: workspace.hasBottomTabs ? workspace.bottomPaneHeight : BottomTabbedPaneView.statusBarHeight,
+                            maxHeight: .infinity
+                        )
                     }
                 )
             }
@@ -91,4 +91,3 @@ private struct WorkspaceBottomRegion: View {
         .clipped()
     }
 }
-

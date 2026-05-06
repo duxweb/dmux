@@ -22,6 +22,8 @@ struct RightPanelContainerView: View {
                 )
             case .taskMemos:
                 TaskMemoPanelView(model: model)
+            case .ssh:
+                SSHPanelView(model: model)
             case nil:
                 Color.clear
             }

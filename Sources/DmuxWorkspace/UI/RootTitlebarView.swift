@@ -77,12 +77,12 @@ struct TitlebarOverlayView: View {
                         openInXcode: { model.openSelectedProjectInXcode() }
                     )
 
-                    TitlebarGlyphButton(symbol: "terminal", help: String(localized: "titlebar.tab", defaultValue: "Tab", bundle: .module)) {
-                        model.createBottomTab()
-                    }
-
                     TitlebarGlyphButton(symbol: "chart.bar.xaxis", help: String(localized: "titlebar.ai_assistant", defaultValue: "AI Assistant", bundle: .module)) {
                         model.toggleRightPanel(.aiStats)
+                    }
+
+                    TitlebarGlyphButton(symbol: "server.rack", help: String(localized: "titlebar.ssh", defaultValue: "SSH", bundle: .module)) {
+                        model.toggleRightPanel(.ssh)
                     }
 
                     TitlebarGlyphButton(symbol: "point.3.filled.connected.trianglepath.dotted", help: String(localized: "titlebar.git", defaultValue: "Git", bundle: .module)) {

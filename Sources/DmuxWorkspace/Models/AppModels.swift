@@ -143,6 +143,38 @@ struct TaskMemoItem: Identifiable, Codable, Hashable, Sendable {
     var lastSentAt: Date?
 }
 
+enum SSHCredentialKind: String, Codable, CaseIterable, Hashable, Sendable {
+    case none
+    case password
+    case privateKey
+}
+
+struct SSHCredentialSecrets: Equatable {
+    var password: String
+    var keyPassphrase: String
+}
+
+struct SSHConnectionProfile: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID
+    var name: String
+    var host: String
+    var port: Int
+    var username: String
+    var credentialKind: SSHCredentialKind
+    var privateKeyPath: String
+    var updatedAt: Date
+    var password: String? = nil
+    var keyPassphrase: String? = nil
+
+    var displayName: String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty {
+            return trimmedName
+        }
+        return "\(username)@\(host)"
+    }
+}
+
 struct RecentProjectCache<Value> {
     private struct Entry {
         var value: Value
@@ -545,4 +577,5 @@ struct AppSnapshot: Codable {
     var selectedProjectID: UUID?
     var appSettings: AppSettings?
     var taskMemos: [TaskMemoItem]?
+    var sshProfiles: [SSHConnectionProfile]?
 }

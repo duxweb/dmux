@@ -1,13 +1,13 @@
 {
-  "originHash" : "f2b6749404142c21e4c8607d392c58b5a06ab197ae47bb7b1d42d7597672976d",
+  "originHash" : "1850c3868e9d6fcbf349406295494225d671883bd37422f6cd976299aeb818f3",
   "pins" : [
     {
       "identity" : "libghostty-spm",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/duxphp/libghostty-spm",
+      "location" : "https://github.com/Lakr233/libghostty-spm",
       "state" : {
-        "branch" : "pr/appkit-shift-direct-input",
-        "revision" : "e4616e6897e86e057e1869d88e5c17876b8b1ed2"
+        "branch" : "main",
+        "revision" : "f10e02dd829271be3e361dcde56a6e33a79fa080"
       }
     },
     {

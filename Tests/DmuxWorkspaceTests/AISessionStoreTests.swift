@@ -141,7 +141,7 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
     }
 
-    func testToolActivityPromptSubmittedIsIgnoredWhileExistingLoadingSessionStaysRunning() throws {
+    func testToolActivityPromptSubmittedRefreshesExistingLoadingSession() throws {
         let terminalID = UUID()
         let projectID = UUID()
         let now = Date().timeIntervalSince1970
@@ -165,7 +165,7 @@ final class AISessionStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             store.apply(
                 AIHookEvent(
                     kind: .promptSubmitted,
@@ -186,7 +186,73 @@ final class AISessionStoreTests: XCTestCase {
 
         let session = try XCTUnwrap(store.session(for: terminalID))
         XCTAssertEqual(session.state, .responding)
-        XCTAssertEqual(session.updatedAt, now - 1)
+        XCTAssertEqual(session.updatedAt, now)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
+    }
+
+    func testCodexRuntimeTokenGrowthRestoresLoadingAfterIdleProbe() throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+
+        _ = store.apply(
+            AIHookEvent(
+                kind: .sessionStarted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-1",
+                projectID: projectID,
+                projectName: "Codux",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-session",
+                model: "gpt-5.5",
+                totalTokens: nil,
+                updatedAt: 100,
+                metadata: nil
+            )
+        )
+
+        XCTAssertTrue(
+            store.applyRuntimeSnapshot(
+                terminalID: terminalID,
+                snapshot: AIRuntimeContextSnapshot(
+                    tool: "codex",
+                    externalSessionID: "codex-session",
+                    model: "gpt-5.5",
+                    inputTokens: 10,
+                    outputTokens: 0,
+                    cachedInputTokens: 0,
+                    totalTokens: 10,
+                    updatedAt: 101,
+                    responseState: .idle,
+                    wasInterrupted: false,
+                    hasCompletedTurn: false
+                )
+            )
+        )
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+
+        XCTAssertTrue(
+            store.applyRuntimeSnapshot(
+                terminalID: terminalID,
+                snapshot: AIRuntimeContextSnapshot(
+                    tool: "codex",
+                    externalSessionID: "codex-session",
+                    model: "gpt-5.5",
+                    inputTokens: 18,
+                    outputTokens: 4,
+                    cachedInputTokens: 0,
+                    totalTokens: 22,
+                    updatedAt: 102,
+                    responseState: nil,
+                    wasInterrupted: false,
+                    hasCompletedTurn: false
+                )
+            )
+        )
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.state, .responding)
+        XCTAssertEqual(session.committedTotalTokens, 22)
         XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
     }
 

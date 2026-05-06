@@ -24,6 +24,7 @@ enum RightPanelKind: String, Codable, Equatable {
     case aiStats
     case files
     case taskMemos
+    case ssh
 }
 
 @MainActor
@@ -65,6 +66,7 @@ final class AppModel {
     var rightPanel: RightPanelKind?
     var taskMemos: [TaskMemoItem] = []
     var taskMemoFocusedSessionID: UUID?
+    var sshProfiles: [SSHConnectionProfile] = []
     var commitMessage = ""
     var statusMessage = ""
     var isSidebarExpanded = false
@@ -139,6 +141,7 @@ final class AppModel {
             resolvedSettings = snapshot.appSettings ?? AppSettings()
             self.appSettings = resolvedSettings
             self.taskMemos = snapshot.taskMemos ?? []
+            self.sshProfiles = snapshot.sshProfiles ?? []
         } else {
             self.projects = []
             self.workspaces = []
@@ -146,6 +149,7 @@ final class AppModel {
             resolvedSettings = AppSettings()
             self.appSettings = resolvedSettings
             self.taskMemos = []
+            self.sshProfiles = []
         }
         self.activeTerminalBackgroundPreset = resolvedSettings.terminalBackgroundPreset
         self.activeBackgroundColorPreset = resolvedSettings.backgroundColorPreset
@@ -805,7 +809,8 @@ final class AppModel {
             workspaces: workspaces,
             selectedProjectID: selectedProjectID,
             appSettings: appSettings,
-            taskMemos: taskMemos
+            taskMemos: taskMemos,
+            sshProfiles: sshProfiles
         )
         persistenceService.save(snapshot)
     }

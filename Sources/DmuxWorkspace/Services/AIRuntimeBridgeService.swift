@@ -155,6 +155,7 @@ struct AIRuntimeBridgeService {
         let shellHookPaths = preparedShellHookPaths()
         let logFilePath = AppDebugLog.shared.logFileURL().path
         let runtimeOwner = runtimeOwnerID()
+        let appSupportRootPath = AppRuntimePaths.appSupportRootURL(fileManager: fileManager)!.path
         let toolPermissionSettingsFilePath = toolPermissionSettingsFileURL().path
         let memoryArtifacts = aiSettings.flatMap {
             MemoryContextService().prepareLaunchArtifacts(
@@ -174,6 +175,7 @@ struct AIRuntimeBridgeService {
             shellHookPaths: shellHookPaths,
             logFilePath: logFilePath,
             runtimeOwner: runtimeOwner,
+            appSupportRootPath: appSupportRootPath,
             toolPermissionSettingsFilePath: toolPermissionSettingsFilePath,
             globalPrompt: aiSettings?.globalPrompt,
             memoryWorkspaceRootPath: memoryArtifacts?.workspaceRootURL.path,
@@ -216,6 +218,7 @@ struct AIRuntimeBridgeService {
         debugLog.log("startup-ui", "terminal-env step=runtime-paths session=\(session.id.uuidString)")
         merged["DMUX_LOG_FILE"] = logFilePath
         merged["DMUX_RUNTIME_OWNER"] = runtimeOwner
+        merged["DMUX_APP_SUPPORT_ROOT"] = appSupportRootPath
         merged["DMUX_TOOL_PERMISSION_SETTINGS_FILE"] = toolPermissionSettingsFilePath
         merged["DMUX_PROJECT_ID"] = session.projectID.uuidString
         merged["DMUX_PROJECT_NAME"] = session.projectName
@@ -381,6 +384,7 @@ struct AIRuntimeBridgeService {
         shellHookPaths: (zdotdirPath: String, scriptPath: String)?,
         logFilePath: String,
         runtimeOwner: String,
+        appSupportRootPath: String,
         toolPermissionSettingsFilePath: String,
         globalPrompt: String?,
         memoryWorkspaceRootPath: String?,
@@ -406,6 +410,7 @@ struct AIRuntimeBridgeService {
             shellHookPaths?.scriptPath ?? "",
             logFilePath,
             runtimeOwner,
+            appSupportRootPath,
             toolPermissionSettingsFilePath,
             globalPrompt ?? "",
             memoryWorkspaceRootPath ?? "",

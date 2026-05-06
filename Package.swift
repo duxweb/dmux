@@ -15,7 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/duxphp/libghostty-spm", branch: "pr/appkit-shift-direct-input"),
+        .package(url: "https://github.com/Lakr233/libghostty-spm", branch: "main"),
         .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "137.7151.13"),
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", exact: "2.4.1"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.1"),

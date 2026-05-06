@@ -48,6 +48,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     private var pendingStartWorkItem: DispatchWorkItem?
     private var startupWatchdogWorkItem: DispatchWorkItem?
     private var pendingPermanentTearDown = false
+    private var pendingTerminalFrameWorkItem: DispatchWorkItem?
     private var lastAppliedFocusedState: Bool?
     private var lastAppliedVisibleState: Bool?
     private var lastShowsInactiveOverlay = false
@@ -57,6 +58,8 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     private let startupDelay: TimeInterval = 0.18
     private let startupWatchdogDelay: TimeInterval = 3.5
     private let viewportRefreshDebounceDelay: TimeInterval = 0.16
+    private let liveResizeViewportRefreshDebounceDelay: TimeInterval = 0.28
+    private let liveResizeTerminalFrameDebounceDelay: TimeInterval = 0.12
     private let logger = AppDebugLog.shared
 
     private let processBridge: GhosttyPTYProcessBridge
@@ -294,7 +297,22 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         if hasStartedProcess == false {
             scheduleProcessStartIfPossible(reason: "layout")
         }
+        scheduleTerminalFrameUpdate(reason: "layout")
         scheduleViewportRefresh(reason: "layout", coalescing: true)
+    }
+
+    override func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        pendingTerminalFrameWorkItem?.cancel()
+        pendingTerminalFrameWorkItem = nil
+        viewportRefreshWorkItem?.cancel()
+        viewportRefreshWorkItem = nil
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        applyTerminalFrameIfNeeded(reason: "live-resize-end")
+        scheduleViewportRefresh(reason: "live-resize-end", coalescing: false)
     }
 
     override func viewDidMoveToWindow() {
@@ -306,6 +324,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             return
         }
         scheduleProcessStartIfPossible(reason: "window-attached")
+        scheduleTerminalFrameUpdate(reason: "window-attached", force: true)
         scheduleViewportRefresh(reason: "window-attached", coalescing: true)
     }
 
@@ -407,6 +426,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     }
 
     func portalDidUpdateFrame() {
+        scheduleTerminalFrameUpdate(reason: "portal-frame")
         scheduleViewportRefresh(reason: "portal-frame", coalescing: true)
         replayRemoteOutputOnVisibleSurfaceIfNeeded(reason: "portal-frame")
     }
@@ -481,6 +501,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         cancelDeferredLifecycleWork()
         let shouldRefocus = pendingFocusRequest || isTerminalFocused
         processBridge.onFirstOutput = nil
+        processBridge.onOutput = nil
         processBridge.onProcessTerminated = nil
 
         tearDownTerminalView()
@@ -511,6 +532,8 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         startupWatchdogWorkItem = nil
         viewportRefreshWorkItem?.cancel()
         viewportRefreshWorkItem = nil
+        pendingTerminalFrameWorkItem?.cancel()
+        pendingTerminalFrameWorkItem = nil
     }
 
     private func scheduleProcessStartIfPossible(reason: String) {
@@ -658,6 +681,40 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         onInteraction?()
     }
 
+    private func scheduleTerminalFrameUpdate(reason: String, force: Bool = false) {
+        guard window != nil, bounds.width > 0, bounds.height > 0 else {
+            return
+        }
+
+        pendingTerminalFrameWorkItem?.cancel()
+
+        if force || !inLiveResize {
+            applyTerminalFrameIfNeeded(reason: reason)
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.pendingTerminalFrameWorkItem = nil
+            self.applyTerminalFrameIfNeeded(reason: reason)
+        }
+        pendingTerminalFrameWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + liveResizeTerminalFrameDebounceDelay,
+            execute: workItem
+        )
+    }
+
+    private func applyTerminalFrameIfNeeded(reason _: String) {
+        guard terminalView.frame.size != bounds.size else {
+            return
+        }
+        terminalView.frame = bounds
+        terminalView.needsLayout = true
+    }
+
     private func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         let options: [NSPasteboard.ReadingOptionKey: Any] = [
             .urlReadingFileURLsOnly: true,
@@ -680,8 +737,11 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         }
         viewportRefreshWorkItem = workItem
         if coalescing {
+            let delay = inLiveResize
+                ? liveResizeViewportRefreshDebounceDelay
+                : viewportRefreshDebounceDelay
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + viewportRefreshDebounceDelay,
+                deadline: .now() + delay,
                 execute: workItem
             )
         } else {
@@ -701,13 +761,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         }
         lastViewportRefreshSignature = signature
 
-        needsLayout = true
-        layoutSubtreeIfNeeded()
-        if terminalView.frame.size != bounds.size {
-            terminalView.frame = bounds
-        }
-        terminalView.needsLayout = true
-        terminalView.layoutSubtreeIfNeeded()
+        applyTerminalFrameIfNeeded(reason: reason)
 
         logger.log(
             "ghostty-metrics",
@@ -783,19 +837,15 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     }
 
     private func configureTerminalView(_ view: AppTerminalView) {
-        view.translatesAutoresizingMaskIntoConstraints = false
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = []
         view.delegate = self
         view.controller = controller
         view.configuration = surfaceOptions()
     }
 
     private func pinTerminalView(_ view: AppTerminalView) {
-        NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: trailingAnchor),
-            view.topAnchor.constraint(equalTo: topAnchor),
-            view.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        view.frame = bounds
     }
 
     private func pinLoadingShieldView() {

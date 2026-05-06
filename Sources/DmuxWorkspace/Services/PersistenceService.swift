@@ -235,7 +235,8 @@ struct PersistenceService {
             workspaces: sanitizedWorkspaces,
             selectedProjectID: sanitizedSelectedProjectID,
             appSettings: snapshot.appSettings,
-            taskMemos: sanitizeTaskMemos(snapshot.taskMemos ?? [], projects: sanitizedProjects, workspaces: sanitizedWorkspaces, didChange: &didChange)
+            taskMemos: sanitizeTaskMemos(snapshot.taskMemos ?? [], projects: sanitizedProjects, workspaces: sanitizedWorkspaces, didChange: &didChange),
+            sshProfiles: sanitizeSSHProfiles(snapshot.sshProfiles ?? [], didChange: &didChange)
         )
 
         return SanitizedSnapshot(snapshot: sanitizedSnapshot, didChange: didChange)
@@ -282,6 +283,41 @@ struct PersistenceService {
 
         return sanitizedItems.sorted { lhs, rhs in
             lhs.createdAt < rhs.createdAt
+        }
+    }
+
+    private func sanitizeSSHProfiles(_ profiles: [SSHConnectionProfile], didChange: inout Bool) -> [SSHConnectionProfile] {
+        var seenIDs = Set<UUID>()
+        var sanitizedProfiles: [SSHConnectionProfile] = []
+
+        for profile in profiles {
+            let host = profile.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            let username = profile.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !host.isEmpty, !username.isEmpty, seenIDs.insert(profile.id).inserted else {
+                didChange = true
+                continue
+            }
+
+            let sanitized = SSHConnectionProfile(
+                id: profile.id,
+                name: profile.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                host: host,
+                port: min(max(profile.port, 1), 65535),
+                username: username,
+                credentialKind: profile.credentialKind,
+                privateKeyPath: profile.privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines),
+                updatedAt: profile.updatedAt,
+                password: profile.credentialKind == .password ? profile.password : nil,
+                keyPassphrase: profile.credentialKind == .privateKey ? profile.keyPassphrase : nil
+            )
+            if sanitized != profile {
+                didChange = true
+            }
+            sanitizedProfiles.append(sanitized)
+        }
+
+        return sanitizedProfiles.sorted { lhs, rhs in
+            lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
     }
 

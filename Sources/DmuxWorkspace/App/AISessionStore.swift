@@ -239,7 +239,7 @@ final class AISessionStore {
             return false
         }
 
-        if shouldIgnoreToolActivityEvent(event: event) {
+        if shouldIgnoreToolActivityEvent(event: event, previousState: previousState) {
             logger.log(
                 "ai-session-store",
                 "ignore terminal=\(event.terminalID.uuidString) tool=\(normalizedTool) kind=\(event.kind.rawValue) reason=tool-activity-without-loading"
@@ -593,18 +593,15 @@ final class AISessionStore {
             }
 
             resolveBaselineIfNeeded(&session, snapshot: snapshot)
-            applyRuntimeLifecycle(&session, snapshot: snapshot, previousState: previousState)
-            let observedActiveTokenGrowth =
-                previousState.state == .responding
-                && snapshot.responseState != .idle
+            let observedActiveTokenGrowth = observedTokenGrowth(previousState: previousState, snapshot: snapshot)
                 && snapshot.wasInterrupted == false
                 && snapshot.hasCompletedTurn == false
-                && (
-                    snapshot.inputTokens > previousState.committedInputTokens
-                    || snapshot.outputTokens > previousState.committedOutputTokens
-                    || snapshot.cachedInputTokens > previousState.committedCachedInputTokens
-                    || snapshot.totalTokens > previousState.committedTotalTokens
-                )
+            applyRuntimeLifecycle(
+                &session,
+                snapshot: snapshot,
+                previousState: previousState,
+                observedActiveTokenGrowth: observedActiveTokenGrowth
+            )
             session.committedInputTokens = max(session.committedInputTokens, snapshot.inputTokens)
             session.committedOutputTokens = max(session.committedOutputTokens, snapshot.outputTokens)
             session.committedCachedInputTokens = max(session.committedCachedInputTokens, snapshot.cachedInputTokens)
@@ -716,9 +713,20 @@ final class AISessionStore {
     private func applyRuntimeLifecycle(
         _ session: inout TerminalSessionState,
         snapshot: AIRuntimeContextSnapshot,
-        previousState: TerminalSessionState
+        previousState: TerminalSessionState,
+        observedActiveTokenGrowth: Bool
     ) {
         guard let responseState = snapshot.responseState else {
+            if observedActiveTokenGrowth {
+                session.state = .responding
+                session.activeTurnStartedAt = previousState.activeTurnStartedAt ?? snapshot.startedAt ?? snapshot.updatedAt
+                session.runtimeTurnStartedAt = previousState.runtimeTurnStartedAt ?? snapshot.startedAt ?? snapshot.updatedAt
+                session.wasInterrupted = false
+                session.hasCompletedTurn = false
+                session.notificationType = nil
+                session.targetToolName = nil
+                session.interactionMessage = nil
+            }
             return
         }
 
@@ -979,8 +987,28 @@ final class AISessionStore {
         return event.updatedAt < existing.updatedAt
     }
 
-    private func shouldIgnoreToolActivityEvent(event: AIHookEvent) -> Bool {
-        normalizedNonEmptyString(event.metadata?.source) == "tool-use"
+    private func observedTokenGrowth(
+        previousState: TerminalSessionState,
+        snapshot: AIRuntimeContextSnapshot
+    ) -> Bool {
+        snapshot.inputTokens > previousState.committedInputTokens
+            || snapshot.outputTokens > previousState.committedOutputTokens
+            || snapshot.cachedInputTokens > previousState.committedCachedInputTokens
+            || snapshot.totalTokens > previousState.committedTotalTokens
+    }
+
+    private func shouldIgnoreToolActivityEvent(
+        event: AIHookEvent,
+        previousState: TerminalSessionState?
+    ) -> Bool {
+        guard event.kind == .promptSubmitted,
+              normalizedNonEmptyString(event.metadata?.source) == "tool-use" else {
+            return false
+        }
+        guard let previousState else {
+            return true
+        }
+        return previousState.hasCompletedTurn || previousState.wasInterrupted
     }
 
     private func shouldIgnoreOutOfProjectRuntimeEvent(event: AIHookEvent) -> Bool {

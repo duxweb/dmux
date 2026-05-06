@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-05-06
+
+### Added
+
+- Added a global SSH side panel with create, edit, delete, and double-click connect flows for saved server profiles.
+- Added a bottom terminal status bar that remains visible when all bottom tabs are closed, with a one-click new terminal action.
+
+### Changed
+
+- Switched the Ghostty package dependency back to the official `Lakr233/libghostty-spm` main branch.
+- Simplified saved SSH launches so Codux sends a single `codux-ssh <profile>` command instead of pasting an expect script into the terminal.
+- Further reduced terminal resize work by deferring Ghostty frame and viewport refreshes during live window resizing.
+
+### Fixed
+
+- Fixed large paste handling in Codex, Claude, and other TUI sessions by queueing PTY writes with backpressure instead of dropping or stalling input.
+- Fixed saved SSH connections so local locale variables are not forwarded to remote hosts that do not have the same locale installed.
+- Fixed AI loading recovery when Codex runtime polling briefly reports idle but token growth shows the turn is still running.
+- Redacted saved SSH passwords and key passphrases from diagnostics exports.
+
 ## [0.9.2] - 2026-05-06
 
 ### Added

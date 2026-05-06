@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-05-06
+
+### 新增
+
+- 新增全局 SSH 右侧栏，支持保存服务器连接、新建、编辑、删除，以及双击直接连接。
+- 底部终端在全部标签关闭后仍保留状态栏，右侧可一键新建底部终端。
+
+### 调整
+
+- Ghostty 终端依赖切回官方 `Lakr233/libghostty-spm` main 分支。
+- 保存的 SSH 连接改为只向终端发送一条 `codux-ssh <profile>` 命令，不再把 expect 脚本整段粘贴进终端。
+- 继续减少窗口拖拽缩放时的终端刷新压力，Ghostty frame 和 viewport 会在 live resize 过程中合并刷新。
+
+### 修复
+
+- 修复 Codex、Claude 等 TUI 中粘贴大段文本时可能卡住或丢输入的问题，PTY 写入改为带背压的队列。
+- 修复保存 SSH 连接时本机 locale 变量被转发到远程主机，导致缺失 `zh_CN.UTF-8` 时出现 locale warning 的问题。
+- 修复 Codex runtime 轮询短暂上报 idle 但 token 仍在增长时，AI loading 状态没有恢复的问题。
+- 诊断导出会脱敏已保存 SSH 密码和密钥 passphrase。
+
 ## [0.9.2] - 2026-05-06
 
 ### 新增

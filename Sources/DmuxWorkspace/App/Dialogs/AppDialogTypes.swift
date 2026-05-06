@@ -56,6 +56,21 @@ struct GitCredentialDialogState {
     var password: String = ""
 }
 
+struct SSHProfileDialogState: Equatable {
+    var title: String
+    var message: String
+    var confirmTitle: String
+    var profile: SSHConnectionProfile
+    var password: String
+    var keyPassphrase: String
+}
+
+struct SSHProfileDialogResult: Equatable {
+    var profile: SSHConnectionProfile
+    var password: String
+    var keyPassphrase: String
+}
+
 enum GitInputPanelPresenter {
     @MainActor
     static func present(dialog: GitInputDialogState, parentWindow: NSWindow, completion: @escaping (String?) -> Void) {
@@ -84,6 +99,14 @@ enum GitCredentialDialogPresenter {
     @MainActor
     static func present(dialog: GitCredentialDialogState, parentWindow: NSWindow, completion: @escaping (GitCredential?) -> Void) {
         let controller = GitCredentialDialogController(dialog: dialog)
+        controller.beginSheet(for: parentWindow, completion: completion)
+    }
+}
+
+enum SSHProfileDialogPresenter {
+    @MainActor
+    static func present(dialog: SSHProfileDialogState, parentWindow: NSWindow, completion: @escaping (SSHProfileDialogResult?) -> Void) {
+        let controller = SSHProfileDialogController(dialog: dialog)
         controller.beginSheet(for: parentWindow, completion: completion)
     }
 }

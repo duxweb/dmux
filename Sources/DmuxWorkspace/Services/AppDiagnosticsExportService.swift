@@ -108,7 +108,7 @@ struct AppDiagnosticsExportService {
             from: debugLog.performanceSummaryFileURL(),
             to: logsDirectoryURL.appendingPathComponent(debugLog.performanceSummaryFileURL().lastPathComponent, isDirectory: false)
         )
-        copyIfExists(
+        copyRedactedStateIfExists(
             from: appSupportRootURL.appendingPathComponent("state.json", isDirectory: false),
             to: stateDirectoryURL.appendingPathComponent("state.json", isDirectory: false)
         )
@@ -116,7 +116,8 @@ struct AppDiagnosticsExportService {
         copyMatchingFiles(
             in: appSupportRootURL,
             to: stateDirectoryURL,
-            matching: { $0.lastPathComponent.hasPrefix("state.invalid-") && $0.pathExtension == "json" }
+            matching: { $0.lastPathComponent.hasPrefix("state.invalid-") && $0.pathExtension == "json" },
+            copy: copyRedactedStateIfExists
         )
 
         let codexConfigRoot = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(".codex", isDirectory: true)
@@ -228,7 +229,51 @@ struct AppDiagnosticsExportService {
         try? fileManager.copyItem(at: sourceURL, to: destinationURL)
     }
 
-    private func copyMatchingFiles(in directoryURL: URL, to destinationDirectoryURL: URL, matching predicate: (URL) -> Bool) {
+    private func copyRedactedStateIfExists(from sourceURL: URL, to destinationURL: URL) {
+        guard fileManager.fileExists(atPath: sourceURL.path),
+              let data = try? Data(contentsOf: sourceURL) else {
+            return
+        }
+        let redactedData = Self.redactedStateDataForDiagnostics(from: data)
+        try? redactedData.write(to: destinationURL, options: .atomic)
+    }
+
+    static func redactedStateDataForDiagnostics(from data: Data) -> Data {
+        guard let object = try? JSONSerialization.jsonObject(with: data) else {
+            return Data(#"{"redacted":true,"reason":"invalid-json"}"#.appending("\n").utf8)
+        }
+        let redactedObject = redactedStateJSONObject(object)
+        guard JSONSerialization.isValidJSONObject(redactedObject),
+              let redactedData = try? JSONSerialization.data(withJSONObject: redactedObject, options: [.prettyPrinted, .sortedKeys]) else {
+            return Data(#"{"redacted":true,"reason":"encode-failed"}"#.appending("\n").utf8)
+        }
+        return redactedData
+    }
+
+    private static func redactedStateJSONObject(_ object: Any) -> Any {
+        if let dictionary = object as? [String: Any] {
+            var redacted: [String: Any] = [:]
+            for (key, value) in dictionary {
+                if key == "password" || key == "keyPassphrase" {
+                    redacted[key] = (value is NSNull) ? value : "<redacted>"
+                } else {
+                    redacted[key] = redactedStateJSONObject(value)
+                }
+            }
+            return redacted
+        }
+        if let array = object as? [Any] {
+            return array.map(redactedStateJSONObject)
+        }
+        return object
+    }
+
+    private func copyMatchingFiles(
+        in directoryURL: URL,
+        to destinationDirectoryURL: URL,
+        matching predicate: (URL) -> Bool,
+        copy copyAction: (URL, URL) -> Void
+    ) {
         guard fileManager.fileExists(atPath: directoryURL.path),
               let fileURLs = try? fileManager.contentsOfDirectory(
                 at: directoryURL,
@@ -239,11 +284,12 @@ struct AppDiagnosticsExportService {
         }
 
         for sourceURL in fileURLs where predicate(sourceURL) {
-            copyIfExists(
-                from: sourceURL,
-                to: destinationDirectoryURL.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: false)
-            )
+            copyAction(sourceURL, destinationDirectoryURL.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: false))
         }
+    }
+
+    private func copyMatchingFiles(in directoryURL: URL, to destinationDirectoryURL: URL, matching predicate: (URL) -> Bool) {
+        copyMatchingFiles(in: directoryURL, to: destinationDirectoryURL, matching: predicate, copy: copyIfExists)
     }
 
     private func isRelevantDiagnosticReport(_ fileURL: URL) -> Bool {

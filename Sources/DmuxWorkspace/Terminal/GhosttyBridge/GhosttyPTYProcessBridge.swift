@@ -65,6 +65,15 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
     private var pendingResizeWorkItem: DispatchWorkItem?
     private let resizeDebounceDelay: TimeInterval = 0.05
     private let maxOutputHistoryBytes = 2_000_000
+    private var pendingInputBuffer = Data()
+    private var pendingInputOffset = 0
+    private var inputRetryScheduled = false
+    private var inputBackpressureLogged = false
+    private var pendingInputBatchBytes = 0
+    private var pendingInputBatchStart = Date()
+    private let inputRetryDelay: TimeInterval = 0.005
+    private let maxInputWriteChunkBytes = 16_384
+    private let minLoggedInputBytes = 1_024
 
     init(sessionID: UUID, suppressPromptEolMark: Bool = false) {
         self.sessionID = sessionID
@@ -191,6 +200,9 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
         pendingResizeWorkItem?.cancel()
         readSource?.cancel()
         processSource?.cancel()
+        ioQueue.async { [weak self] in
+            self?.clearPendingInput(reason: "terminate")
+        }
         if fd >= 0, shouldCloseOnCancel {
             close(fd)
         }
@@ -366,6 +378,7 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
             exitCode: UInt32(max(0, exitCode ?? 0)),
             runtimeMilliseconds: runtimeMs
         )
+        clearPendingInput(reason: "process-exit")
 
         lock.lock()
         let readSource = self.readSource
@@ -397,26 +410,137 @@ final class GhosttyPTYProcessBridge: @unchecked Sendable {
             return
         }
 
-        ioQueue.async {
-            data.withUnsafeBytes { buffer in
-                guard var base = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                    return
-                }
-                var remaining = buffer.count
-                while remaining > 0 {
-                    let written = write(fd, base, remaining)
-                    if written > 0 {
-                        remaining -= written
-                        base = base.advanced(by: written)
-                        continue
-                    }
-                    if written < 0, errno == EINTR {
-                        continue
-                    }
-                    break
-                }
-            }
+        ioQueue.async { [weak self] in
+            self?.enqueueInput(data)
         }
+    }
+
+    private func enqueueInput(_ data: Data) {
+        compactPendingInputIfNeeded()
+
+        if pendingInputBuffer.isEmpty {
+            pendingInputBatchStart = Date()
+        }
+        pendingInputBuffer.append(data)
+        pendingInputBatchBytes += data.count
+
+        if data.count >= minLoggedInputBytes {
+            logger.log(
+                "terminal-paste",
+                "input queued session=\(sessionID.uuidString) bytes=\(data.count) pending=\(pendingInputBuffer.count - pendingInputOffset)"
+            )
+        }
+
+        drainPendingInput()
+    }
+
+    private func drainPendingInput() {
+        inputRetryScheduled = false
+
+        while pendingInputOffset < pendingInputBuffer.count {
+            let fd: Int32
+            lock.lock()
+            fd = masterFD
+            lock.unlock()
+
+            guard fd >= 0 else {
+                clearPendingInput(reason: "missing-fd")
+                return
+            }
+
+            let remaining = pendingInputBuffer.count - pendingInputOffset
+            let chunkSize = min(remaining, maxInputWriteChunkBytes)
+            let written = pendingInputBuffer.withUnsafeBytes { buffer -> Int in
+                guard let base = buffer.baseAddress?.advanced(by: pendingInputOffset) else {
+                    return 0
+                }
+                return write(fd, base, chunkSize)
+            }
+
+            if written > 0 {
+                pendingInputOffset += written
+                inputBackpressureLogged = false
+                continue
+            }
+
+            if written < 0, errno == EINTR {
+                continue
+            }
+
+            if written < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                scheduleInputRetry()
+                if inputBackpressureLogged == false {
+                    inputBackpressureLogged = true
+                    logger.log(
+                        "terminal-paste",
+                        "input backpressure session=\(sessionID.uuidString) pending=\(pendingInputBuffer.count - pendingInputOffset)"
+                    )
+                }
+                return
+            }
+
+            let error = written < 0 ? errno : 0
+            logger.log(
+                "terminal-paste",
+                "input write failed session=\(sessionID.uuidString) errno=\(error) pending=\(pendingInputBuffer.count - pendingInputOffset)"
+            )
+            clearPendingInput(reason: "write-failed")
+            return
+        }
+
+        finishPendingInputBatchIfNeeded()
+    }
+
+    private func scheduleInputRetry() {
+        guard inputRetryScheduled == false else {
+            return
+        }
+        inputRetryScheduled = true
+        ioQueue.asyncAfter(deadline: .now() + inputRetryDelay) { [weak self] in
+            self?.drainPendingInput()
+        }
+    }
+
+    private func finishPendingInputBatchIfNeeded() {
+        let batchBytes = pendingInputBatchBytes
+        let elapsedMs = max(0, UInt64(Date().timeIntervalSince(pendingInputBatchStart) * 1000))
+        pendingInputBuffer.removeAll(keepingCapacity: false)
+        pendingInputOffset = 0
+        pendingInputBatchBytes = 0
+        inputBackpressureLogged = false
+
+        guard batchBytes >= minLoggedInputBytes else {
+            return
+        }
+        logger.log(
+            "terminal-paste",
+            "input drained session=\(sessionID.uuidString) bytes=\(batchBytes) elapsedMs=\(elapsedMs)"
+        )
+    }
+
+    private func clearPendingInput(reason: String) {
+        let pendingBytes = max(0, pendingInputBuffer.count - pendingInputOffset)
+        pendingInputBuffer.removeAll(keepingCapacity: false)
+        pendingInputOffset = 0
+        pendingInputBatchBytes = 0
+        inputRetryScheduled = false
+        inputBackpressureLogged = false
+        guard pendingBytes > 0 else {
+            return
+        }
+        logger.log(
+            "terminal-paste",
+            "input cleared session=\(sessionID.uuidString) reason=\(reason) bytes=\(pendingBytes)"
+        )
+    }
+
+    private func compactPendingInputIfNeeded() {
+        guard pendingInputOffset > 0,
+              pendingInputOffset > pendingInputBuffer.count / 2 else {
+            return
+        }
+        pendingInputBuffer.removeFirst(pendingInputOffset)
+        pendingInputOffset = 0
     }
 
     private func resizeProcess(_ viewport: InMemoryTerminalViewport) {
