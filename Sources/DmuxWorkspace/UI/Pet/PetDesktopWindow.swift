@@ -139,7 +139,6 @@ private extension DesktopPetBubbleCorner {
 private struct PetDesktopWidgetView: View {
     let model: AppModel
     @State private var bubbleCorner: DesktopPetBubbleCorner
-    @State private var appIsActive = NSApplication.shared.isActive
     @State private var recentActivityTick = Date()
     @State private var sleepClock = Date()
 
@@ -161,9 +160,6 @@ private struct PetDesktopWidgetView: View {
         }
     }
     private var isSleeping: Bool {
-        if !appIsActive {
-            return true
-        }
         if hasAnyRunningActivity {
             return false
         }
@@ -201,16 +197,6 @@ private struct PetDesktopWidgetView: View {
         .frame(width: 330, height: 185)
         .background(Color.clear)
         .onAppear {
-            recentActivityTick = Date()
-            sleepClock = recentActivityTick
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            appIsActive = true
-            recentActivityTick = Date()
-            sleepClock = recentActivityTick
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            appIsActive = false
             recentActivityTick = Date()
             sleepClock = recentActivityTick
         }

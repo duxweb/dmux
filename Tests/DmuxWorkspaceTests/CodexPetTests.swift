@@ -229,11 +229,30 @@ final class CodexPetActivityAnimationMapperTests: XCTestCase {
             ),
             .idle
         )
+    }
+
+    func testActiveProjectPhaseOverridesSleepingHint() {
         XCTAssertEqual(
             CodexPetActivityAnimationMapper.animationState(
                 for: .running(tool: "codex"),
                 sleeping: true,
                 hasAnyRunningActivity: true
+            ),
+            .running
+        )
+        XCTAssertEqual(
+            CodexPetActivityAnimationMapper.animationState(
+                for: .waitingInput(tool: "codex"),
+                sleeping: true,
+                hasAnyRunningActivity: true
+            ),
+            .review
+        )
+        XCTAssertEqual(
+            CodexPetActivityAnimationMapper.animationState(
+                for: .idle,
+                sleeping: true,
+                hasAnyRunningActivity: false
             ),
             .waiting
         )

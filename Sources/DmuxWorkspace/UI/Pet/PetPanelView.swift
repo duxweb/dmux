@@ -138,7 +138,6 @@ struct TitlebarPetButton: View {
     @AppStorage("pet.last_level") private var lastLevel: Int = 0
     @AppStorage("pet.showed_max_level_effect") private var showedMaxLevelEffect: Bool = false
     @State private var isHovered = false
-    @State private var appIsActive = NSApplication.shared.isActive
     @State private var recentActivityTick = Date()
     @State private var sleepClock = Date()
     @State private var lastKnownStage: PetStage? = nil
@@ -172,9 +171,6 @@ struct TitlebarPetButton: View {
         }
     }
     private var isSleeping: Bool {
-        if !appIsActive {
-            return true
-        }
         if hasAnyRunningActivity {
             return false
         }
@@ -240,16 +236,6 @@ struct TitlebarPetButton: View {
         }
         .frame(height: TitlebarPetMetrics.rowHeight, alignment: .center)
         .onHover { isHovered = $0 }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            appIsActive = true
-            recentActivityTick = Date()
-            sleepClock = recentActivityTick
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            appIsActive = false
-            recentActivityTick = Date()
-            sleepClock = recentActivityTick
-        }
         .onAppear {
             if petStore.isClaimed, info.level > 0, lastLevel == 0 {
                 lastLevel = info.level

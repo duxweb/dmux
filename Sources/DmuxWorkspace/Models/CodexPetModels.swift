@@ -136,7 +136,15 @@ enum CodexPetActivityAnimationMapper {
         sleeping: Bool,
         hasAnyRunningActivity: Bool
     ) -> CodexPetAnimationState {
-        if sleeping {
+        let phaseIsActive: Bool
+        switch phase {
+        case .loading, .running, .waitingInput:
+            phaseIsActive = true
+        case .completed, .idle:
+            phaseIsActive = false
+        }
+
+        if sleeping && phaseIsActive == false && hasAnyRunningActivity == false {
             return .waiting
         }
 
