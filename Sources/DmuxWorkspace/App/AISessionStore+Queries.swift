@@ -37,14 +37,11 @@ extension AISessionStore {
     }
 
     func projectPhase(projectID: UUID) -> ProjectActivityPhase {
-        let now = Date().timeIntervalSince1970
         let trackedSessions = terminalSessionsByID.values
             .filter { $0.projectID == projectID && $0.isLive }
             .sorted(by: { $0.updatedAt > $1.updatedAt })
 
-        if let responding = trackedSessions.first(where: {
-            isVisibleRunningSession($0, now: now)
-        }) {
+        if let responding = trackedSessions.first(where: { $0.state == .responding }) {
             return .running(tool: responding.tool)
         }
         if let needsInput = trackedSessions.first(where: { $0.state == .needsInput }) {
@@ -156,7 +153,6 @@ extension AISessionStore {
     }
 
     private func snapshot(from session: TerminalSessionState) -> AITerminalSessionSnapshot {
-        let now = Date().timeIntervalSince1970
         return AITerminalSessionSnapshot(
             sessionID: session.terminalID,
             externalSessionID: session.aiSessionID,
@@ -166,7 +162,7 @@ extension AISessionStore {
             tool: session.tool,
             model: session.model,
             status: session.status,
-            isRunning: isVisibleRunningSession(session, now: now),
+            isRunning: session.state == .responding,
             startedAt: session.startedAt.map { Date(timeIntervalSince1970: $0) },
             updatedAt: Date(timeIntervalSince1970: session.updatedAt),
             currentInputTokens: session.committedInputTokens,
@@ -206,13 +202,4 @@ extension AISessionStore {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    private func isVisibleRunningSession(
-        _ session: TerminalSessionState,
-        now: TimeInterval
-    ) -> Bool {
-        guard session.state == .responding else {
-            return false
-        }
-        return now - session.updatedAt <= runningPhaseLifetime
-    }
 }

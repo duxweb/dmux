@@ -5,7 +5,6 @@ import Observation
 @Observable
 final class AISessionStore {
     static let shared = AISessionStore()
-    let runningPhaseLifetime: TimeInterval = 30
 
     enum State: String, Codable, Equatable, Sendable {
         case idle

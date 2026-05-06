@@ -608,7 +608,7 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
     }
 
-    func testRespondingSessionStateRemainsActiveAfterVisibilityTimeout() throws {
+    func testRespondingSessionStateRemainsVisibleAfterQuietRuntimePeriod() throws {
         let terminalID = UUID()
         let projectID = UUID()
 
@@ -629,11 +629,11 @@ final class AISessionStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
         XCTAssertTrue(store.isRunning(terminalID: terminalID))
     }
 
-    func testStaleRespondingSessionHidesLoadingButStillSuppressesOlderCompletedPhase() throws {
+    func testQuietRespondingSessionKeepsRunningAndSuppressesOlderCompletedPhase() throws {
         let completedTerminalID = UUID()
         let staleRespondingTerminalID = UUID()
         let projectID = UUID()
@@ -673,7 +673,7 @@ final class AISessionStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
         XCTAssertNil(store.completedPhase(projectID: projectID))
     }
 
@@ -789,7 +789,7 @@ final class AISessionStoreTests: XCTestCase {
                 )
             )
         )
-        XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
+        XCTAssertEqual(store.projectPhase(projectID: projectID), .running(tool: "codex"))
 
         XCTAssertTrue(
             store.applyRuntimeSnapshot(
