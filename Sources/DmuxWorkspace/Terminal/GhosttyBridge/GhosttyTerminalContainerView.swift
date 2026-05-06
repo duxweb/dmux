@@ -51,11 +51,12 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     private var lastAppliedFocusedState: Bool?
     private var lastAppliedVisibleState: Bool?
     private var lastShowsInactiveOverlay = false
-    private var viewportRefreshScheduled = false
+    private var viewportRefreshWorkItem: DispatchWorkItem?
     private var lastViewportRefreshSignature = ""
     private var needsRemoteOutputReplayOnVisible = false
     private let startupDelay: TimeInterval = 0.18
     private let startupWatchdogDelay: TimeInterval = 3.5
+    private let viewportRefreshDebounceDelay: TimeInterval = 0.16
     private let logger = AppDebugLog.shared
 
     private let processBridge: GhosttyPTYProcessBridge
@@ -172,7 +173,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
 
         if isVisible {
             scheduleProcessStartIfPossible(reason: isFocused ? "update-focused" : "update-visible")
-            scheduleViewportRefresh(reason: "update-session")
+            scheduleViewportRefresh(reason: "update-session", coalescing: true)
         }
 
         let showsDimOverlay = showsInactiveOverlay && isVisible && !isFocused
@@ -293,7 +294,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         if hasStartedProcess == false {
             scheduleProcessStartIfPossible(reason: "layout")
         }
-        scheduleViewportRefresh(reason: "layout")
+        scheduleViewportRefresh(reason: "layout", coalescing: true)
     }
 
     override func viewDidMoveToWindow() {
@@ -305,7 +306,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             return
         }
         scheduleProcessStartIfPossible(reason: "window-attached")
-        scheduleViewportRefresh(reason: "window-attached")
+        scheduleViewportRefresh(reason: "window-attached", coalescing: true)
     }
 
     func sendText(_ text: String) {
@@ -406,7 +407,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
     }
 
     func portalDidUpdateFrame() {
-        scheduleViewportRefresh(reason: "portal-frame")
+        scheduleViewportRefresh(reason: "portal-frame", coalescing: true)
         replayRemoteOutputOnVisibleSurfaceIfNeeded(reason: "portal-frame")
     }
 
@@ -508,6 +509,8 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         pendingStartWorkItem = nil
         startupWatchdogWorkItem?.cancel()
         startupWatchdogWorkItem = nil
+        viewportRefreshWorkItem?.cancel()
+        viewportRefreshWorkItem = nil
     }
 
     private func scheduleProcessStartIfPossible(reason: String) {
@@ -597,7 +600,7 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             "ghostty-process",
             "ready session=\(configuredSession.id.uuidString) reason=\(reason)"
         )
-        scheduleViewportRefresh(reason: "terminal-ready")
+        scheduleViewportRefresh(reason: "terminal-ready", coalescing: false)
         onStartupSucceeded?()
         if pendingFocusRequest {
             pendingFocusRequest = false
@@ -662,26 +665,32 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
         return (pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL]) ?? []
     }
 
-    private func scheduleViewportRefresh(reason: String) {
-        guard window != nil, bounds.width > 1, bounds.height > 1 else {
-            return
-        }
-        guard viewportRefreshScheduled == false else {
+    private func scheduleViewportRefresh(reason: String, coalescing: Bool = false) {
+        guard shouldAllowViewportRefreshForCurrentGeometry else {
             return
         }
 
-        viewportRefreshScheduled = true
-        DispatchQueue.main.async { [weak self] in
+        viewportRefreshWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
             guard let self else {
                 return
             }
-            self.viewportRefreshScheduled = false
+            self.viewportRefreshWorkItem = nil
             self.performViewportRefreshIfNeeded(reason: reason)
+        }
+        viewportRefreshWorkItem = workItem
+        if coalescing {
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + viewportRefreshDebounceDelay,
+                execute: workItem
+            )
+        } else {
+            DispatchQueue.main.async(execute: workItem)
         }
     }
 
     private func performViewportRefreshIfNeeded(reason: String) {
-        guard window != nil, bounds.width > 1, bounds.height > 1 else {
+        guard shouldAllowViewportRefreshForCurrentGeometry else {
             lastViewportRefreshSignature = ""
             return
         }
@@ -705,6 +714,16 @@ final class GhosttyTerminalContainerView: NSView, TerminalSurfaceFocusDelegate, 
             "viewport-refresh session=\(configuredSession.id.uuidString) reason=\(reason) size=\(Int(bounds.width.rounded(.down)))x\(Int(bounds.height.rounded(.down))) window=\(window?.windowNumber ?? -1)"
         )
         replayRemoteOutputOnVisibleSurfaceIfNeeded(reason: "viewport-\(reason)")
+    }
+
+    private var shouldAllowViewportRefreshForCurrentGeometry: Bool {
+        guard window != nil, lastAppliedVisibleState == true else {
+            return false
+        }
+        guard bounds.width >= 80, bounds.height >= 60 else {
+            return false
+        }
+        return true
     }
 
     private func replayRemoteOutputOnVisibleSurfaceIfNeeded(reason: String) {

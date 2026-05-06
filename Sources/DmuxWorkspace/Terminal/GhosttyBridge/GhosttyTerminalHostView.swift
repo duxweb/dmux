@@ -115,7 +115,8 @@ struct GhosttyTerminalHostView: NSViewRepresentable {
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
         private var lastGeometrySignature: String = ""
-        private var geometryNotificationScheduled = false
+        private var pendingGeometryNotification: DispatchWorkItem?
+        private let geometryNotificationDelay: TimeInterval = 0.12
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -139,17 +140,19 @@ struct GhosttyTerminalHostView: NSViewRepresentable {
                 return
             }
             lastGeometrySignature = signature
-            guard geometryNotificationScheduled == false else {
-                return
-            }
-            geometryNotificationScheduled = true
-            DispatchQueue.main.async { [weak self] in
+            pendingGeometryNotification?.cancel()
+            let workItem = DispatchWorkItem { [weak self] in
                 guard let self else {
                     return
                 }
-                self.geometryNotificationScheduled = false
+                self.pendingGeometryNotification = nil
                 self.onGeometryChanged?()
             }
+            pendingGeometryNotification = workItem
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + geometryNotificationDelay,
+                execute: workItem
+            )
         }
     }
 
@@ -226,6 +229,7 @@ private final class GhosttyTerminalPortalOverlayView: NSView {
 
 private final class GhosttyTerminalPortalMountedView: NSView {
     let hostedView: GhosttyTerminalContainerView
+    private var lastNotifiedSize: NSSize = .zero
 
     init(hostedView: GhosttyTerminalContainerView) {
         self.hostedView = hostedView
@@ -288,10 +292,14 @@ private final class GhosttyTerminalPortalMountedView: NSView {
         if hostedView.superview !== self {
             addSubview(hostedView)
         }
+        let previousFrame = hostedView.frame
         if hostedView.frame != bounds {
             hostedView.frame = bounds
         }
-        hostedView.portalDidUpdateFrame()
+        if previousFrame.size != bounds.size, lastNotifiedSize != bounds.size {
+            lastNotifiedSize = bounds.size
+            hostedView.portalDidUpdateFrame()
+        }
     }
 }
 

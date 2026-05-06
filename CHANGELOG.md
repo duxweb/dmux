@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Reduced short CPU spikes and main-thread stalls while resizing Codex terminal windows by coalescing Ghostty viewport refreshes and ignoring transient tiny layout sizes.
 - Fixed AI memory compaction so newly extracted working memories stay browseable, stable items can be promoted to core memory, and only stale working entries are automatically merged into summaries.
 - Cleaned invalid version-only memory summaries so broken extraction responses no longer leave empty summary panels.
 
