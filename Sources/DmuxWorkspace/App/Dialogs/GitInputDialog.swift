@@ -83,7 +83,7 @@ private struct GitInputPanelView: View {
             return pushed ? ("exclamationmark.triangle.fill", AppTheme.warning) : ("pencil.line", AppTheme.focus)
         case .cloneRepository:
             return ("square.and.arrow.down", AppTheme.focus)
-        case .renameAISession:
+        case .renameAISession, .renameTerminalTab:
             return ("pencil.line", AppTheme.focus)
         }
     }

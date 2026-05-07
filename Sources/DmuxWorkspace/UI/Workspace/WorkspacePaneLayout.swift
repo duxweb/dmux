@@ -1,5 +1,14 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+private enum BottomTabDragPayload {
+    static let type = UTType.text.identifier
+
+    static func provider(for sessionID: UUID) -> NSItemProvider {
+        NSItemProvider(object: sessionID.uuidString as NSString)
+    }
+}
 
 struct TopPaneRowView: View {
     let model: AppModel
@@ -288,6 +297,8 @@ struct BottomTabbedPaneView: View {
     let showsInactiveOverlay: Bool
 
     static let statusBarHeight: CGFloat = 40
+    @State private var draggingBottomTabSessionID: UUID?
+    @State private var didReorderBottomTabs = false
 
     private var selectedBottomSessionID: UUID? {
         if let selected = workspace.selectedBottomTabSessionID,
@@ -321,10 +332,22 @@ struct BottomTabbedPaneView: View {
 
                             TabChip(
                                 model: model,
-                                title: String(format: String(localized: "workspace.tab_format", defaultValue: "Tab %@", bundle: .module), "\(index + 1)"),
+                                title: model.bottomTabDisplayTitle(sessionID: sessionID, fallbackIndex: index),
+                                sessionID: sessionID,
                                 isSelected: isSelected,
+                                draggingSessionID: $draggingBottomTabSessionID,
                                 onSelect: { model.selectBottomTabSession(sessionID) },
-                                onClose: { model.closeSession(sessionID) }
+                                onRename: { model.renameBottomTabSession(sessionID) },
+                                onClose: { model.closeSession(sessionID) },
+                                onMove: { draggedSessionID in
+                                    model.moveBottomTabSession(draggedSessionID, to: sessionID, persists: false)
+                                },
+                                onFinishMove: {
+                                    guard didReorderBottomTabs else { return }
+                                    didReorderBottomTabs = false
+                                    model.scheduleBottomTabOrderPersist()
+                                },
+                                didMove: { didReorderBottomTabs = true }
                             )
                         }
 
@@ -567,11 +590,26 @@ private final class DividerStyledSplitView: NSSplitView {
 private struct TabChip: View {
     let model: AppModel
     let title: String
+    let sessionID: UUID
     let isSelected: Bool
+    @Binding var draggingSessionID: UUID?
     let onSelect: () -> Void
+    let onRename: () -> Void
     let onClose: () -> Void
+    let onMove: (UUID) -> Void
+    let onFinishMove: () -> Void
+    let didMove: () -> Void
 
     @State private var isHovered = false
+    @State private var isDropTarget = false
+
+    private var isDragging: Bool {
+        draggingSessionID == sessionID
+    }
+
+    private var showsDropTarget: Bool {
+        isDropTarget && draggingSessionID != nil && draggingSessionID != sessionID
+    }
 
     var body: some View {
         Button(action: onSelect) {
@@ -597,14 +635,34 @@ private struct TabChip: View {
             .background(isSelected ? selectedFill : (isHovered ? hoverFill : Color.clear))
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(selectedStroke, lineWidth: 1)
-                }
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(showsDropTarget ? AppTheme.focus.opacity(0.86) : (isSelected ? selectedStroke : Color.clear), lineWidth: showsDropTarget ? 1.4 : 1)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .opacity(isDragging ? 0.48 : 1.0)
+        .contextMenu {
+            Button(String(localized: "common.rename", defaultValue: "Rename", bundle: .module), action: onRename)
+            Button(String(localized: "common.close", defaultValue: "Close", bundle: .module), role: .destructive, action: onClose)
+        }
+        .onDrag {
+            draggingSessionID = sessionID
+            return BottomTabDragPayload.provider(for: sessionID)
+        } preview: {
+            Color.white.opacity(0.001).frame(width: 1, height: 1)
+        }
+        .onDrop(
+            of: [BottomTabDragPayload.type],
+            delegate: BottomTabReorderDropDelegate(
+                targetSessionID: sessionID,
+                draggingSessionID: $draggingSessionID,
+                isDropTarget: $isDropTarget,
+                onMove: onMove,
+                onFinishMove: onFinishMove,
+                didMove: didMove
+            )
+        )
         .onHover { hovering in
             isHovered = hovering
         }
@@ -620,5 +678,49 @@ private struct TabChip: View {
 
     private var selectedStroke: Color {
         model.terminalUsesLightBackground ? Color.black.opacity(0.12) : Color.white.opacity(0.1)
+    }
+}
+
+private struct BottomTabReorderDropDelegate: DropDelegate {
+    let targetSessionID: UUID
+    @Binding var draggingSessionID: UUID?
+    @Binding var isDropTarget: Bool
+    let onMove: (UUID) -> Void
+    let onFinishMove: () -> Void
+    let didMove: () -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingSessionID,
+              draggingSessionID != targetSessionID else {
+            return
+        }
+        isDropTarget = true
+        move(draggingSessionID)
+    }
+
+    private func move(_ draggedSessionID: UUID) {
+        withAnimation(.snappy(duration: 0.16)) {
+            onMove(draggedSessionID)
+        }
+        didMove()
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isDropTarget = false
+            draggingSessionID = nil
+        }
+        onFinishMove()
+        return true
+    }
+
+    func dropExited(info: DropInfo) {
+        isDropTarget = false
     }
 }

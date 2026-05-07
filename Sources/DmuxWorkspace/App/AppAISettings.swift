@@ -83,8 +83,10 @@ enum AppAIProviderKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var supportsPetSpeech: Bool {
         switch self {
-        case .openAICompatible, .anthropic, .localLlama:
+        case .openAICompatible, .anthropic:
             return true
+        case .localLlama:
+            return false
         }
     }
 

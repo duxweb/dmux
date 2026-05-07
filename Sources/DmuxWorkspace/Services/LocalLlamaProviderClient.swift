@@ -31,11 +31,20 @@ struct LocalLlamaProviderClient: AIProviderClient {
     }
 }
 
+enum LocalLlamaRuntimeLifecycle {
+    static func prepareForApplicationTermination() async {
+        #if canImport(llama)
+        await LocalLlamaCompletionRuntime.shared.prepareForApplicationTermination()
+        #endif
+    }
+}
+
 #if canImport(llama)
 private actor LocalLlamaCompletionRuntime {
     static let shared = LocalLlamaCompletionRuntime()
 
     private var didInitializeBackend = false
+    private var isPreparingForTermination = false
 
     func complete(
         _ request: AIProviderCompletionRequest,
@@ -44,18 +53,30 @@ private actor LocalLlamaCompletionRuntime {
         maxPredictionTokens: Int32,
         chatTemplate: String
     ) async throws -> String {
+        guard !isPreparingForTermination else {
+            throw CancellationError()
+        }
         if didInitializeBackend == false {
             llama_backend_init()
             didInitializeBackend = true
         }
 
         let formattedPrompt = LocalLlamaPromptFormatter.format(request, chatTemplate: chatTemplate)
+        try Task.checkCancellation()
         return try LocalLlamaSession(
             modelURL: modelURL,
             contextTokens: contextTokens,
             maxPredictionTokens: maxPredictionTokens
         )
         .generate(formattedPrompt)
+    }
+
+    func prepareForApplicationTermination() {
+        isPreparingForTermination = true
+        if didInitializeBackend {
+            llama_backend_free()
+            didInitializeBackend = false
+        }
     }
 }
 
@@ -72,6 +93,7 @@ private struct LocalLlamaSession {
     }
 
     func generate(_ prompt: String) throws -> String {
+        try Task.checkCancellation()
         var modelParams = llama_model_default_params()
         modelParams.n_gpu_layers = 99
         modelParams.use_mmap = true
@@ -97,6 +119,7 @@ private struct LocalLlamaSession {
         }
         defer { llama_free(context) }
 
+        try Task.checkCancellation()
         guard let vocab = llama_model_get_vocab(model) else {
             throw AIProviderError.requestFailure("Failed to read local llama vocabulary.")
         }
@@ -108,6 +131,7 @@ private struct LocalLlamaSession {
         }
 
         try decode(promptTokens, context: context)
+        try Task.checkCancellation()
 
         var samplerParams = llama_sampler_chain_default_params()
         samplerParams.no_perf = true
@@ -119,6 +143,7 @@ private struct LocalLlamaSession {
 
         var outputData = Data()
         for _ in 0..<maxPredictionTokens {
+            try Task.checkCancellation()
             let token = llama_sampler_sample(sampler, context, -1)
             if llama_vocab_is_eog(vocab, token) {
                 break
@@ -197,6 +222,7 @@ private struct LocalLlamaSession {
     private func decode(_ tokens: [llama_token], context: OpaquePointer) throws {
         var offset = 0
         while offset < tokens.count {
+            try Task.checkCancellation()
             let end = min(tokens.count, offset + Int(promptBatchSize))
             var chunk = Array(tokens[offset..<end])
             let result = chunk.withUnsafeMutableBufferPointer { buffer in
@@ -264,12 +290,32 @@ private struct LocalLlamaSession {
         var value = text
         while let start = value.range(of: "<think>") {
             guard let end = value.range(of: "</think>", range: start.upperBound..<value.endIndex) else {
+                let tail = String(value[start.upperBound...])
+                if let jsonStart = firstJSONStart(in: tail) {
+                    value = String(value[..<start.lowerBound]) + String(tail[jsonStart...])
+                    break
+                }
                 value.removeSubrange(start.lowerBound..<value.endIndex)
                 break
             }
             value.removeSubrange(start.lowerBound..<end.upperBound)
         }
         return value
+    }
+
+    private func firstJSONStart(in text: String) -> String.Index? {
+        let objectStart = text.firstIndex(of: "{")
+        let arrayStart = text.firstIndex(of: "[")
+        switch (objectStart, arrayStart) {
+        case let (objectStart?, arrayStart?):
+            return objectStart < arrayStart ? objectStart : arrayStart
+        case let (objectStart?, nil):
+            return objectStart
+        case let (nil, arrayStart?):
+            return arrayStart
+        case (nil, nil):
+            return nil
+        }
     }
 }
 
@@ -308,11 +354,26 @@ private enum LocalLlamaPromptFormatter {
         pieces.append(
             """
             <|im_start|>user
-            \(request.prompt)<|im_end|>
+            \(qwenUserPrompt(for: request))<|im_end|>
             <|im_start|>assistant
             """
         )
         return pieces.joined(separator: "\n")
+    }
+
+    private static func qwenUserPrompt(for request: AIProviderCompletionRequest) -> String {
+        guard shouldDisableQwenThinking(for: request),
+              request.prompt.contains("/no_think") == false else {
+            return request.prompt
+        }
+        return "\(request.prompt)\n/no_think"
+    }
+
+    private static func shouldDisableQwenThinking(for request: AIProviderCompletionRequest) -> Bool {
+        let combined = "\(request.systemPrompt ?? "")\n\(request.prompt)".lowercased()
+        return combined.contains("return json")
+            || combined.contains("deterministic memory compaction")
+            || combined.contains("memory extraction")
     }
 
     private static func gemmaFormat(_ request: AIProviderCompletionRequest) -> String {

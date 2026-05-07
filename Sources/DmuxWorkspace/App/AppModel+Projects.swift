@@ -31,6 +31,46 @@ extension AppModel {
         selectProject(projects[index].id)
     }
 
+    func moveProject(_ projectID: UUID, to targetProjectID: UUID, persists: Bool = true) {
+        guard projectID != targetProjectID,
+              let sourceIndex = projects.firstIndex(where: { $0.id == projectID }),
+              let targetIndex = projects.firstIndex(where: { $0.id == targetProjectID }) else {
+            return
+        }
+
+        var updatedProjects = projects
+        let movedProject = updatedProjects.remove(at: sourceIndex)
+        guard let adjustedTargetIndex = updatedProjects.firstIndex(where: { $0.id == targetProjectID }) else {
+            return
+        }
+
+        let insertionIndex = sourceIndex < targetIndex
+            ? min(adjustedTargetIndex + 1, updatedProjects.count)
+            : adjustedTargetIndex
+        updatedProjects.insert(movedProject, at: insertionIndex)
+
+        guard updatedProjects.map(\.id) != projects.map(\.id) else {
+            return
+        }
+
+        projects = updatedProjects
+        workspaces = projects.compactMap { project in
+            workspaces.first(where: { $0.projectID == project.id })
+        }
+        if persists {
+            persistProjectOrder()
+        }
+    }
+
+    func persistProjectOrder() {
+        persist()
+        refreshAIStatsIfNeeded()
+    }
+
+    func scheduleProjectOrderPersist() {
+        scheduleDragReorderPersist(refreshAIStats: true)
+    }
+
     func openRuntimeLog() {
         debugLog.log("app", "open runtime log")
         debugLog.openRuntimeLogInSystemViewer()

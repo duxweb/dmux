@@ -35,6 +35,8 @@ final class PetSpeechCoordinator {
     private var lastActivityKey: String?
     private var currentActivityLineExpiryTask: Task<Void, Never>?
     private var deferredNormalActivityLine: PetActivityStatusLine?
+    private var llmReplacementTask: Task<Void, Never>?
+    private var llmReplacementToken: UUID?
 
     var currentLine: PetSpeechLine?
     var currentActivityLine: PetActivityStatusLine?
@@ -99,6 +101,7 @@ final class PetSpeechCoordinator {
         expiryTask = nil
         currentActivityLineExpiryTask?.cancel()
         currentActivityLineExpiryTask = nil
+        cancelPendingLLMReplacement()
         deferredNormalActivityLine = nil
     }
 
@@ -145,6 +148,7 @@ final class PetSpeechCoordinator {
     func clearCurrentLine() {
         expiryTask?.cancel()
         expiryTask = nil
+        cancelPendingLLMReplacement()
         currentLine = nil
     }
 
@@ -392,6 +396,7 @@ final class PetSpeechCoordinator {
         mode: PetSpeechMode,
         aiSettings: AppAISettings?
     ) {
+        cancelPendingLLMReplacement()
         guard let aiSettings,
               aiSettings.pet.speechLLMEnabled,
               event.tier >= .rhythm,
@@ -399,10 +404,22 @@ final class PetSpeechCoordinator {
             return
         }
 
-        Task { @MainActor [weak self] in
+        let replacementToken = UUID()
+        llmReplacementToken = replacementToken
+        llmReplacementTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.llmReplacementToken == replacementToken {
+                    self.llmReplacementTask = nil
+                    self.llmReplacementToken = nil
+                }
+            }
             guard let self,
+                  !Task.isCancelled,
+                  self.llmReplacementToken == replacementToken,
                   self.currentLine?.id == fallbackLine.id,
                   let text = await llmLineProvider(event, mode, aiSettings),
+                  !Task.isCancelled,
+                  self.llmReplacementToken == replacementToken,
                   text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
                   self.currentLine?.id == fallbackLine.id else {
                 return
@@ -414,6 +431,12 @@ final class PetSpeechCoordinator {
             self.scheduleExpiry(for: llmLine)
             self.logger.log("pet-speech", "event=\(event.kind.rawValue) source=llm")
         }
+    }
+
+    private func cancelPendingLLMReplacement() {
+        llmReplacementTask?.cancel()
+        llmReplacementTask = nil
+        llmReplacementToken = nil
     }
 
     private func scheduleExpiry(for line: PetSpeechLine) {

@@ -120,6 +120,7 @@ final class AppModel {
     var pendingActivityRefreshTask: Task<Void, Never>?
     var pendingActivityRefreshShouldNotify = false
     var pendingMemorySessionSnapshotTask: Task<Void, Never>?
+    private var pendingDragReorderPersistTask: Task<Void, Never>?
     var activityCacheByProjectID: [UUID: ProjectActivityCache] = [:]
     var isSystemUIReady = false
     private var isTerminalStartupUnlocked = false
@@ -799,8 +800,8 @@ final class AppModel {
         set { gitStore.panelState.activeGitRemoteOperation = newValue }
     }
 
-    func persist() {
-        let snapshot = AppSnapshot(
+    private func persistenceSnapshot() -> AppSnapshot {
+        AppSnapshot(
             projects: projects,
             workspaces: workspaces,
             selectedProjectID: selectedProjectID,
@@ -808,7 +809,46 @@ final class AppModel {
             taskMemos: taskMemos,
             sshProfiles: sshProfiles
         )
-        persistenceService.save(snapshot)
+    }
+
+    func persist() {
+        pendingDragReorderPersistTask?.cancel()
+        pendingDragReorderPersistTask = nil
+        persistenceService.save(persistenceSnapshot())
+    }
+
+    func prepareForApplicationTermination() {
+        pendingDragReorderPersistTask?.cancel()
+        pendingDragReorderPersistTask = nil
+        pendingTerminalStartupUnlockTask?.cancel()
+        pendingTerminalStartupUnlockTask = nil
+        pendingActivityRefreshTask?.cancel()
+        pendingActivityRefreshTask = nil
+        pendingMemorySessionSnapshotTask?.cancel()
+        pendingMemorySessionSnapshotTask = nil
+        petSpeechCoordinator.stop()
+    }
+
+    func scheduleDragReorderPersist(refreshAIStats: Bool = false) {
+        pendingDragReorderPersistTask?.cancel()
+        pendingDragReorderPersistTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else {
+                return
+            }
+
+            let snapshot = self.persistenceSnapshot()
+            self.pendingDragReorderPersistTask = nil
+            self.persistenceService.saveInBackground(snapshot)
+            if refreshAIStats {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(220))
+                    guard let self, !Task.isCancelled else {
+                        return
+                    }
+                    self.refreshAIStatsIfNeeded()
+                }
+            }
+        }
     }
 
     func presentationWindow() -> NSWindow? {

@@ -7,6 +7,7 @@ enum GitInputDialogKind: Equatable {
     case editLastCommitMessage(headCommitPushed: Bool)
     case cloneRepository
     case renameAISession
+    case renameTerminalTab
 }
 
 struct GitInputDialogState: Equatable {

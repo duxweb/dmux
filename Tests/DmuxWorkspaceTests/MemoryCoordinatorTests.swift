@@ -207,10 +207,7 @@ final class MemoryCoordinatorTests: XCTestCase {
         XCTAssertEqual(providers.map(\.id), [AppAIProviderConfiguration.localLlamaProviderID])
         XCTAssertEqual(providers.first?.kind, .localLlama)
         XCTAssertEqual(providers.first?.model, LocalLlamaModelCatalog.defaultModelID)
-        XCTAssertEqual(
-            service.preferredPetSpeechProvider(in: settings)?.id,
-            AppAIProviderConfiguration.localLlamaProviderID
-        )
+        XCTAssertNil(service.preferredPetSpeechProvider(in: settings))
     }
 
     func testAutomaticProviderSelectionUsesMemoryProvidersByPriority() throws {
@@ -473,6 +470,74 @@ final class MemoryCoordinatorTests: XCTestCase {
         XCTAssertEqual(response.workingAdd.count, 1)
         XCTAssertEqual(response.workingAdd[0].kind, .fact)
         XCTAssertEqual(response.workingAdd[0].content, "Use runtime.log for dev diagnostics.")
+    }
+
+    func testExtractionResponseDecoderAcceptsTopLevelMemoryArray() throws {
+        let raw = """
+            [
+              {
+                "scope": "project",
+                "tier": "working",
+                "kind": "bug_lesson",
+                "content": "Local memory extraction should parse array-only model output.",
+                "rationale": "Small local models sometimes skip the wrapper object."
+              }
+            ]
+            """
+
+        let response = try JSONDecoder().decode(
+            MemoryExtractionResponse.self,
+            from: Data(raw.utf8)
+        )
+
+        XCTAssertNil(response.userSummary)
+        XCTAssertNil(response.projectSummary)
+        XCTAssertEqual(response.workingAdd.count, 1)
+        XCTAssertEqual(response.workingAdd[0].scope, .project)
+        XCTAssertEqual(response.workingAdd[0].kind, .bugLesson)
+        XCTAssertEqual(response.workingArchive, [])
+        XCTAssertEqual(response.mergedEntryIDs, [])
+    }
+
+    func testExtractionResponseDecoderAcceptsNestedResponseObjects() throws {
+        let raw = """
+            {
+              "response": {
+                "project_summary": "Prefer background persistence for drag reorder.",
+                "working_add": [
+                  {
+                    "scope": "project",
+                    "kind": "decision",
+                    "content": "Drag reorder persistence runs asynchronously."
+                  }
+                ],
+                "working_archive": [],
+                "merged_entry_ids": []
+              }
+            }
+            """
+
+        let response = try JSONDecoder().decode(
+            MemoryExtractionResponse.self,
+            from: Data(raw.utf8)
+        )
+
+        XCTAssertEqual(response.projectSummary, "Prefer background persistence for drag reorder.")
+        XCTAssertEqual(response.workingAdd.count, 1)
+        XCTAssertEqual(response.workingAdd[0].kind, .decision)
+    }
+
+    func testExtractionResponseDecoderRejectsUnrelatedJSONObjects() throws {
+        let raw = """
+            {
+              "status": "ok",
+              "message": "No durable memory was found."
+            }
+            """
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(MemoryExtractionResponse.self, from: Data(raw.utf8))
+        )
     }
 
     func testMemorySettingsDefaultsFavorCompactExtractionAndInjection() throws {

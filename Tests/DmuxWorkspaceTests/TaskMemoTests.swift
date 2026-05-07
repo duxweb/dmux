@@ -176,6 +176,7 @@ final class TaskMemoTests: XCTestCase {
             projectID: project.id,
             projectName: project.name,
             title: "Terminal",
+            tabTitle: nil,
             cwd: project.path,
             shell: project.shell,
             command: project.shell,

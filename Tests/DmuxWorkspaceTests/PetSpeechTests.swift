@@ -370,6 +370,41 @@ final class PetSpeechCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentLine?.source, .llm)
         XCTAssertEqual(requestedKinds, [.tokensBurst])
     }
+
+    func testStopCancelsPendingLLMReplacement() async {
+        let coordinator = PetSpeechCoordinator()
+        var aiSettings = AppAISettings()
+        aiSettings.pet.speechMode = .encourage
+        aiSettings.pet.speechFrequency = .normal
+        aiSettings.pet.speechLLMEnabled = true
+        aiSettings.pet.speechQuietDuringWork = false
+
+        let providerStarted = expectation(description: "provider started")
+        let providerCancelled = expectation(description: "provider cancelled")
+        coordinator.configure(
+            settings: { aiSettings.pet },
+            aiSettings: { aiSettings },
+            petName: { "测试宠" },
+            activitySnapshots: { [] },
+            llmLineProvider: { _, _, _ in
+                providerStarted.fulfill()
+                do {
+                    try await Task.sleep(for: .seconds(10))
+                    return "late line"
+                } catch {
+                    providerCancelled.fulfill()
+                    return nil
+                }
+            }
+        )
+
+        coordinator.notify(PetSpeechEvent(kind: .tokensBurst, payload: ["tokensK": "60K"]))
+        await fulfillment(of: [providerStarted], timeout: 1)
+
+        coordinator.stop()
+        await fulfillment(of: [providerCancelled], timeout: 1)
+        XCTAssertNotEqual(coordinator.currentLine?.source, .llm)
+    }
 }
 
 final class PetSpeechLLMServiceTests: XCTestCase {

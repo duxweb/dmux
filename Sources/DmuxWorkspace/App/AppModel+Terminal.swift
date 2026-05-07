@@ -38,11 +38,11 @@ extension AppModel {
 
             if workspace.addTopSession(session.id) {
                 terminalFocusRequestID = session.id
-                statusMessage = "Created a new terminal pane."
+                statusMessage = String(localized: "workspace.top_pane.created", defaultValue: "Created a new terminal pane.", bundle: .module)
             } else {
                 workspace.addBottomTab(session.id)
                 terminalFocusRequestID = session.id
-                statusMessage = "Top row is full, added a bottom tab instead."
+                statusMessage = String(localized: "workspace.top_pane.full_added_bottom_tab", defaultValue: "Top row is full, added a bottom tab instead.", bundle: .module)
             }
         }
         if newSessionID != nil {
@@ -180,6 +180,79 @@ extension AppModel {
             workspace.selectedSessionID = sessionID
             terminalFocusRequestID = sessionID
         }
+    }
+
+    func bottomTabDisplayTitle(sessionID: UUID, fallbackIndex: Int) -> String {
+        if let title = selectedWorkspace?.session(for: sessionID)?.tabTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !title.isEmpty {
+            return title
+        }
+        return ProjectWorkspace.defaultBottomTabTitle(index: fallbackIndex)
+    }
+
+    func renameBottomTabSession(_ sessionID: UUID) {
+        guard let workspace = selectedWorkspace,
+              workspace.bottomTabSessionIDs.contains(sessionID),
+              let parentWindow = presentationWindow() else {
+            statusMessage = String(localized: "app.window.main_missing", defaultValue: "Unable to find the main window.", bundle: .module)
+            return
+        }
+
+        let fallbackIndex = workspace.bottomTabSessionIDs.firstIndex(of: sessionID) ?? 0
+        let dialog = GitInputDialogState(
+            kind: .renameTerminalTab,
+            title: String(localized: "terminal.tab.rename.title", defaultValue: "Rename Tab", bundle: .module),
+            message: String(localized: "terminal.tab.rename.message", defaultValue: "Set a short label for this bottom terminal tab.", bundle: .module),
+            placeholder: String(localized: "terminal.tab.rename.placeholder", defaultValue: "Tab Name", bundle: .module),
+            confirmTitle: String(localized: "common.save", defaultValue: "Save", bundle: .module),
+            value: bottomTabDisplayTitle(sessionID: sessionID, fallbackIndex: fallbackIndex),
+            isMultiline: false
+        )
+
+        GitInputPanelPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] value in
+            guard let self, let value else {
+                return
+            }
+            self.updateBottomTabTitle(sessionID, title: value)
+        }
+    }
+
+    func updateBottomTabTitle(_ sessionID: UUID, title: String) {
+        guard let selectedProjectID,
+              let index = workspaces.firstIndex(where: { $0.projectID == selectedProjectID }) else {
+            return
+        }
+
+        var updatedWorkspaces = workspaces
+        guard updatedWorkspaces[index].renameBottomTab(sessionID, to: title) else {
+            return
+        }
+        updatedWorkspaces[index].selectedBottomTabSessionID = sessionID
+        updatedWorkspaces[index].selectedSessionID = sessionID
+        workspaces = updatedWorkspaces
+        terminalFocusRequestID = sessionID
+        statusMessage = String(localized: "terminal.tab.rename.success", defaultValue: "Renamed tab.", bundle: .module)
+        persist()
+    }
+
+    func moveBottomTabSession(_ sessionID: UUID, to targetSessionID: UUID, persists: Bool = true) {
+        guard let selectedProjectID,
+              let index = workspaces.firstIndex(where: { $0.projectID == selectedProjectID }) else {
+            return
+        }
+
+        var updatedWorkspaces = workspaces
+        guard updatedWorkspaces[index].moveBottomTab(sessionID, to: targetSessionID) else {
+            return
+        }
+        workspaces = updatedWorkspaces
+        if persists {
+            persist()
+        }
+    }
+
+    func scheduleBottomTabOrderPersist() {
+        scheduleDragReorderPersist()
     }
 
     func updateTopPaneRatios(_ ratios: [CGFloat]) {

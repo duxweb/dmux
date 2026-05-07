@@ -199,6 +199,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private static var isRelaunching = false
     private weak var model: AppModel?
     private var localKeyMonitor: Any?
+    private var isPreparingTermination = false
+    private var hasPreparedTermination = false
 
     @MainActor
     static func scheduleRelaunch(at url: URL) {
@@ -273,6 +275,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         false
+    }
+
+    @MainActor
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !hasPreparedTermination else {
+            return .terminateNow
+        }
+        guard !isPreparingTermination else {
+            return .terminateLater
+        }
+
+        isPreparingTermination = true
+        AppDebugLog.shared.log("app", "application-should-terminate prepare")
+        model?.prepareForApplicationTermination()
+        Task { @MainActor [weak self] in
+            await LocalLlamaRuntimeLifecycle.prepareForApplicationTermination()
+            self?.hasPreparedTermination = true
+            self?.isPreparingTermination = false
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func userNotificationCenter(

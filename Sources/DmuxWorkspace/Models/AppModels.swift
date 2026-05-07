@@ -82,6 +82,7 @@ struct TerminalSession: Identifiable, Codable, Hashable, Sendable {
     var projectID: UUID
     var projectName: String
     var title: String
+    var tabTitle: String?
     var cwd: String
     var shell: String
     var command: String
@@ -94,6 +95,7 @@ struct TerminalSession: Identifiable, Codable, Hashable, Sendable {
             projectID: project.id,
             projectName: project.name,
             title: URL(fileURLWithPath: project.path).lastPathComponent,
+            tabTitle: nil,
             cwd: project.path,
             shell: project.shell,
             command: promptCommand,
@@ -389,10 +391,90 @@ struct ProjectWorkspace: Identifiable, Codable, Hashable {
         return true
     }
 
-    mutating func addBottomTab(_ sessionID: UUID) {
+    static func defaultBottomTabTitle(index: Int) -> String {
+        String(
+            format: String(localized: "workspace.tab_format", defaultValue: "Tab %@", bundle: .module),
+            "\(index + 1)"
+        )
+    }
+
+    mutating func addBottomTab(_ sessionID: UUID, title: String? = nil) {
         bottomTabSessionIDs.append(sessionID)
+        setBottomTabTitleIfNeeded(
+            sessionID,
+            title: title ?? Self.defaultBottomTabTitle(index: bottomTabSessionIDs.count - 1)
+        )
         selectedSessionID = sessionID
         selectedBottomTabSessionID = sessionID
+    }
+
+    mutating func ensureDefaultBottomTabTitles() -> Bool {
+        var didChange = false
+        for (index, sessionID) in bottomTabSessionIDs.enumerated() {
+            didChange = setBottomTabTitleIfNeeded(
+                sessionID,
+                title: Self.defaultBottomTabTitle(index: index)
+            ) || didChange
+        }
+        return didChange
+    }
+
+    mutating func moveBottomTab(_ sessionID: UUID, to targetSessionID: UUID) -> Bool {
+        guard sessionID != targetSessionID,
+              let sourceIndex = bottomTabSessionIDs.firstIndex(of: sessionID),
+              let targetIndex = bottomTabSessionIDs.firstIndex(of: targetSessionID) else {
+            return false
+        }
+
+        var updatedSessionIDs = bottomTabSessionIDs
+        let movedSessionID = updatedSessionIDs.remove(at: sourceIndex)
+        guard let adjustedTargetIndex = updatedSessionIDs.firstIndex(of: targetSessionID) else {
+            return false
+        }
+
+        let insertionIndex = sourceIndex < targetIndex
+            ? min(adjustedTargetIndex + 1, updatedSessionIDs.count)
+            : adjustedTargetIndex
+        updatedSessionIDs.insert(movedSessionID, at: insertionIndex)
+
+        guard updatedSessionIDs != bottomTabSessionIDs else {
+            return false
+        }
+        bottomTabSessionIDs = updatedSessionIDs
+        return true
+    }
+
+    mutating func renameBottomTab(_ sessionID: UUID, to title: String) -> Bool {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty,
+              bottomTabSessionIDs.contains(sessionID),
+              let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }) else {
+            return false
+        }
+
+        guard sessions[sessionIndex].tabTitle != trimmedTitle else {
+            return false
+        }
+        sessions[sessionIndex].tabTitle = trimmedTitle
+        return true
+    }
+
+    @discardableResult
+    private mutating func setBottomTabTitleIfNeeded(_ sessionID: UUID, title: String) -> Bool {
+        guard bottomTabSessionIDs.contains(sessionID),
+              let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }) else {
+            return false
+        }
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            return false
+        }
+        if let existingTitle = sessions[sessionIndex].tabTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !existingTitle.isEmpty {
+            return false
+        }
+        sessions[sessionIndex].tabTitle = trimmedTitle
+        return true
     }
 
     mutating func removeSession(_ sessionID: UUID) {

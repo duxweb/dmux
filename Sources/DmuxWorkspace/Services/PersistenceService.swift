@@ -97,13 +97,31 @@ struct PersistenceService {
         guard let directoryURL = appSupportDirectoryURL() else {
             return
         }
+        let debugLog = debugLog
 
+        Self.saveQueue.sync {
+            Self.write(snapshot, to: directoryURL, debugLog: debugLog, failurePrefix: "save")
+        }
+    }
+
+    func saveInBackground(_ snapshot: AppSnapshot) {
+        guard let directoryURL = appSupportDirectoryURL() else {
+            return
+        }
+        let debugLog = debugLog
+
+        Self.saveQueue.async {
+            Self.write(snapshot, to: directoryURL, debugLog: debugLog, failurePrefix: "background save")
+        }
+    }
+
+    private static func write(_ snapshot: AppSnapshot, to directoryURL: URL, debugLog: AppDebugLog, failurePrefix: String) {
         do {
-            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             let data = try JSONEncoder.pretty.encode(snapshot)
             try data.write(to: directoryURL.appendingPathComponent("state.json"), options: .atomic)
         } catch {
-            debugLog.log("persistence", "save failed error=\(error.localizedDescription)")
+            debugLog.log("persistence", "\(failurePrefix) failed error=\(error.localizedDescription)")
         }
     }
 
@@ -430,11 +448,16 @@ struct PersistenceService {
             sessions: sessions
         )
 
-        if sanitizedWorkspace != workspace {
+        var titledWorkspace = sanitizedWorkspace
+        if titledWorkspace.ensureDefaultBottomTabTitles() {
             didChange = true
         }
 
-        return SanitizedWorkspace(workspace: sanitizedWorkspace, didChange: didChange)
+        if titledWorkspace != workspace {
+            didChange = true
+        }
+
+        return SanitizedWorkspace(workspace: titledWorkspace, didChange: didChange)
     }
 
     private func sanitizeSession(_ session: TerminalSession, for project: Project) -> TerminalSession {
@@ -464,11 +487,20 @@ struct PersistenceService {
             projectID: project.id,
             projectName: project.name,
             title: sanitizedTitle,
+            tabTitle: sanitizedTabTitle(session.tabTitle),
             cwd: sanitizedCWD,
             shell: sanitizedShell,
             command: session.command,
             previewLines: session.previewLines
         )
+    }
+
+    private func sanitizedTabTitle(_ title: String?) -> String? {
+        guard let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmedTitle.isEmpty else {
+            return nil
+        }
+        return trimmedTitle
     }
 
     private func sanitizeSessionIDList(
@@ -523,6 +555,8 @@ private extension JSONEncoder {
 }
 
 private extension PersistenceService {
+    static let saveQueue = DispatchQueue(label: "codux.persistence.save", qos: .utility)
+
     static let invalidFileDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

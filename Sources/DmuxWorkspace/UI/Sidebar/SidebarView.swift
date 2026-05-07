@@ -1,9 +1,20 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+private enum ProjectRowDragPayload {
+    static let type = UTType.text.identifier
+
+    static func provider(for projectID: UUID) -> NSItemProvider {
+        NSItemProvider(object: projectID.uuidString as NSString)
+    }
+}
 
 struct SidebarView: View {
     let model: AppModel
     @Environment(\.openSettings) private var openSettings
+    @State private var draggingProjectID: UUID?
+    @State private var didReorderProjects = false
 
     var body: some View {
         let _ = model.activityRenderVersion
@@ -26,7 +37,17 @@ struct SidebarView: View {
                             project: project,
                             isExpanded: model.isSidebarExpanded,
                             isSelected: project.id == model.selectedProjectID,
-                            activityPhase: model.activityPhase(for: project.id)
+                            activityPhase: model.activityPhase(for: project.id),
+                            draggingProjectID: $draggingProjectID,
+                            onMove: { draggedProjectID in
+                                model.moveProject(draggedProjectID, to: project.id, persists: false)
+                            },
+                            onFinishMove: {
+                                guard didReorderProjects else { return }
+                                didReorderProjects = false
+                                model.scheduleProjectOrderPersist()
+                            },
+                            didMove: { didReorderProjects = true }
                         ) {
                             model.selectProject(project.id)
                         }
@@ -192,11 +213,25 @@ private struct ProjectRow: View {
     let isExpanded: Bool
     let isSelected: Bool
     let activityPhase: ProjectActivityPhase
+    @Binding var draggingProjectID: UUID?
+    let onMove: (UUID) -> Void
+    let onFinishMove: () -> Void
+    let didMove: () -> Void
     let action: () -> Void
+
+    @State private var isDropTarget = false
+
+    private var isDragging: Bool {
+        draggingProjectID == project.id
+    }
+
+    private var showsDropTarget: Bool {
+        isDropTarget && draggingProjectID != nil && draggingProjectID != project.id
+    }
 
     private var selectionContainer: some View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(isSelected ? AppTheme.sidebarSelectionFill : Color.clear)
+            .fill(showsDropTarget ? AppTheme.focus.opacity(0.14) : (isSelected ? AppTheme.sidebarSelectionFill : Color.clear))
     }
 
     var body: some View {
@@ -228,10 +263,75 @@ private struct ProjectRow: View {
         .padding(isExpanded ? 8 : 6)
         .frame(maxWidth: .infinity)
         .background(selectionContainer)
-        .opacity(isSelected ? 1.0 : 0.8)
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(showsDropTarget ? AppTheme.focus.opacity(0.72) : Color.clear, lineWidth: 1.2)
+        }
+        .opacity(isDragging ? 0.46 : (isSelected ? 1.0 : 0.8))
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onTapGesture(perform: action)
+        .onDrag {
+            draggingProjectID = project.id
+            return ProjectRowDragPayload.provider(for: project.id)
+        } preview: {
+            Color.white.opacity(0.001).frame(width: 1, height: 1)
+        }
+        .onDrop(
+            of: [ProjectRowDragPayload.type],
+            delegate: ProjectRowReorderDropDelegate(
+                targetProjectID: project.id,
+                draggingProjectID: $draggingProjectID,
+                isDropTarget: $isDropTarget,
+                onMove: onMove,
+                onFinishMove: onFinishMove,
+                didMove: didMove
+            )
+        )
         .floatingTooltip(project.name, enabled: !isExpanded, placement: .right)
+    }
+}
+
+private struct ProjectRowReorderDropDelegate: DropDelegate {
+    let targetProjectID: UUID
+    @Binding var draggingProjectID: UUID?
+    @Binding var isDropTarget: Bool
+    let onMove: (UUID) -> Void
+    let onFinishMove: () -> Void
+    let didMove: () -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingProjectID,
+              draggingProjectID != targetProjectID else {
+            return
+        }
+        isDropTarget = true
+        move(draggingProjectID)
+    }
+
+    private func move(_ draggedProjectID: UUID) {
+        withAnimation(.snappy(duration: 0.16)) {
+            onMove(draggedProjectID)
+        }
+        didMove()
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        isDropTarget = false
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isDropTarget = false
+            draggingProjectID = nil
+        }
+        onFinishMove()
+        return true
     }
 }
 

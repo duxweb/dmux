@@ -71,6 +71,7 @@ actor MemoryCoordinator {
                 errorSubstrings: [
                     Self.localContextWindowFailureMessage,
                     Self.malformedExtractionResponseFailureMessage,
+                    AIProviderError.emptyResponse.localizedDescription,
                     "Memory extraction provider did not return a valid JSON object.",
                     "格式不正确",
                     "correct format",
@@ -408,6 +409,8 @@ actor MemoryCoordinator {
 
         Return JSON only.
         Do not include markdown fences.
+        Do not include <think> blocks, reasoning text, analysis, explanations, or prose.
+        The first non-whitespace character of the response must be "{".
         Do not call tools, request scans, browse files, or infer facts outside the provided transcript and existing memory.
         Treat this as a deterministic memory compaction job, not a chat response.
         """
@@ -536,12 +539,14 @@ actor MemoryCoordinator {
         \(transcript)
         </transcript>
 
-        Return JSON only with this exact shape:
+        Return JSON only with this exact shape. Start with "{" and output no other text:
         {"user_summary":"","project_summary":"","working_add":[{"scope":"user|project","tier":"core|working","kind":"preference|convention|decision|fact|bug_lesson","content":"...","rationale":"..."}],"working_archive":["uuid"],"merged_entry_ids":["uuid"]}
 
         Rules:
         - Extract only durable user preferences, repo conventions, accepted decisions, repository facts, and reusable bug lessons.
         - Ignore progress chatter, temporary status, raw logs, generic programming knowledge, and assistant-only guesses.
+        - Do not output <think>, reasoning, markdown, or explanatory text.
+        - If there is nothing durable to store, return {"user_summary":"","project_summary":"","working_add":[],"working_archive":[],"merged_entry_ids":[]}.
         - Use "core" only for stable rules, source-of-truth paths, accepted decisions, and reusable bug lessons. Use "working" for fresh short-lived facts.
         - Empty user_summary or project_summary means keep the existing summary unchanged.
         - Keep each summary under about \(settings.memory.summaryTargetTokenBudget) tokens.
@@ -1049,7 +1054,56 @@ struct MemoryExtractionResponse: Decodable {
     var mergedEntryIDs: [String]
 
     init(from decoder: Decoder) throws {
+        if let values = try? decoder.singleValueContainer().decode([LossyDecodable<Item>].self) {
+            let items = values.compactMap(\.value).filter {
+                normalizedNonEmptyString($0.content) != nil
+            }
+            guard !items.isEmpty else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "Memory item array is empty."
+                    )
+                )
+            }
+            userSummary = nil
+            projectSummary = nil
+            workingAdd = items
+            workingArchive = []
+            mergedEntryIDs = []
+            return
+        }
+
         let container = try decoder.container(keyedBy: MemoryExtractionCodingKey.self)
+        if Self.containsAnyResponseKey(in: container) == false {
+            if Self.looksLikeSingleMemoryItem(container),
+               let item = try? Item(from: decoder),
+               normalizedNonEmptyString(item.content) != nil {
+                userSummary = nil
+                projectSummary = nil
+                workingAdd = [item]
+                workingArchive = []
+                mergedEntryIDs = []
+                return
+            }
+
+            if let nested = Self.decodeNestedResponse(from: container) {
+                userSummary = nested.userSummary
+                projectSummary = nested.projectSummary
+                workingAdd = nested.workingAdd
+                workingArchive = nested.workingArchive
+                mergedEntryIDs = nested.mergedEntryIDs
+                return
+            }
+
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Memory response does not contain a recognized schema."
+                )
+            )
+        }
+
         userSummary = Self.decodeString(
             from: container,
             keys: ["user_summary", "userSummary", "user-summary", "global_summary"]
@@ -1139,6 +1193,45 @@ struct MemoryExtractionResponse: Decodable {
         decodeString(from: container, keys: ["content", "memory", "text", "summary", "value"])
             != nil
     }
+
+    private static func containsAnyResponseKey(
+        in container: KeyedDecodingContainer<MemoryExtractionCodingKey>
+    ) -> Bool {
+        [
+            "user_summary", "userSummary", "user-summary", "global_summary",
+            "project_summary", "projectSummary", "project-summary", "repo_summary",
+            "working_add", "workingAdd", "working-add", "memories", "memory_entries", "items",
+            "working_archive", "workingArchive", "working-archive", "archive_ids",
+            "merged_entry_ids", "mergedEntryIDs", "merged-entry-ids", "merged_ids",
+        ].contains { container.contains(MemoryExtractionCodingKey($0)) }
+    }
+
+    private static func decodeNestedResponse(
+        from container: KeyedDecodingContainer<MemoryExtractionCodingKey>
+    ) -> MemoryExtractionResponse? {
+        let keys = ["response", "result", "data", "output", "payload"]
+        let decoder = JSONDecoder()
+        for rawKey in keys {
+            let key = MemoryExtractionCodingKey(rawKey)
+            if let response = try? container.decodeIfPresent(
+                MemoryExtractionResponse.self,
+                forKey: key
+            ) {
+                return response
+            }
+            if let rawJSON = try? container.decodeIfPresent(String.self, forKey: key) {
+                for candidate in MemoryExtractionResponseDecoder.jsonObjectCandidates(from: rawJSON) {
+                    if let response = try? decoder.decode(
+                        MemoryExtractionResponse.self,
+                        from: Data(candidate.utf8)
+                    ) {
+                        return response
+                    }
+                }
+            }
+        }
+        return nil
+    }
 }
 
 private struct LossyDecodable<Value: Decodable>: Decodable {
@@ -1187,17 +1280,19 @@ enum MemoryExtractionResponseDecoder {
         }
 
         var candidates: [String] = []
-        if trimmed.hasPrefix("{") {
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
             candidates.append(trimmed)
         }
         for fenced in fencedCodeBlockBodies(from: trimmed) {
             candidates.append(contentsOf: balancedJSONObjects(in: fenced))
+            candidates.append(contentsOf: balancedJSONArrays(in: fenced))
             let fencedTrimmed = fenced.trimmingCharacters(in: .whitespacesAndNewlines)
-            if fencedTrimmed.hasPrefix("{") {
+            if fencedTrimmed.hasPrefix("{") || fencedTrimmed.hasPrefix("[") {
                 candidates.append(fencedTrimmed)
             }
         }
         candidates.append(contentsOf: balancedJSONObjects(in: trimmed))
+        candidates.append(contentsOf: balancedJSONArrays(in: trimmed))
 
         var seen = Set<String>()
         return candidates.compactMap { candidate in
@@ -1205,7 +1300,26 @@ enum MemoryExtractionResponseDecoder {
             guard !value.isEmpty, seen.insert(value).inserted else {
                 return nil
             }
+            if value.hasPrefix("["),
+               isMemoryItemArrayCandidate(value) == false {
+                return nil
+            }
             return value
+        }
+    }
+
+    private static func isMemoryItemArrayCandidate(_ text: String) -> Bool {
+        guard let values = try? JSONDecoder().decode(
+            [LossyDecodable<MemoryExtractionResponse.Item>].self,
+            from: Data(text.utf8)
+        ) else {
+            return false
+        }
+        return values.contains { value in
+            guard let item = value.value else {
+                return false
+            }
+            return normalizedNonEmptyString(item.content) != nil
         }
     }
 
@@ -1280,5 +1394,46 @@ enum MemoryExtractionResponseDecoder {
             index = text.index(after: index)
         }
         return objects
+    }
+
+    private static func balancedJSONArrays(in text: String) -> [String] {
+        var arrays: [String] = []
+        var arrayStart: String.Index?
+        var depth = 0
+        var isInsideString = false
+        var isEscaped = false
+
+        var index = text.startIndex
+        while index < text.endIndex {
+            let character = text[index]
+            if isInsideString {
+                if isEscaped {
+                    isEscaped = false
+                } else if character == "\\" {
+                    isEscaped = true
+                } else if character == "\"" {
+                    isInsideString = false
+                }
+                index = text.index(after: index)
+                continue
+            }
+
+            if character == "\"" {
+                isInsideString = true
+            } else if character == "[" {
+                if depth == 0 {
+                    arrayStart = index
+                }
+                depth += 1
+            } else if character == "]", depth > 0 {
+                depth -= 1
+                if depth == 0, let start = arrayStart {
+                    arrays.append(String(text[start...index]))
+                    arrayStart = nil
+                }
+            }
+            index = text.index(after: index)
+        }
+        return arrays
     }
 }
