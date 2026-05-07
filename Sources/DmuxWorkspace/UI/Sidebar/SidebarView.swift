@@ -55,6 +55,13 @@ struct SidebarView: View {
                             Button(String(localized: "sidebar.project.open_folder", defaultValue: "Open Folder", bundle: .module)) {
                                 model.openProjectDirectory(project.id)
                             }
+                            Menu(String(localized: "open.ide", defaultValue: "Open in IDE", bundle: .module)) {
+                                ForEach(ProjectOpenApplication.ideApplications) { application in
+                                    Button(application.localizedOpenTitle) {
+                                        model.openProject(project.id, in: application)
+                                    }
+                                }
+                            }
                             Divider()
                             Button(String(localized: "common.rename", defaultValue: "Rename", bundle: .module)) {
                                 model.editProject(project.id)

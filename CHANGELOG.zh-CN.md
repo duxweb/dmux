@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-05-07
+
+### 新增
+
+- 项目打开菜单和侧边栏项目右键菜单新增 IDE 打开入口，支持 IntelliJ IDEA、WebStorm、PhpStorm、PyCharm、GoLand、CLion、Rider、Android Studio、Cursor、Zed、Sublime Text 和 Windsurf。
+
 ## [0.9.8] - 2026-05-07
 
 ### 新增

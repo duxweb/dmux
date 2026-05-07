@@ -1,6 +1,171 @@
 import AppKit
 import Foundation
 
+enum ProjectOpenApplication: String, CaseIterable, Identifiable, Sendable {
+    case vsCode
+    case terminal
+    case iTerm2
+    case ghostty
+    case xcode
+    case intellijIdea
+    case webStorm
+    case phpStorm
+    case pyCharm
+    case goLand
+    case clion
+    case rider
+    case androidStudio
+    case cursor
+    case zed
+    case sublimeText
+    case windsurf
+
+    var id: String { rawValue }
+
+    static let ideApplications: [ProjectOpenApplication] = [
+        .intellijIdea,
+        .webStorm,
+        .phpStorm,
+        .pyCharm,
+        .goLand,
+        .clion,
+        .rider,
+        .androidStudio,
+        .cursor,
+        .zed,
+        .sublimeText,
+        .windsurf,
+    ]
+
+    var displayName: String {
+        switch self {
+        case .vsCode:
+            return "VS Code"
+        case .terminal:
+            return "Terminal"
+        case .iTerm2:
+            return "iTerm2"
+        case .ghostty:
+            return "Ghostty"
+        case .xcode:
+            return "Xcode"
+        case .intellijIdea:
+            return "IntelliJ IDEA"
+        case .webStorm:
+            return "WebStorm"
+        case .phpStorm:
+            return "PhpStorm"
+        case .pyCharm:
+            return "PyCharm"
+        case .goLand:
+            return "GoLand"
+        case .clion:
+            return "CLion"
+        case .rider:
+            return "Rider"
+        case .androidStudio:
+            return "Android Studio"
+        case .cursor:
+            return "Cursor"
+        case .zed:
+            return "Zed"
+        case .sublimeText:
+            return "Sublime Text"
+        case .windsurf:
+            return "Windsurf"
+        }
+    }
+
+    var bundleIdentifiers: [String] {
+        switch self {
+        case .vsCode:
+            return ["com.microsoft.VSCode"]
+        case .terminal:
+            return ["com.apple.Terminal"]
+        case .iTerm2:
+            return ["com.googlecode.iterm2"]
+        case .ghostty:
+            return ["com.mitchellh.ghostty"]
+        case .xcode:
+            return ["com.apple.dt.Xcode"]
+        case .intellijIdea:
+            return ["com.jetbrains.intellij", "com.jetbrains.intellij.ce"]
+        case .webStorm:
+            return ["com.jetbrains.WebStorm"]
+        case .phpStorm:
+            return ["com.jetbrains.PhpStorm"]
+        case .pyCharm:
+            return ["com.jetbrains.pycharm", "com.jetbrains.pycharm.ce"]
+        case .goLand:
+            return ["com.jetbrains.goland"]
+        case .clion:
+            return ["com.jetbrains.CLion"]
+        case .rider:
+            return ["com.jetbrains.rider"]
+        case .androidStudio:
+            return ["com.google.android.studio"]
+        case .cursor:
+            return ["com.todesktop.230313mzl4w4u92", "com.yuxin.CursorPro"]
+        case .zed:
+            return ["dev.zed.Zed"]
+        case .sublimeText:
+            return ["com.sublimetext.4", "com.sublimetext.3"]
+        case .windsurf:
+            return ["com.exafunction.windsurf"]
+        }
+    }
+
+    var primaryBundleIdentifier: String {
+        bundleIdentifiers[0]
+    }
+
+    var installedBundleIdentifier: String? {
+        bundleIdentifiers.first {
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil
+        }
+    }
+
+    var iconBundleIdentifier: String {
+        installedBundleIdentifier ?? primaryBundleIdentifier
+    }
+
+    var fallbackSystemName: String {
+        switch self {
+        case .terminal, .iTerm2, .ghostty:
+            return "terminal"
+        case .xcode:
+            return "hammer"
+        case .vsCode:
+            return "chevron.left.forwardslash.chevron.right"
+        case .androidStudio, .cursor, .zed, .sublimeText, .windsurf:
+            return "app.badge"
+        case .intellijIdea, .webStorm, .phpStorm, .pyCharm, .goLand, .clion, .rider:
+            return "curlybraces.square"
+        }
+    }
+
+    var localizedOpenTitle: String {
+        String(
+            format: String(localized: "open.application.format", defaultValue: "Open in %@", bundle: .module),
+            displayName
+        )
+    }
+
+    var localizedSuccessMessage: String {
+        String(
+            format: String(localized: "project.open.application.success_format", defaultValue: "Opened project in %@.", bundle: .module),
+            displayName
+        )
+    }
+
+    var localizedFailureMessage: String {
+        String(
+            format: String(localized: "project.open.application.failure_format", defaultValue: "%@ not found.", bundle: .module),
+            displayName
+        )
+    }
+}
+
 extension AppModel {
     func selectProject(_ projectID: UUID) {
         dismissCompletionPresentationIfNeeded(
@@ -120,17 +285,23 @@ extension AppModel {
     }
 
     func openSelectedProjectInVSCode() {
+        openSelectedProject(in: .vsCode)
+    }
+
+    func openSelectedProject(in application: ProjectOpenApplication) {
         guard let project = selectedProject else {
             statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
             return
         }
-        openSelectedProjectInApplication(
-            project,
-            bundleIdentifier: "com.microsoft.VSCode",
-            fallbackURL: vscodeOpenURL(for: project.path),
-            successMessage: String(localized: "project.open.vscode.success", defaultValue: "Opened project in VS Code.", bundle: .module),
-            failureMessage: String(localized: "project.open.vscode.failure", defaultValue: "Unable to find VS Code for this directory.", bundle: .module)
-        )
+        openProject(project, in: application)
+    }
+
+    func openProject(_ projectID: UUID, in application: ProjectOpenApplication) {
+        guard let project = projects.first(where: { $0.id == projectID }) else {
+            statusMessage = String(localized: "project.not_found", defaultValue: "Project not found.", bundle: .module)
+            return
+        }
+        openProject(project, in: application)
     }
 
     func revealSelectedProjectInFinder() {
@@ -163,55 +334,19 @@ extension AppModel {
     }
 
     func openSelectedProjectInTerminal() {
-        guard let project = selectedProject else {
-            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
-            return
-        }
-        openSelectedProjectInApplication(
-            project,
-            bundleIdentifier: "com.apple.Terminal",
-            successMessage: String(localized: "project.open.terminal.success", defaultValue: "Opened project in Terminal.", bundle: .module),
-            failureMessage: String(localized: "project.open.terminal.failure", defaultValue: "Terminal not found.", bundle: .module)
-        )
+        openSelectedProject(in: .terminal)
     }
 
     func openSelectedProjectInITerm2() {
-        guard let project = selectedProject else {
-            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
-            return
-        }
-        openSelectedProjectInApplication(
-            project,
-            bundleIdentifier: "com.googlecode.iterm2",
-            successMessage: String(localized: "project.open.iterm2.success", defaultValue: "Opened project in iTerm2.", bundle: .module),
-            failureMessage: String(localized: "project.open.iterm2.failure", defaultValue: "iTerm2 not found.", bundle: .module)
-        )
+        openSelectedProject(in: .iTerm2)
     }
 
     func openSelectedProjectInGhostty() {
-        guard let project = selectedProject else {
-            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
-            return
-        }
-        openSelectedProjectInApplication(
-            project,
-            bundleIdentifier: "com.mitchellh.ghostty",
-            successMessage: String(localized: "project.open.ghostty.success", defaultValue: "Opened project in Ghostty.", bundle: .module),
-            failureMessage: String(localized: "project.open.ghostty.failure", defaultValue: "Ghostty not found.", bundle: .module)
-        )
+        openSelectedProject(in: .ghostty)
     }
 
     func openSelectedProjectInXcode() {
-        guard let project = selectedProject else {
-            statusMessage = String(localized: "project.none_selected", defaultValue: "No project selected.", bundle: .module)
-            return
-        }
-        openSelectedProjectInApplication(
-            project,
-            bundleIdentifier: "com.apple.dt.Xcode",
-            successMessage: String(localized: "project.open.xcode.success", defaultValue: "Opened project in Xcode.", bundle: .module),
-            failureMessage: String(localized: "project.open.xcode.failure", defaultValue: "Xcode not found.", bundle: .module)
-        )
+        openSelectedProject(in: .xcode)
     }
 
     func addProject() {
@@ -671,9 +806,19 @@ extension AppModel {
         }
     }
 
-    private func openSelectedProjectInApplication(_ project: Project, bundleIdentifier: String, fallbackURL: URL? = nil, successMessage: String, failureMessage: String) {
+    private func openProject(_ project: Project, in application: ProjectOpenApplication) {
+        openProjectInApplication(
+            project,
+            bundleIdentifiers: application.bundleIdentifiers,
+            fallbackURL: application == .vsCode ? vscodeOpenURL(for: project.path) : nil,
+            successMessage: application.localizedSuccessMessage,
+            failureMessage: application.localizedFailureMessage
+        )
+    }
+
+    private func openProjectInApplication(_ project: Project, bundleIdentifiers: [String], fallbackURL: URL? = nil, successMessage: String, failureMessage: String) {
         let projectURL = URL(fileURLWithPath: project.path, isDirectory: true)
-        if NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil {
+        if let bundleIdentifier = bundleIdentifiers.first(where: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil }) {
             Task { [weak self, projectURL, bundleIdentifier, fallbackURL, successMessage, failureMessage] in
                 let didOpen = await Task.detached(priority: .userInitiated) {
                     Self.openProjectURL(projectURL, withBundleIdentifier: bundleIdentifier)

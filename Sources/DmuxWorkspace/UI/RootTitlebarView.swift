@@ -42,7 +42,7 @@ struct TitlebarOverlayView: View {
                 Spacer(minLength: 0)
 
                 HStack(spacing: 10) {
-                    let hasVSCode = ApplicationIconAsset.isInstalled("com.microsoft.VSCode")
+                    let hasVSCode = ProjectOpenApplication.vsCode.installedBundleIdentifier != nil
 
                     if model.appSettings.pet.enabled {
                         TitlebarPetButtonContainer(
@@ -70,11 +70,7 @@ struct TitlebarOverlayView: View {
                             }
                         },
                         revealInFinder: { model.revealSelectedProjectInFinder() },
-                        openInVSCode: { model.openSelectedProjectInVSCode() },
-                        openInTerminal: { model.openSelectedProjectInTerminal() },
-                        openInITerm2: { model.openSelectedProjectInITerm2() },
-                        openInGhostty: { model.openSelectedProjectInGhostty() },
-                        openInXcode: { model.openSelectedProjectInXcode() }
+                        openInApplication: { model.openSelectedProject(in: $0) }
                     )
 
                     TitlebarGlyphButton(symbol: "chart.bar.xaxis", help: String(localized: "titlebar.ai_assistant", defaultValue: "AI Assistant", bundle: .module)) {
@@ -641,11 +637,7 @@ private struct TitlebarOpenSplitButton: View {
     let prefersVSCode: Bool
     let primaryAction: () -> Void
     let revealInFinder: () -> Void
-    let openInVSCode: () -> Void
-    let openInTerminal: () -> Void
-    let openInITerm2: () -> Void
-    let openInGhostty: () -> Void
-    let openInXcode: () -> Void
+    let openInApplication: (ProjectOpenApplication) -> Void
 
     @State private var isHovered = false
 
@@ -669,11 +661,14 @@ private struct TitlebarOpenSplitButton: View {
 
             Menu {
                 Button {
-                    openInVSCode()
+                    openInApplication(.vsCode)
                 } label: {
                     AppLauncherMenuLabel(
-                        title: String(localized: "open.vscode", defaultValue: "Open in VS Code", bundle: .module),
-                        icon: .bundle("com.microsoft.VSCode", fallbackSystemName: "chevron.left.forwardslash.chevron.right")
+                        title: ProjectOpenApplication.vsCode.localizedOpenTitle,
+                        icon: .bundle(
+                            ProjectOpenApplication.vsCode.iconBundleIdentifier,
+                            fallbackSystemName: ProjectOpenApplication.vsCode.fallbackSystemName
+                        )
                     )
                 }
 
@@ -687,39 +682,69 @@ private struct TitlebarOpenSplitButton: View {
                 }
 
                 Button {
-                    openInTerminal()
+                    openInApplication(.terminal)
                 } label: {
                     AppLauncherMenuLabel(
-                        title: String(localized: "open.terminal", defaultValue: "Open in Terminal", bundle: .module),
-                        icon: .bundle("com.apple.Terminal", fallbackSystemName: "terminal")
+                        title: ProjectOpenApplication.terminal.localizedOpenTitle,
+                        icon: .bundle(
+                            ProjectOpenApplication.terminal.iconBundleIdentifier,
+                            fallbackSystemName: ProjectOpenApplication.terminal.fallbackSystemName
+                        )
                     )
                 }
 
                 Button {
-                    openInITerm2()
+                    openInApplication(.iTerm2)
                 } label: {
                     AppLauncherMenuLabel(
-                        title: String(localized: "open.iterm2", defaultValue: "Open in iTerm2", bundle: .module),
-                        icon: .bundle("com.googlecode.iterm2", fallbackSystemName: "terminal")
+                        title: ProjectOpenApplication.iTerm2.localizedOpenTitle,
+                        icon: .bundle(
+                            ProjectOpenApplication.iTerm2.iconBundleIdentifier,
+                            fallbackSystemName: ProjectOpenApplication.iTerm2.fallbackSystemName
+                        )
                     )
                 }
 
                 Button {
-                    openInGhostty()
+                    openInApplication(.ghostty)
                 } label: {
                     AppLauncherMenuLabel(
-                        title: String(localized: "open.ghostty", defaultValue: "Open in Ghostty", bundle: .module),
-                        icon: .bundle("com.mitchellh.ghostty", fallbackSystemName: "terminal")
+                        title: ProjectOpenApplication.ghostty.localizedOpenTitle,
+                        icon: .bundle(
+                            ProjectOpenApplication.ghostty.iconBundleIdentifier,
+                            fallbackSystemName: ProjectOpenApplication.ghostty.fallbackSystemName
+                        )
                     )
                 }
 
                 Button {
-                    openInXcode()
+                    openInApplication(.xcode)
                 } label: {
                     AppLauncherMenuLabel(
-                        title: String(localized: "open.xcode", defaultValue: "Open in Xcode", bundle: .module),
-                        icon: .bundle("com.apple.dt.Xcode", fallbackSystemName: "hammer")
+                        title: ProjectOpenApplication.xcode.localizedOpenTitle,
+                        icon: .bundle(
+                            ProjectOpenApplication.xcode.iconBundleIdentifier,
+                            fallbackSystemName: ProjectOpenApplication.xcode.fallbackSystemName
+                        )
                     )
+                }
+
+                Divider()
+
+                Menu(String(localized: "open.ide", defaultValue: "Open in IDE", bundle: .module)) {
+                    ForEach(ProjectOpenApplication.ideApplications) { application in
+                        Button {
+                            openInApplication(application)
+                        } label: {
+                            AppLauncherMenuLabel(
+                                title: application.localizedOpenTitle,
+                                icon: .bundle(
+                                    application.iconBundleIdentifier,
+                                    fallbackSystemName: application.fallbackSystemName
+                                )
+                            )
+                        }
+                    }
                 }
             } label: {
                 Image(systemName: "chevron.down")

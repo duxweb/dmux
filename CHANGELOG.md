@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-05-07
+
+### Added
+
+- Added an IDE launcher to the project open menu and sidebar project context menu, supporting IntelliJ IDEA, WebStorm, PhpStorm, PyCharm, GoLand, CLion, Rider, Android Studio, Cursor, Zed, Sublime Text, and Windsurf.
+
 ## [0.9.8] - 2026-05-07
 
 ### Added
