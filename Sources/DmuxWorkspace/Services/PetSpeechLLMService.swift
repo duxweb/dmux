@@ -16,7 +16,7 @@ actor PetSpeechLLMService {
         settings: AppAISettings
     ) async -> String? {
         guard settings.pet.speechLLMEnabled,
-              event.tier >= .rhythm,
+              event.kind == .idleMonologue,
               let provider = providerSelection.preferredPetSpeechProvider(in: settings) else {
             return nil
         }
@@ -61,22 +61,21 @@ actor PetSpeechLLMService {
             : petSpeechL("pet.speech.payload.pet_name", "Little One")
         let systemPrompt = String(
             format: petSpeechL(
-                "pet.speech.llm.system_prompt_format",
-                "You are a desktop pixel pet named %@. Personality: %@. Reply to the event metadata below with one line under 30 characters. Do not repeat the data. Be expressive. Do not explain. Output only the line."
+                "pet.speech.llm.idle_system_prompt_format",
+                "You are a desktop pixel pet named %@. Personality: %@. Write a casual idle monologue in Simplified Chinese. Use at most 2 short lines and 36 characters total. Do not mention code, files, secrets, commands, or exact task results. Do not explain. Output only the line."
             ),
             petName,
             modeDescriptor(resolvedMode)
         )
         let userPrompt = String(
             format: petSpeechL(
-                "pet.speech.llm.user_prompt_format",
-                "Event: %@\nTool: %@ / Model: %@\nTokens this turn: %@, Duration: %@ minutes\nProject: %@"
+                "pet.speech.llm.idle_user_prompt_format",
+                "Idle event: %@\nCurrent hour: %@\nRecent tool: %@ / model: %@\nProject nickname: %@"
             ),
             event.kind.rawValue,
+            payload["hourLabel"] ?? petSpeechL("pet.speech.payload.hour_label", "this hour"),
             payload["tool"] ?? petSpeechL("pet.speech.payload.tool", "you"),
             payload["model"] ?? "AI",
-            payload["tokens"] ?? "0",
-            payload["durationMin"] ?? "0",
             payload["project"] ?? petSpeechL("pet.speech.payload.project", "this task")
         )
         return PetSpeechAuditPrompt(systemPrompt: systemPrompt, userPrompt: userPrompt)

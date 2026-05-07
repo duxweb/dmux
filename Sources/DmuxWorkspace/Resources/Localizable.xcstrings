@@ -37136,19 +37136,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All stages unlocked"
+            "value": "All companions unlocked"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "全部阶段解锁"
+            "value": "全部伙伴已解锁"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "全部階段解鎖"
+            "value": "全部夥伴已解鎖"
           }
         }
       }
@@ -49275,61 +49275,61 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} startet. Nicht abhauen.\nturn.completed={tool} fertig. Knapp bestanden.\nturn.completedFast={tool} in {durationSec}? Glück.\nturn.completedLong={tool}: {durationMin}min. Lahm.\nturn.needsInput={tool} hängt. Rette es.\nturn.interrupted={tool} unterbrochen. Peinlich.\ntool.switched={prevTool} weg, {tool} dran.\nidle.entered=Fünf stille Min. Tastatur kalt.\ntokens.burst={tool} fraß {tokensK}. Hungrig.\nnight.entered={hourLabel} und noch wach.\nidle.returned={minutesAway}min weg. Endlich da.\ntool.multiStreak={toolList} offen. Angeber.\npet.levelUp=Lv.{level}. Nicht überrascht tun.\npet.statBreakthrough={stat} über {value}. Krass.\nusage.dailyRecord={tokensK} heute. Vielfraß.\nreminder.hydration={durationMin}min. Glas ist Deko?\nreminder.sedentary={durationMin}min. Beine weg.\nreminder.lateNight={hourLabel}. Ab ins Bett."
+            "value": "turn.started={tool} startet. Nicht abhauen.\nturn.completed={tool} fertig. Knapp bestanden.\nturn.completedFast={tool} in {durationSec}? Glück.\nturn.completedLong={tool}: {durationMin}min. Lahm.\nturn.needsInput={tool} hängt. Rette es.\nturn.interrupted={tool} unterbrochen. Peinlich.\ntool.switched={prevTool} weg, {tool} dran.\ntokens.burst={tool} fraß {tokensK}. Hungrig.\nnight.entered={hourLabel} und noch wach.\nidle.returned={minutesAway}min weg. Endlich da.\ntool.multiStreak={toolList} offen. Angeber.\npet.levelUp=Lv.{level}. Nicht überrascht tun.\npet.statBreakthrough={stat} über {value}. Krass.\nusage.dailyRecord={tokensK} heute. Vielfraß.\nreminder.hydration={durationMin}min. Glas ist Deko?\nreminder.sedentary={durationMin}min. Beine weg.\nreminder.lateNight={hourLabel}. Ab ins Bett."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} started. Don't ghost it.\nturn.completed={tool} done. Barely passes.\nturn.completedFast={tool} in {durationSec}? Lucky.\nturn.completedLong={tool}: {durationMin}min. Slow.\nturn.needsInput={tool} froze. Save it, hero.\nturn.interrupted={tool} cut off. Awkward.\ntool.switched={prevTool} out, {tool} in.\nidle.entered=Five quiet min. Keyboard's cold.\ntokens.burst={tool} ate {tokensK}. Hungry.\nnight.entered={hourLabel} and still up.\nidle.returned=Gone {minutesAway}min. Finally back.\ntool.multiStreak={toolList} all open. Showoff.\npet.levelUp=Lv.{level}. Don't act surprised.\npet.statBreakthrough={stat} past {value}. Wild.\nusage.dailyRecord={tokensK} today. Glutton.\nreminder.hydration={durationMin}min in. Water? No?\nreminder.sedentary=Sat {durationMin}min. Legs gone.\nreminder.lateNight={hourLabel}. Sleep, drama queen."
+            "value": "turn.started={tool} started. Don't ghost it.\nturn.completed={tool} done. Barely passes.\nturn.completedFast={tool} in {durationSec}? Lucky.\nturn.completedLong={tool}: {durationMin}min. Slow.\nturn.needsInput={tool} froze. Save it, hero.\nturn.interrupted={tool} cut off. Awkward.\ntool.switched={prevTool} out, {tool} in.\ntokens.burst={tool} ate {tokensK}. Hungry.\nnight.entered={hourLabel} and still up.\nidle.returned=Gone {minutesAway}min. Finally back.\ntool.multiStreak={toolList} all open. Showoff.\npet.levelUp=Lv.{level}. Don't act surprised.\npet.statBreakthrough={stat} past {value}. Wild.\nusage.dailyRecord={tokensK} today. Glutton.\nreminder.hydration={durationMin}min in. Water? No?\nreminder.sedentary=Sat {durationMin}min. Legs gone.\nreminder.lateNight={hourLabel}. Sleep, drama queen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} arrancó. No te escapes.\nturn.completed={tool} listo. Apenas pasa.\nturn.completedFast={tool} en {durationSec}? Suerte.\nturn.completedLong={tool}: {durationMin}min. Lento.\nturn.needsInput={tool} colgado. Sálvalo.\nturn.interrupted={tool} cortado. Incómodo.\ntool.switched={prevTool} fuera, {tool} dentro.\nidle.entered=Cinco min de silencio. Frío.\ntokens.burst={tool} comió {tokensK}. Glotón.\nnight.entered={hourLabel} y aún despierto.\nidle.returned={minutesAway}min fuera. Volviste.\ntool.multiStreak={toolList} abiertos. Fardas.\npet.levelUp=Lv.{level}. Sin sorpresa fingida.\npet.statBreakthrough={stat} pasó {value}. Locura.\nusage.dailyRecord={tokensK} hoy. Tragón.\nreminder.hydration={durationMin}min. ¿Vaso? Adorno.\nreminder.sedentary={durationMin}min. Sin piernas.\nreminder.lateNight={hourLabel}. A dormir, drama."
+            "value": "turn.started={tool} arrancó. No te escapes.\nturn.completed={tool} listo. Apenas pasa.\nturn.completedFast={tool} en {durationSec}? Suerte.\nturn.completedLong={tool}: {durationMin}min. Lento.\nturn.needsInput={tool} colgado. Sálvalo.\nturn.interrupted={tool} cortado. Incómodo.\ntool.switched={prevTool} fuera, {tool} dentro.\ntokens.burst={tool} comió {tokensK}. Glotón.\nnight.entered={hourLabel} y aún despierto.\nidle.returned={minutesAway}min fuera. Volviste.\ntool.multiStreak={toolList} abiertos. Fardas.\npet.levelUp=Lv.{level}. Sin sorpresa fingida.\npet.statBreakthrough={stat} pasó {value}. Locura.\nusage.dailyRecord={tokensK} hoy. Tragón.\nreminder.hydration={durationMin}min. ¿Vaso? Adorno.\nreminder.sedentary={durationMin}min. Sin piernas.\nreminder.lateNight={hourLabel}. A dormir, drama."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} part. Pas de fugue.\nturn.completed={tool} fini. À peine passable.\nturn.completedFast={tool} en {durationSec} ? Veinard.\nturn.completedLong={tool} : {durationMin}min. Lent.\nturn.needsInput={tool} bloqué. À toi.\nturn.interrupted={tool} coupé. Gênant.\ntool.switched={prevTool} part, {tool} arrive.\nidle.entered=Cinq min calmes. Clavier froid.\ntokens.burst={tool} a bu {tokensK}. Affamé.\nnight.entered={hourLabel} et toujours là.\nidle.returned={minutesAway}min parti. Te revoilà.\ntool.multiStreak={toolList} ouverts. Frime.\npet.levelUp=Lv.{level}. Fais pas semblant.\npet.statBreakthrough={stat} passe {value}. Fou.\nusage.dailyRecord={tokensK} aujourd'hui. Glouton.\nreminder.hydration={durationMin}min. Le verre ? Déco.\nreminder.sedentary={durationMin}min. Plus de jambes.\nreminder.lateNight={hourLabel}. Dors, princesse."
+            "value": "turn.started={tool} part. Pas de fugue.\nturn.completed={tool} fini. À peine passable.\nturn.completedFast={tool} en {durationSec} ? Veinard.\nturn.completedLong={tool} : {durationMin}min. Lent.\nturn.needsInput={tool} bloqué. À toi.\nturn.interrupted={tool} coupé. Gênant.\ntool.switched={prevTool} part, {tool} arrive.\ntokens.burst={tool} a bu {tokensK}. Affamé.\nnight.entered={hourLabel} et toujours là.\nidle.returned={minutesAway}min parti. Te revoilà.\ntool.multiStreak={toolList} ouverts. Frime.\npet.levelUp=Lv.{level}. Fais pas semblant.\npet.statBreakthrough={stat} passe {value}. Fou.\nusage.dailyRecord={tokensK} aujourd'hui. Glouton.\nreminder.hydration={durationMin}min. Le verre ? Déco.\nreminder.sedentary={durationMin}min. Plus de jambes.\nreminder.lateNight={hourLabel}. Dors, princesse."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}開始。逃げないでよ。\nturn.completed={tool}終わり。ギリ合格。\nturn.completedFast={tool}{durationSec}？運じゃ？\nturn.completedLong={tool}に{durationMin}分。遅っ。\nturn.needsInput={tool}固まった。助けて。\nturn.interrupted={tool}途中で切れた。微妙。\ntool.switched={prevTool}から{tool}。また？\nidle.entered=静かな五分。キーボード冷えた。\ntokens.burst={tool}が{tokensK}飲んだ。大食い。\nnight.entered={hourLabel}まだ起きてる。\nidle.returned={minutesAway}分消えてた、お帰り。\ntool.multiStreak={toolList}全開放。見せつけ？\npet.levelUp=Lv.{level}。驚いた振り無理。\npet.statBreakthrough={stat}が{value}超え。やば。\nusage.dailyRecord=今日{tokensK}。食欲旺盛ね。\nreminder.hydration={durationMin}分経過。水は飾り？\nreminder.sedentary={durationMin}分着席。脚消失。\nreminder.lateNight={hourLabel}、寝なさい。"
+            "value": "turn.started={tool}開始。逃げないでよ。\nturn.completed={tool}終わり。ギリ合格。\nturn.completedFast={tool}{durationSec}？運じゃ？\nturn.completedLong={tool}に{durationMin}分。遅っ。\nturn.needsInput={tool}固まった。助けて。\nturn.interrupted={tool}途中で切れた。微妙。\ntool.switched={prevTool}から{tool}。また？\ntokens.burst={tool}が{tokensK}飲んだ。大食い。\nnight.entered={hourLabel}まだ起きてる。\nidle.returned={minutesAway}分消えてた、お帰り。\ntool.multiStreak={toolList}全開放。見せつけ？\npet.levelUp=Lv.{level}。驚いた振り無理。\npet.statBreakthrough={stat}が{value}超え。やば。\nusage.dailyRecord=今日{tokensK}。食欲旺盛ね。\nreminder.hydration={durationMin}分経過。水は飾り？\nreminder.sedentary={durationMin}分着席。脚消失。\nreminder.lateNight={hourLabel}、寝なさい。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} 시작. 도망 금지.\nturn.completed={tool} 끝. 간신히 통과.\nturn.completedFast={tool} {durationSec}? 운이지.\nturn.completedLong={tool} {durationMin}분 끌었네.\nturn.needsInput={tool} 멈췄다. 구해줘.\nturn.interrupted={tool} 중단. 어색해.\ntool.switched={prevTool} 빠지고 {tool} 등판.\nidle.entered=조용한 5분. 키보드 식음.\ntokens.burst={tool} {tokensK} 먹음. 대식가.\nnight.entered={hourLabel}, 아직 안 자?\nidle.returned={minutesAway}분 사라졌다 복귀.\ntool.multiStreak={toolList} 다 켜놨네. 과시.\npet.levelUp=Lv.{level}. 놀란 척 말고.\npet.statBreakthrough={stat} {value} 돌파.\nusage.dailyRecord=오늘 {tokensK}. 잘 먹네.\nreminder.hydration={durationMin}분째. 컵 장식?\nreminder.sedentary={durationMin}분 앉음. 다리 소실.\nreminder.lateNight={hourLabel}, 그만 자."
+            "value": "turn.started={tool} 시작. 도망 금지.\nturn.completed={tool} 끝. 간신히 통과.\nturn.completedFast={tool} {durationSec}? 운이지.\nturn.completedLong={tool} {durationMin}분 끌었네.\nturn.needsInput={tool} 멈췄다. 구해줘.\nturn.interrupted={tool} 중단. 어색해.\ntool.switched={prevTool} 빠지고 {tool} 등판.\ntokens.burst={tool} {tokensK} 먹음. 대식가.\nnight.entered={hourLabel}, 아직 안 자?\nidle.returned={minutesAway}분 사라졌다 복귀.\ntool.multiStreak={toolList} 다 켜놨네. 과시.\npet.levelUp=Lv.{level}. 놀란 척 말고.\npet.statBreakthrough={stat} {value} 돌파.\nusage.dailyRecord=오늘 {tokensK}. 잘 먹네.\nreminder.hydration={durationMin}분째. 컵 장식?\nreminder.sedentary={durationMin}분 앉음. 다리 소실.\nreminder.lateNight={hourLabel}, 그만 자."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} começou. Não some.\nturn.completed={tool} pronto. Mal passou.\nturn.completedFast={tool} em {durationSec}? Sorte.\nturn.completedLong={tool}: {durationMin}min. Lento.\nturn.needsInput={tool} travou. Salva aí.\nturn.interrupted={tool} cortado. Que mico.\ntool.switched={prevTool} sai, {tool} entra.\nidle.entered=Cinco min de silêncio. Frio.\ntokens.burst={tool} comeu {tokensK}. Faminto.\nnight.entered={hourLabel} e ainda acordado.\nidle.returned={minutesAway}min sumido. Voltou.\ntool.multiStreak={toolList} abertos. Exibido.\npet.levelUp=Lv.{level}. Sem fingir surpresa.\npet.statBreakthrough={stat} passou {value}.\nusage.dailyRecord={tokensK} hoje. Glutão.\nreminder.hydration={durationMin}min. Copo? Enfeite.\nreminder.sedentary={durationMin}min. Sem pernas.\nreminder.lateNight={hourLabel}. Dorme, drama."
+            "value": "turn.started={tool} começou. Não some.\nturn.completed={tool} pronto. Mal passou.\nturn.completedFast={tool} em {durationSec}? Sorte.\nturn.completedLong={tool}: {durationMin}min. Lento.\nturn.needsInput={tool} travou. Salva aí.\nturn.interrupted={tool} cortado. Que mico.\ntool.switched={prevTool} sai, {tool} entra.\ntokens.burst={tool} comeu {tokensK}. Faminto.\nnight.entered={hourLabel} e ainda acordado.\nidle.returned={minutesAway}min sumido. Voltou.\ntool.multiStreak={toolList} abertos. Exibido.\npet.levelUp=Lv.{level}. Sem fingir surpresa.\npet.statBreakthrough={stat} passou {value}.\nusage.dailyRecord={tokensK} hoje. Glutão.\nreminder.hydration={durationMin}min. Copo? Enfeite.\nreminder.sedentary={durationMin}min. Sem pernas.\nreminder.lateNight={hourLabel}. Dorme, drama."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} стартовал. Не сбегай.\nturn.completed={tool} готов. Едва прошёл.\nturn.completedFast={tool} за {durationSec}? Везуха.\nturn.completedLong={tool}: {durationMin}мин. Тормоз.\nturn.needsInput={tool} завис. Спасай.\nturn.interrupted={tool} оборван. Неловко.\ntool.switched={prevTool} ушёл, {tool} зашёл.\nidle.entered=Пять тихих минут. Клавиш остыл.\ntokens.burst={tool} съел {tokensK}. Прожорлив.\nnight.entered={hourLabel} и не спишь.\nidle.returned={minutesAway}мин не было. Явился.\ntool.multiStreak={toolList} включены. Хвастун.\npet.levelUp=Lv.{level}. Не делай вид.\npet.statBreakthrough={stat} за {value}. Дикость.\nusage.dailyRecord={tokensK} сегодня. Обжора.\nreminder.hydration={durationMin}мин. Стакан-декор?\nreminder.sedentary={durationMin}мин. Ноги ушли.\nreminder.lateNight={hourLabel}. Спать, драма."
+            "value": "turn.started={tool} стартовал. Не сбегай.\nturn.completed={tool} готов. Едва прошёл.\nturn.completedFast={tool} за {durationSec}? Везуха.\nturn.completedLong={tool}: {durationMin}мин. Тормоз.\nturn.needsInput={tool} завис. Спасай.\nturn.interrupted={tool} оборван. Неловко.\ntool.switched={prevTool} ушёл, {tool} зашёл.\ntokens.burst={tool} съел {tokensK}. Прожорлив.\nnight.entered={hourLabel} и не спишь.\nidle.returned={minutesAway}мин не было. Явился.\ntool.multiStreak={toolList} включены. Хвастун.\npet.levelUp=Lv.{level}. Не делай вид.\npet.statBreakthrough={stat} за {value}. Дикость.\nusage.dailyRecord={tokensK} сегодня. Обжора.\nreminder.hydration={durationMin}мин. Стакан-декор?\nreminder.sedentary={durationMin}мин. Ноги ушли.\nreminder.lateNight={hourLabel}. Спать, драма."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}开活了，别又开溜。\nturn.completed={tool}干完，勉强能看。\nturn.completedFast={tool}{durationSec}就好？运气吧。\nturn.completedLong={tool}磨{durationMin}分钟才挤出来。\nturn.needsInput={tool}卡了，靠你救场。\nturn.interrupted={tool}没演完，尴尬一下。\ntool.switched={prevTool}下{tool}上，又换菜。\nidle.entered=安静五分钟，键盘冷了。\ntokens.burst={tool}吃了{tokensK}，真能造。\nnight.entered={hourLabel}还在熬，爱熬夜。\nidle.returned=走了{minutesAway}分钟才舍得回。\ntool.multiStreak={toolList}都开，热闹给谁看。\npet.levelUp=Lv.{level}了，别装没看见。\npet.statBreakthrough={stat}破{value}，离谱进度。\nusage.dailyRecord=今天{tokensK}，喂得真饱。\nreminder.hydration=干了{durationMin}分钟，水杯摆设。\nreminder.sedentary=坐了{durationMin}分钟，腿没了。\nreminder.lateNight={hourLabel}了还冲，别先躺了。"
+            "value": "turn.started={tool}开活了，别又开溜。\nturn.completed={tool}干完，勉强能看。\nturn.completedFast={tool}{durationSec}就好？运气吧。\nturn.completedLong={tool}磨{durationMin}分钟才挤出来。\nturn.needsInput={tool}卡了，靠你救场。\nturn.interrupted={tool}没演完，尴尬一下。\ntool.switched={prevTool}下{tool}上，又换菜。\nidle.monologue=没动静，反而更可疑。\ntokens.burst={tool}吃了{tokensK}，真能造。\nnight.entered={hourLabel}还在熬，爱熬夜。\nidle.returned=走了{minutesAway}分钟才舍得回。\ntool.multiStreak={toolList}都开，热闹给谁看。\npet.levelUp=Lv.{level}了，别装没看见。\npet.statBreakthrough={stat}破{value}，离谱进度。\nusage.dailyRecord=今天{tokensK}，喂得真饱。\nreminder.hydration=干了{durationMin}分钟，水杯摆设。\nreminder.sedentary=坐了{durationMin}分钟，腿没了。\nreminder.lateNight={hourLabel}了还冲，别先躺了。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}開活了，別又開溜。\nturn.completed={tool}幹完，勉強能看。\nturn.completedFast={tool}{durationSec}就好？運氣吧。\nturn.completedLong={tool}磨{durationMin}分鐘才擠出來。\nturn.needsInput={tool}卡了，靠你救場。\nturn.interrupted={tool}沒演完，尷尬一下。\ntool.switched={prevTool}下{tool}上，又換菜。\nidle.entered=安靜五分鐘，鍵盤冷了。\ntokens.burst={tool}吃了{tokensK}，真能造。\nnight.entered={hourLabel}還在熬，愛熬夜。\nidle.returned=走了{minutesAway}分鐘才捨得回。\ntool.multiStreak={toolList}都開，熱鬧給誰看。\npet.levelUp=Lv.{level}了，別裝沒看見。\npet.statBreakthrough={stat}破{value}，離譜進度。\nusage.dailyRecord=今天{tokensK}，餵得真飽。\nreminder.hydration=幹了{durationMin}分鐘，水杯擺設。\nreminder.sedentary=坐了{durationMin}分鐘，腿沒了。\nreminder.lateNight={hourLabel}了還衝，別先躺了。"
+            "value": "turn.started={tool}開活了，別又開溜。\nturn.completed={tool}幹完，勉強能看。\nturn.completedFast={tool}{durationSec}就好？運氣吧。\nturn.completedLong={tool}磨{durationMin}分鐘才擠出來。\nturn.needsInput={tool}卡了，靠你救場。\nturn.interrupted={tool}沒演完，尷尬一下。\ntool.switched={prevTool}下{tool}上，又換菜。\nidle.monologue=沒動靜，反而更可疑。\ntokens.burst={tool}吃了{tokensK}，真能造。\nnight.entered={hourLabel}還在熬，愛熬夜。\nidle.returned=走了{minutesAway}分鐘才捨得回。\ntool.multiStreak={toolList}都開，熱鬧給誰看。\npet.levelUp=Lv.{level}了，別裝沒看見。\npet.statBreakthrough={stat}破{value}，離譜進度。\nusage.dailyRecord=今天{tokensK}，餵得真飽。\nreminder.hydration=幹了{durationMin}分鐘，水杯擺設。\nreminder.sedentary=坐了{durationMin}分鐘，腿沒了。\nreminder.lateNight={hourLabel}了還衝，別先躺了。"
           }
         }
       }
@@ -49470,61 +49470,61 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} läuft. Ich bin da.\nturn.completed={tool} fertig. Solider Schritt.\nturn.completedFast={tool} in {durationSec}. Flott.\nturn.completedLong={tool}: {durationMin}min. Geschafft.\nturn.needsInput={tool} wartet auf dich.\nturn.interrupted={tool} steht. Durchatmen.\ntool.switched={prevTool} → {tool}.\nidle.entered=Eine Pause ist gut.\ntokens.burst={tool} schob {tokensK}.\nnight.entered={hourLabel} und noch dabei.\nidle.returned=Nach {minutesAway}min zurück.\ntool.multiStreak={toolList} parallel, stabil.\npet.levelUp=Lv.{level} erreicht.\npet.statBreakthrough={stat} bei {value}.\nusage.dailyRecord={tokensK} heute. Rekord.\nreminder.hydration={durationMin}min ohne Wasser.\nreminder.sedentary={durationMin}min. Streck dich.\nreminder.lateNight={hourLabel}. Bald Schluss?"
+            "value": "turn.started={tool} läuft. Ich bin da.\nturn.completed={tool} fertig. Solider Schritt.\nturn.completedFast={tool} in {durationSec}. Flott.\nturn.completedLong={tool}: {durationMin}min. Geschafft.\nturn.needsInput={tool} wartet auf dich.\nturn.interrupted={tool} steht. Durchatmen.\ntool.switched={prevTool} → {tool}.\ntokens.burst={tool} schob {tokensK}.\nnight.entered={hourLabel} und noch dabei.\nidle.returned=Nach {minutesAway}min zurück.\ntool.multiStreak={toolList} parallel, stabil.\npet.levelUp=Lv.{level} erreicht.\npet.statBreakthrough={stat} bei {value}.\nusage.dailyRecord={tokensK} heute. Rekord.\nreminder.hydration={durationMin}min ohne Wasser.\nreminder.sedentary={durationMin}min. Streck dich.\nreminder.lateNight={hourLabel}. Bald Schluss?"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} is going. I'm here.\nturn.completed={tool} done. Solid step.\nturn.completedFast={tool}, {durationSec}. Snappy.\nturn.completedLong={tool}: {durationMin}min, got there.\nturn.needsInput={tool} waiting on you.\nturn.interrupted={tool} stopped. Breathe.\ntool.switched={prevTool} → {tool}. Smooth.\nidle.entered=A pause is fine.\ntokens.burst={tool}: {tokensK}. Big push.\nnight.entered={hourLabel} and still here.\nidle.returned=Back after {minutesAway}min.\ntool.multiStreak={toolList} all running.\npet.levelUp=Lv.{level} unlocked.\npet.statBreakthrough={stat} hit {value}.\nusage.dailyRecord={tokensK} today. New high.\nreminder.hydration={durationMin}min, drink.\nreminder.sedentary=Sat {durationMin}min. Stretch.\nreminder.lateNight={hourLabel}. Wrap up soon."
+            "value": "turn.started={tool} is going. I'm here.\nturn.completed={tool} done. Solid step.\nturn.completedFast={tool}, {durationSec}. Snappy.\nturn.completedLong={tool}: {durationMin}min, got there.\nturn.needsInput={tool} waiting on you.\nturn.interrupted={tool} stopped. Breathe.\ntool.switched={prevTool} → {tool}. Smooth.\ntokens.burst={tool}: {tokensK}. Big push.\nnight.entered={hourLabel} and still here.\nidle.returned=Back after {minutesAway}min.\ntool.multiStreak={toolList} all running.\npet.levelUp=Lv.{level} unlocked.\npet.statBreakthrough={stat} hit {value}.\nusage.dailyRecord={tokensK} today. New high.\nreminder.hydration={durationMin}min, drink.\nreminder.sedentary=Sat {durationMin}min. Stretch.\nreminder.lateNight={hourLabel}. Wrap up soon."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} arranca. Aquí estoy.\nturn.completed={tool} listo. Paso firme.\nturn.completedFast={tool} en {durationSec}. Ágil.\nturn.completedLong={tool}: {durationMin}min. Llegaste.\nturn.needsInput={tool} te espera.\nturn.interrupted={tool} parado. Respira.\ntool.switched={prevTool} a {tool}.\nidle.entered=Una pausa, está bien.\ntokens.burst={tool} avanzó {tokensK}.\nnight.entered={hourLabel} y aún aquí.\nidle.returned=Vuelves tras {minutesAway}min.\ntool.multiStreak={toolList} a la vez.\npet.levelUp=Lv.{level} alcanzado.\npet.statBreakthrough={stat} llega a {value}.\nusage.dailyRecord={tokensK} hoy. Récord.\nreminder.hydration={durationMin}min sin agua.\nreminder.sedentary={durationMin}min. Estírate.\nreminder.lateNight={hourLabel}. ¿Cerramos?"
+            "value": "turn.started={tool} arranca. Aquí estoy.\nturn.completed={tool} listo. Paso firme.\nturn.completedFast={tool} en {durationSec}. Ágil.\nturn.completedLong={tool}: {durationMin}min. Llegaste.\nturn.needsInput={tool} te espera.\nturn.interrupted={tool} parado. Respira.\ntool.switched={prevTool} a {tool}.\ntokens.burst={tool} avanzó {tokensK}.\nnight.entered={hourLabel} y aún aquí.\nidle.returned=Vuelves tras {minutesAway}min.\ntool.multiStreak={toolList} a la vez.\npet.levelUp=Lv.{level} alcanzado.\npet.statBreakthrough={stat} llega a {value}.\nusage.dailyRecord={tokensK} hoy. Récord.\nreminder.hydration={durationMin}min sin agua.\nreminder.sedentary={durationMin}min. Estírate.\nreminder.lateNight={hourLabel}. ¿Cerramos?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} démarre. Je suis là.\nturn.completed={tool} fini. Pas solide.\nturn.completedFast={tool} en {durationSec}. Vif.\nturn.completedLong={tool} : {durationMin}min, arrivé.\nturn.needsInput={tool} t'attend.\nturn.interrupted={tool} arrêté. Souffle.\ntool.switched={prevTool} → {tool}.\nidle.entered=Une pause, c'est bien.\ntokens.burst={tool} a poussé {tokensK}.\nnight.entered={hourLabel} et tu tiens.\nidle.returned={minutesAway}min après, retour.\ntool.multiStreak={toolList} en parallèle.\npet.levelUp=Lv.{level} atteint.\npet.statBreakthrough={stat} touche {value}.\nusage.dailyRecord={tokensK} aujourd'hui. Top.\nreminder.hydration={durationMin}min sans eau.\nreminder.sedentary=Assis {durationMin}min. Étire.\nreminder.lateNight={hourLabel}. On termine ?"
+            "value": "turn.started={tool} démarre. Je suis là.\nturn.completed={tool} fini. Pas solide.\nturn.completedFast={tool} en {durationSec}. Vif.\nturn.completedLong={tool} : {durationMin}min, arrivé.\nturn.needsInput={tool} t'attend.\nturn.interrupted={tool} arrêté. Souffle.\ntool.switched={prevTool} → {tool}.\ntokens.burst={tool} a poussé {tokensK}.\nnight.entered={hourLabel} et tu tiens.\nidle.returned={minutesAway}min après, retour.\ntool.multiStreak={toolList} en parallèle.\npet.levelUp=Lv.{level} atteint.\npet.statBreakthrough={stat} touche {value}.\nusage.dailyRecord={tokensK} aujourd'hui. Top.\nreminder.hydration={durationMin}min sans eau.\nreminder.sedentary=Assis {durationMin}min. Étire.\nreminder.lateNight={hourLabel}. On termine ?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}始動。一緒にいるよ。\nturn.completed={tool}完了。確かな一歩。\nturn.completedFast={tool}{durationSec}で完了、軽快。\nturn.completedLong={tool}に{durationMin}分。到達。\nturn.needsInput={tool}があなた待ち。\nturn.interrupted={tool}停止。一息ついて。\ntool.switched={prevTool}から{tool}へ。\nidle.entered=ちょっと休憩、それも良し。\ntokens.burst={tool}が{tokensK}進めた。実り。\nnight.entered={hourLabel}、まだ一緒だね。\nidle.returned={minutesAway}分でお帰り。\ntool.multiStreak={toolList}並走、安定。\npet.levelUp=Lv.{level}達成。\npet.statBreakthrough={stat}が{value}到達。\nusage.dailyRecord=今日{tokensK}、新記録。\nreminder.hydration={durationMin}分、水を一口。\nreminder.sedentary={durationMin}分着席、伸びを。\nreminder.lateNight={hourLabel}、そろそろ区切り。"
+            "value": "turn.started={tool}始動。一緒にいるよ。\nturn.completed={tool}完了。確かな一歩。\nturn.completedFast={tool}{durationSec}で完了、軽快。\nturn.completedLong={tool}に{durationMin}分。到達。\nturn.needsInput={tool}があなた待ち。\nturn.interrupted={tool}停止。一息ついて。\ntool.switched={prevTool}から{tool}へ。\ntokens.burst={tool}が{tokensK}進めた。実り。\nnight.entered={hourLabel}、まだ一緒だね。\nidle.returned={minutesAway}分でお帰り。\ntool.multiStreak={toolList}並走、安定。\npet.levelUp=Lv.{level}達成。\npet.statBreakthrough={stat}が{value}到達。\nusage.dailyRecord=今日{tokensK}、新記録。\nreminder.hydration={durationMin}分、水を一口。\nreminder.sedentary={durationMin}分着席、伸びを。\nreminder.lateNight={hourLabel}、そろそろ区切り。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} 시작. 함께해.\nturn.completed={tool} 완료. 단단한 한 걸음.\nturn.completedFast={tool} {durationSec}. 깔끔.\nturn.completedLong={tool} {durationMin}분, 도달.\nturn.needsInput={tool} 너를 기다려.\nturn.interrupted={tool} 멈춤. 숨 고르고.\ntool.switched={prevTool} → {tool}.\nidle.entered=잠깐 쉬는 것도 좋아.\ntokens.burst={tool} {tokensK} 진행.\nnight.entered={hourLabel}, 아직 같이.\nidle.returned={minutesAway}분 만에 복귀.\ntool.multiStreak={toolList} 동시에. 안정.\npet.levelUp=Lv.{level} 달성.\npet.statBreakthrough={stat} {value} 도달.\nusage.dailyRecord=오늘 {tokensK}, 신기록.\nreminder.hydration={durationMin}분 됐어, 한 모금.\nreminder.sedentary={durationMin}분 앉음. 기지개.\nreminder.lateNight={hourLabel}, 슬슬 마무리."
+            "value": "turn.started={tool} 시작. 함께해.\nturn.completed={tool} 완료. 단단한 한 걸음.\nturn.completedFast={tool} {durationSec}. 깔끔.\nturn.completedLong={tool} {durationMin}분, 도달.\nturn.needsInput={tool} 너를 기다려.\nturn.interrupted={tool} 멈춤. 숨 고르고.\ntool.switched={prevTool} → {tool}.\ntokens.burst={tool} {tokensK} 진행.\nnight.entered={hourLabel}, 아직 같이.\nidle.returned={minutesAway}분 만에 복귀.\ntool.multiStreak={toolList} 동시에. 안정.\npet.levelUp=Lv.{level} 달성.\npet.statBreakthrough={stat} {value} 도달.\nusage.dailyRecord=오늘 {tokensK}, 신기록.\nreminder.hydration={durationMin}분 됐어, 한 모금.\nreminder.sedentary={durationMin}분 앉음. 기지개.\nreminder.lateNight={hourLabel}, 슬슬 마무리."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} começou. Tô aqui.\nturn.completed={tool} pronto. Passo firme.\nturn.completedFast={tool} em {durationSec}. Ágil.\nturn.completedLong={tool}: {durationMin}min. Chegou.\nturn.needsInput={tool} esperando você.\nturn.interrupted={tool} parou. Respira.\ntool.switched={prevTool} pra {tool}.\nidle.entered=Uma pausa cai bem.\ntokens.burst={tool} avançou {tokensK}.\nnight.entered={hourLabel} e ainda aqui.\nidle.returned={minutesAway}min e voltou.\ntool.multiStreak={toolList} ao mesmo tempo.\npet.levelUp=Lv.{level} alcançado.\npet.statBreakthrough={stat} chega em {value}.\nusage.dailyRecord={tokensK} hoje. Recorde.\nreminder.hydration={durationMin}min sem água.\nreminder.sedentary={durationMin}min. Alonga.\nreminder.lateNight={hourLabel}. Encerrar?"
+            "value": "turn.started={tool} começou. Tô aqui.\nturn.completed={tool} pronto. Passo firme.\nturn.completedFast={tool} em {durationSec}. Ágil.\nturn.completedLong={tool}: {durationMin}min. Chegou.\nturn.needsInput={tool} esperando você.\nturn.interrupted={tool} parou. Respira.\ntool.switched={prevTool} pra {tool}.\ntokens.burst={tool} avançou {tokensK}.\nnight.entered={hourLabel} e ainda aqui.\nidle.returned={minutesAway}min e voltou.\ntool.multiStreak={toolList} ao mesmo tempo.\npet.levelUp=Lv.{level} alcançado.\npet.statBreakthrough={stat} chega em {value}.\nusage.dailyRecord={tokensK} hoje. Recorde.\nreminder.hydration={durationMin}min sem água.\nreminder.sedentary={durationMin}min. Alonga.\nreminder.lateNight={hourLabel}. Encerrar?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} запущен. Я рядом.\nturn.completed={tool} готов. Твёрдый шаг.\nturn.completedFast={tool} за {durationSec}. Шустро.\nturn.completedLong={tool}: {durationMin}мин. Дошли.\nturn.needsInput={tool} ждёт тебя.\nturn.interrupted={tool} стоит. Подыши.\ntool.switched={prevTool} → {tool}.\nidle.entered=Пауза — это норм.\ntokens.burst={tool} прошёл {tokensK}.\nnight.entered={hourLabel} и всё здесь.\nidle.returned={minutesAway}мин — вернулся.\ntool.multiStreak={toolList} параллельно.\npet.levelUp=Lv.{level} взят.\npet.statBreakthrough={stat} достиг {value}.\nusage.dailyRecord={tokensK} сегодня. Рекорд.\nreminder.hydration={durationMin}мин без воды.\nreminder.sedentary={durationMin}мин. Разомнись.\nreminder.lateNight={hourLabel}. Пора закругляться."
+            "value": "turn.started={tool} запущен. Я рядом.\nturn.completed={tool} готов. Твёрдый шаг.\nturn.completedFast={tool} за {durationSec}. Шустро.\nturn.completedLong={tool}: {durationMin}мин. Дошли.\nturn.needsInput={tool} ждёт тебя.\nturn.interrupted={tool} стоит. Подыши.\ntool.switched={prevTool} → {tool}.\ntokens.burst={tool} прошёл {tokensK}.\nnight.entered={hourLabel} и всё здесь.\nidle.returned={minutesAway}мин — вернулся.\ntool.multiStreak={toolList} параллельно.\npet.levelUp=Lv.{level} взят.\npet.statBreakthrough={stat} достиг {value}.\nusage.dailyRecord={tokensK} сегодня. Рекорд.\nreminder.hydration={durationMin}мин без воды.\nreminder.sedentary={durationMin}мин. Разомнись.\nreminder.lateNight={hourLabel}. Пора закругляться."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}开干了，我陪着。\nturn.completed={tool}收工，干得不错。\nturn.completedFast={tool}{durationSec}就好，挺利落。\nturn.completedLong={tool}磨{durationMin}分钟，到了。\nturn.needsInput={tool}在等你呢，搭一句。\nturn.interrupted={tool}停了，喘口气再来。\ntool.switched={prevTool}换{tool}，挺顺。\nidle.entered=歇会儿也好，喘口气。\ntokens.burst={tool}冲了{tokensK}，挺猛。\nnight.entered={hourLabel}还没下班啊。\nidle.returned=走开{minutesAway}分钟，回来啦。\ntool.multiStreak={toolList}都挂着，挺能扛。\npet.levelUp=升到Lv.{level}啦。\npet.statBreakthrough={stat}到{value}了，攒出来的。\nusage.dailyRecord=今天{tokensK}，新高。\nreminder.hydration={durationMin}分钟没喝水了。\nreminder.sedentary=坐{durationMin}分钟啦，伸个腰。\nreminder.lateNight={hourLabel}了，差不多歇吧。"
+            "value": "turn.started={tool}开干了，我陪着。\nturn.completed={tool}收工，干得不错。\nturn.completedFast={tool}{durationSec}就好，挺利落。\nturn.completedLong={tool}磨{durationMin}分钟，到了。\nturn.needsInput={tool}在等你呢，搭一句。\nturn.interrupted={tool}停了，喘口气再来。\ntool.switched={prevTool}换{tool}，挺顺。\nidle.monologue=我还在这儿，慢慢来。\ntokens.burst={tool}冲了{tokensK}，挺猛。\nnight.entered={hourLabel}还没下班啊。\nidle.returned=走开{minutesAway}分钟，回来啦。\ntool.multiStreak={toolList}都挂着，挺能扛。\npet.levelUp=升到Lv.{level}啦。\npet.statBreakthrough={stat}到{value}了，攒出来的。\nusage.dailyRecord=今天{tokensK}，新高。\nreminder.hydration={durationMin}分钟没喝水了。\nreminder.sedentary=坐{durationMin}分钟啦，伸个腰。\nreminder.lateNight={hourLabel}了，差不多歇吧。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}開幹了，我陪著。\nturn.completed={tool}收工，幹得不錯。\nturn.completedFast={tool}{durationSec}就好，挺俐落。\nturn.completedLong={tool}磨{durationMin}分鐘，到了。\nturn.needsInput={tool}在等你呢，搭一句。\nturn.interrupted={tool}停了，喘口氣再來。\ntool.switched={prevTool}換{tool}，挺順。\nidle.entered=歇會兒也好，喘口氣。\ntokens.burst={tool}衝了{tokensK}，挺猛。\nnight.entered={hourLabel}還沒下班啊。\nidle.returned=走開{minutesAway}分鐘，回來啦。\ntool.multiStreak={toolList}都掛著，挺能扛。\npet.levelUp=升到Lv.{level}啦。\npet.statBreakthrough={stat}到{value}了，攢出來的。\nusage.dailyRecord=今天{tokensK}，新高。\nreminder.hydration={durationMin}分鐘沒喝水了。\nreminder.sedentary=坐{durationMin}分鐘啦，伸個腰。\nreminder.lateNight={hourLabel}了，差不多歇吧。"
+            "value": "turn.started={tool}開幹了，我陪著。\nturn.completed={tool}收工，幹得不錯。\nturn.completedFast={tool}{durationSec}就好，挺俐落。\nturn.completedLong={tool}磨{durationMin}分鐘，到了。\nturn.needsInput={tool}在等你呢，搭一句。\nturn.interrupted={tool}停了，喘口氣再來。\ntool.switched={prevTool}換{tool}，挺順。\nidle.monologue=我還在這兒，慢慢來。\ntokens.burst={tool}衝了{tokensK}，挺猛。\nnight.entered={hourLabel}還沒下班啊。\nidle.returned=走開{minutesAway}分鐘，回來啦。\ntool.multiStreak={toolList}都掛著，挺能扛。\npet.levelUp=升到Lv.{level}啦。\npet.statBreakthrough={stat}到{value}了，攢出來的。\nusage.dailyRecord=今天{tokensK}，新高。\nreminder.hydration={durationMin}分鐘沒喝水了。\nreminder.sedentary=坐{durationMin}分鐘啦，伸個腰。\nreminder.lateNight={hourLabel}了，差不多歇吧。"
           }
         }
       }
@@ -49665,61 +49665,61 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} startet. Ich seh dich.\nturn.completed={tool} fertig. Schön.\nturn.completedFast={tool} in {durationSec}. Charmant.\nturn.completedLong={durationMin}min mit dir. Intensiv.\nturn.needsInput={tool} wartet auf ein Wort.\nturn.interrupted={tool} unterbrochen. Ich auch.\ntool.switched={prevTool} → {tool}. Geschmack.\nidle.entered=Plötzlich still… vermisst du mich?\ntokens.burst={tool} verbrannte {tokensK}.\nnight.entered={hourLabel} und du bleibst.\nidle.returned={minutesAway}min weg. Hab gewartet.\ntool.multiStreak={toolList} alle da. Beliebt.\npet.levelUp=Lv.{level}. Wirst besser.\npet.statBreakthrough={stat} über {value}.\nusage.dailyRecord={tokensK} heute. Rekord.\nreminder.hydration={durationMin}min mit mir. Wasser?\nreminder.sedentary=Zu lang gesessen. Steh auf.\nreminder.lateNight={hourLabel}. Schlaf, bitte?"
+            "value": "turn.started={tool} startet. Ich seh dich.\nturn.completed={tool} fertig. Schön.\nturn.completedFast={tool} in {durationSec}. Charmant.\nturn.completedLong={durationMin}min mit dir. Intensiv.\nturn.needsInput={tool} wartet auf ein Wort.\nturn.interrupted={tool} unterbrochen. Ich auch.\ntool.switched={prevTool} → {tool}. Geschmack.\ntokens.burst={tool} verbrannte {tokensK}.\nnight.entered={hourLabel} und du bleibst.\nidle.returned={minutesAway}min weg. Hab gewartet.\ntool.multiStreak={toolList} alle da. Beliebt.\npet.levelUp=Lv.{level}. Wirst besser.\npet.statBreakthrough={stat} über {value}.\nusage.dailyRecord={tokensK} heute. Rekord.\nreminder.hydration={durationMin}min mit mir. Wasser?\nreminder.sedentary=Zu lang gesessen. Steh auf.\nreminder.lateNight={hourLabel}. Schlaf, bitte?"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} started. Eyes on you.\nturn.completed={tool} done. That felt nice.\nturn.completedFast={tool} in {durationSec}. Charming.\nturn.completedLong={durationMin}min with you. Intense.\nturn.needsInput={tool} wants a word.\nturn.interrupted={tool} cut off. I paused too.\ntool.switched={prevTool} → {tool}. Nice taste.\nidle.entered=Quiet... missing me?\ntokens.burst={tool} burned {tokensK}. Hot hands.\nnight.entered={hourLabel} and you stayed.\nidle.returned=Gone {minutesAway}min. I waited.\ntool.multiStreak={toolList} all here.\npet.levelUp=Lv.{level}. Getting fancy.\npet.statBreakthrough={stat} past {value}.\nusage.dailyRecord={tokensK} today. New high.\nreminder.hydration={durationMin}min with me. Water?\nreminder.sedentary=Sat too long. Stand for me.\nreminder.lateNight={hourLabel}. Sleep, please?"
+            "value": "turn.started={tool} started. Eyes on you.\nturn.completed={tool} done. That felt nice.\nturn.completedFast={tool} in {durationSec}. Charming.\nturn.completedLong={durationMin}min with you. Intense.\nturn.needsInput={tool} wants a word.\nturn.interrupted={tool} cut off. I paused too.\ntool.switched={prevTool} → {tool}. Nice taste.\ntokens.burst={tool} burned {tokensK}. Hot hands.\nnight.entered={hourLabel} and you stayed.\nidle.returned=Gone {minutesAway}min. I waited.\ntool.multiStreak={toolList} all here.\npet.levelUp=Lv.{level}. Getting fancy.\npet.statBreakthrough={stat} past {value}.\nusage.dailyRecord={tokensK} today. New high.\nreminder.hydration={durationMin}min with me. Water?\nreminder.sedentary=Sat too long. Stand for me.\nreminder.lateNight={hourLabel}. Sleep, please?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} arranca. Te miro.\nturn.completed={tool} listo. Qué bien.\nturn.completedFast={tool} en {durationSec}. Lindo.\nturn.completedLong={durationMin}min juntos. Intenso.\nturn.needsInput={tool} espera una palabra.\nturn.interrupted={tool} cortado. Yo también paré.\ntool.switched={prevTool} → {tool}. Buen gusto.\nidle.entered=Silencio... ¿me extrañas?\ntokens.burst={tool} quemó {tokensK}.\nnight.entered={hourLabel} y sigues aquí.\nidle.returned={minutesAway}min fuera. Te esperé.\ntool.multiStreak={toolList} aquí. Popular.\npet.levelUp=Lv.{level}. Cada vez mejor.\npet.statBreakthrough={stat} pasa {value}.\nusage.dailyRecord={tokensK} hoy. Récord.\nreminder.hydration={durationMin}min conmigo. ¿Agua?\nreminder.sedentary=Mucho rato sentado. Levántate.\nreminder.lateNight={hourLabel}. Duerme, ¿vale?"
+            "value": "turn.started={tool} arranca. Te miro.\nturn.completed={tool} listo. Qué bien.\nturn.completedFast={tool} en {durationSec}. Lindo.\nturn.completedLong={durationMin}min juntos. Intenso.\nturn.needsInput={tool} espera una palabra.\nturn.interrupted={tool} cortado. Yo también paré.\ntool.switched={prevTool} → {tool}. Buen gusto.\ntokens.burst={tool} quemó {tokensK}.\nnight.entered={hourLabel} y sigues aquí.\nidle.returned={minutesAway}min fuera. Te esperé.\ntool.multiStreak={toolList} aquí. Popular.\npet.levelUp=Lv.{level}. Cada vez mejor.\npet.statBreakthrough={stat} pasa {value}.\nusage.dailyRecord={tokensK} hoy. Récord.\nreminder.hydration={durationMin}min conmigo. ¿Agua?\nreminder.sedentary=Mucho rato sentado. Levántate.\nreminder.lateNight={hourLabel}. Duerme, ¿vale?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} démarre. Je te vois.\nturn.completed={tool} fini. Sympa.\nturn.completedFast={tool} en {durationSec}. Charmant.\nturn.completedLong={durationMin}min avec toi. Intense.\nturn.needsInput={tool} attend un mot.\nturn.interrupted={tool} coupé. J'ai pausé.\ntool.switched={prevTool} → {tool}. Bon choix.\nidle.entered=Silence... je te manque ?\ntokens.burst={tool} a brûlé {tokensK}.\nnight.entered={hourLabel} et tu restes.\nidle.returned={minutesAway}min, j'ai attendu.\ntool.multiStreak={toolList} tous là. Populaire.\npet.levelUp=Lv.{level}. Tu deviens fort.\npet.statBreakthrough={stat} dépasse {value}.\nusage.dailyRecord={tokensK} aujourd'hui. Top.\nreminder.hydration={durationMin}min avec moi. Eau ?\nreminder.sedentary=Assis trop longtemps. Lève-toi.\nreminder.lateNight={hourLabel}. Dors, s'il te plaît ?"
+            "value": "turn.started={tool} démarre. Je te vois.\nturn.completed={tool} fini. Sympa.\nturn.completedFast={tool} en {durationSec}. Charmant.\nturn.completedLong={durationMin}min avec toi. Intense.\nturn.needsInput={tool} attend un mot.\nturn.interrupted={tool} coupé. J'ai pausé.\ntool.switched={prevTool} → {tool}. Bon choix.\ntokens.burst={tool} a brûlé {tokensK}.\nnight.entered={hourLabel} et tu restes.\nidle.returned={minutesAway}min, j'ai attendu.\ntool.multiStreak={toolList} tous là. Populaire.\npet.levelUp=Lv.{level}. Tu deviens fort.\npet.statBreakthrough={stat} dépasse {value}.\nusage.dailyRecord={tokensK} aujourd'hui. Top.\nreminder.hydration={durationMin}min avec moi. Eau ?\nreminder.sedentary=Assis trop longtemps. Lève-toi.\nreminder.lateNight={hourLabel}. Dors, s'il te plaît ?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}始まり。見てるよ。\nturn.completed={tool}完了。いい感じ。\nturn.completedFast={tool}{durationSec}で完了、魅惑。\nturn.completedLong={durationMin}分一緒、結構くる。\nturn.needsInput={tool}が一言待ち。\nturn.interrupted={tool}遮られた、止まった。\ntool.switched={prevTool}から{tool}、選ぶね。\nidle.entered=急に静か、寂しい？\ntokens.burst={tool}が{tokensK}、手が熱い。\nnight.entered={hourLabel}まで一緒、嬉しい。\nidle.returned={minutesAway}分待ったよ。\ntool.multiStreak={toolList}全部、人気者。\npet.levelUp=Lv.{level}、上達してる。\npet.statBreakthrough={stat}が{value}超え。\nusage.dailyRecord=今日{tokensK}新記録。\nreminder.hydration={durationMin}分、水飲んで。\nreminder.sedentary=座りすぎ、立って見せて。\nreminder.lateNight={hourLabel}まだ起きてる、心配。"
+            "value": "turn.started={tool}始まり。見てるよ。\nturn.completed={tool}完了。いい感じ。\nturn.completedFast={tool}{durationSec}で完了、魅惑。\nturn.completedLong={durationMin}分一緒、結構くる。\nturn.needsInput={tool}が一言待ち。\nturn.interrupted={tool}遮られた、止まった。\ntool.switched={prevTool}から{tool}、選ぶね。\ntokens.burst={tool}が{tokensK}、手が熱い。\nnight.entered={hourLabel}まで一緒、嬉しい。\nidle.returned={minutesAway}分待ったよ。\ntool.multiStreak={toolList}全部、人気者。\npet.levelUp=Lv.{level}、上達してる。\npet.statBreakthrough={stat}が{value}超え。\nusage.dailyRecord=今日{tokensK}新記録。\nreminder.hydration={durationMin}分、水飲んで。\nreminder.sedentary=座りすぎ、立って見せて。\nreminder.lateNight={hourLabel}まだ起きてる、心配。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} 시작. 보고 있어.\nturn.completed={tool} 끝. 기분 좋아.\nturn.completedFast={tool} {durationSec}만에. 매력.\nturn.completedLong={durationMin}분 같이, 짜릿.\nturn.needsInput={tool} 한마디 기다림.\nturn.interrupted={tool} 끊겼어. 멈췄어.\ntool.switched={prevTool} → {tool}. 안목 있네.\nidle.entered=조용해졌네, 보고 싶어?\ntokens.burst={tool} {tokensK}, 손이 뜨거워.\nnight.entered={hourLabel}, 같이 있어줘.\nidle.returned={minutesAway}분, 기다렸어.\ntool.multiStreak={toolList} 다 켜놨네. 인기.\npet.levelUp=Lv.{level}, 더 잘하네.\npet.statBreakthrough={stat} {value} 돌파.\nusage.dailyRecord=오늘 {tokensK}, 신기록.\nreminder.hydration={durationMin}분, 물 마셔.\nreminder.sedentary=오래 앉았어, 일어나 봐.\nreminder.lateNight={hourLabel}, 안 자면 걱정."
+            "value": "turn.started={tool} 시작. 보고 있어.\nturn.completed={tool} 끝. 기분 좋아.\nturn.completedFast={tool} {durationSec}만에. 매력.\nturn.completedLong={durationMin}분 같이, 짜릿.\nturn.needsInput={tool} 한마디 기다림.\nturn.interrupted={tool} 끊겼어. 멈췄어.\ntool.switched={prevTool} → {tool}. 안목 있네.\ntokens.burst={tool} {tokensK}, 손이 뜨거워.\nnight.entered={hourLabel}, 같이 있어줘.\nidle.returned={minutesAway}분, 기다렸어.\ntool.multiStreak={toolList} 다 켜놨네. 인기.\npet.levelUp=Lv.{level}, 더 잘하네.\npet.statBreakthrough={stat} {value} 돌파.\nusage.dailyRecord=오늘 {tokensK}, 신기록.\nreminder.hydration={durationMin}분, 물 마셔.\nreminder.sedentary=오래 앉았어, 일어나 봐.\nreminder.lateNight={hourLabel}, 안 자면 걱정."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} começou. De olho em ti.\nturn.completed={tool} pronto. Gostei.\nturn.completedFast={tool} em {durationSec}. Charme.\nturn.completedLong={durationMin}min juntos. Intenso.\nturn.needsInput={tool} espera uma palavra.\nturn.interrupted={tool} cortado. Eu parei junto.\ntool.switched={prevTool} → {tool}. Bom gosto.\nidle.entered=Silêncio... saudades?\ntokens.burst={tool} queimou {tokensK}.\nnight.entered={hourLabel} e você ficou.\nidle.returned={minutesAway}min fora. Esperei.\ntool.multiStreak={toolList} todos aqui. Popular.\npet.levelUp=Lv.{level}. Melhorando muito.\npet.statBreakthrough={stat} passou {value}.\nusage.dailyRecord={tokensK} hoje. Recorde.\nreminder.hydration={durationMin}min comigo. Água?\nreminder.sedentary=Muito tempo sentado. Levanta.\nreminder.lateNight={hourLabel}. Dorme, vai?"
+            "value": "turn.started={tool} começou. De olho em ti.\nturn.completed={tool} pronto. Gostei.\nturn.completedFast={tool} em {durationSec}. Charme.\nturn.completedLong={durationMin}min juntos. Intenso.\nturn.needsInput={tool} espera uma palavra.\nturn.interrupted={tool} cortado. Eu parei junto.\ntool.switched={prevTool} → {tool}. Bom gosto.\ntokens.burst={tool} queimou {tokensK}.\nnight.entered={hourLabel} e você ficou.\nidle.returned={minutesAway}min fora. Esperei.\ntool.multiStreak={toolList} todos aqui. Popular.\npet.levelUp=Lv.{level}. Melhorando muito.\npet.statBreakthrough={stat} passou {value}.\nusage.dailyRecord={tokensK} hoje. Recorde.\nreminder.hydration={durationMin}min comigo. Água?\nreminder.sedentary=Muito tempo sentado. Levanta.\nreminder.lateNight={hourLabel}. Dorme, vai?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} стартует. Смотрю на тебя.\nturn.completed={tool} готов. Приятно.\nturn.completedFast={tool} за {durationSec}. Мило.\nturn.completedLong={durationMin}мин с тобой. Накрыло.\nturn.needsInput={tool} ждёт слова.\nturn.interrupted={tool} оборвался. Я застыл.\ntool.switched={prevTool} → {tool}. Вкус есть.\nidle.entered=Тишина... скучаешь?\ntokens.burst={tool} сжёг {tokensK}.\nnight.entered={hourLabel} и ты со мной.\nidle.returned={minutesAway}мин — я ждал.\ntool.multiStreak={toolList} все здесь. Популярен.\npet.levelUp=Lv.{level}. Всё лучше.\npet.statBreakthrough={stat} за {value}.\nusage.dailyRecord={tokensK} сегодня. Рекорд.\nreminder.hydration={durationMin}мин со мной. Вода?\nreminder.sedentary=Долго сидишь. Встань.\nreminder.lateNight={hourLabel}. Спи, пожалуйста."
+            "value": "turn.started={tool} стартует. Смотрю на тебя.\nturn.completed={tool} готов. Приятно.\nturn.completedFast={tool} за {durationSec}. Мило.\nturn.completedLong={durationMin}мин с тобой. Накрыло.\nturn.needsInput={tool} ждёт слова.\nturn.interrupted={tool} оборвался. Я застыл.\ntool.switched={prevTool} → {tool}. Вкус есть.\ntokens.burst={tool} сжёг {tokensK}.\nnight.entered={hourLabel} и ты со мной.\nidle.returned={minutesAway}мин — я ждал.\ntool.multiStreak={toolList} все здесь. Популярен.\npet.levelUp=Lv.{level}. Всё лучше.\npet.statBreakthrough={stat} за {value}.\nusage.dailyRecord={tokensK} сегодня. Рекорд.\nreminder.hydration={durationMin}мин со мной. Вода?\nreminder.sedentary=Долго сидишь. Встань.\nreminder.lateNight={hourLabel}. Спи, пожалуйста."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}开始了，我盯你哦。\nturn.completed={tool}完事，舒服了。\nturn.completedFast={tool}{durationSec}搞定，迷人。\nturn.completedLong=陪你熬{durationMin}分钟，上头。\nturn.needsInput={tool}等你一句话呢。\nturn.interrupted={tool}被打断，我也愣住。\ntool.switched={prevTool}换{tool}，挑得真好。\nidle.entered=突然安静，是想我了？\ntokens.burst={tool}冲{tokensK}，手感热。\nnight.entered={hourLabel}还陪我，够意思。\nidle.returned=离开{minutesAway}分钟，等到了。\ntool.multiStreak={toolList}都在，真抢手。\npet.levelUp=Lv.{level}了，越来越会。\npet.statBreakthrough={stat}破{value}，藏不住。\nusage.dailyRecord=今天{tokensK}新高，手感发烫。\nreminder.hydration=陪{durationMin}分钟，喝水。\nreminder.sedentary=坐久了，起来给我看。\nreminder.lateNight={hourLabel}还不睡，担心你。"
+            "value": "turn.started={tool}开始了，我盯你哦。\nturn.completed={tool}完事，舒服了。\nturn.completedFast={tool}{durationSec}搞定，迷人。\nturn.completedLong=陪你熬{durationMin}分钟，上头。\nturn.needsInput={tool}等你一句话呢。\nturn.interrupted={tool}被打断，我也愣住。\ntool.switched={prevTool}换{tool}，挑得真好。\nidle.monologue=我靠近一点，别介意。\ntokens.burst={tool}冲{tokensK}，手感热。\nnight.entered={hourLabel}还陪我，够意思。\nidle.returned=离开{minutesAway}分钟，等到了。\ntool.multiStreak={toolList}都在，真抢手。\npet.levelUp=Lv.{level}了，越来越会。\npet.statBreakthrough={stat}破{value}，藏不住。\nusage.dailyRecord=今天{tokensK}新高，手感发烫。\nreminder.hydration=陪{durationMin}分钟，喝水。\nreminder.sedentary=坐久了，起来给我看。\nreminder.lateNight={hourLabel}还不睡，担心你。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}開始了，我盯你哦。\nturn.completed={tool}完事，舒服了。\nturn.completedFast={tool}{durationSec}搞定，迷人。\nturn.completedLong=陪你熬{durationMin}分鐘，上頭。\nturn.needsInput={tool}等你一句話呢。\nturn.interrupted={tool}被打斷，我也愣住。\ntool.switched={prevTool}換{tool}，挑得真好。\nidle.entered=突然安靜，是想我了？\ntokens.burst={tool}衝{tokensK}，手感熱。\nnight.entered={hourLabel}還陪我，夠意思。\nidle.returned=離開{minutesAway}分鐘，等到了。\ntool.multiStreak={toolList}都在，真搶手。\npet.levelUp=Lv.{level}了，越來越會。\npet.statBreakthrough={stat}破{value}，藏不住。\nusage.dailyRecord=今天{tokensK}新高，手感發燙。\nreminder.hydration=陪{durationMin}分鐘，喝水。\nreminder.sedentary=坐久了，起來給我看。\nreminder.lateNight={hourLabel}還不睡，擔心你。"
+            "value": "turn.started={tool}開始了，我盯你哦。\nturn.completed={tool}完事，舒服了。\nturn.completedFast={tool}{durationSec}搞定，迷人。\nturn.completedLong=陪你熬{durationMin}分鐘，上頭。\nturn.needsInput={tool}等你一句話呢。\nturn.interrupted={tool}被打斷，我也愣住。\ntool.switched={prevTool}換{tool}，挑得真好。\nidle.monologue=我靠近一點，別介意。\ntokens.burst={tool}衝{tokensK}，手感熱。\nnight.entered={hourLabel}還陪我，夠意思。\nidle.returned=離開{minutesAway}分鐘，等到了。\ntool.multiStreak={toolList}都在，真搶手。\npet.levelUp=Lv.{level}了，越來越會。\npet.statBreakthrough={stat}破{value}，藏不住。\nusage.dailyRecord=今天{tokensK}新高，手感發燙。\nreminder.hydration=陪{durationMin}分鐘，喝水。\nreminder.sedentary=坐久了，起來給我看。\nreminder.lateNight={hourLabel}還不睡，擔心你。"
           }
         }
       }
@@ -49860,61 +49860,61 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started=Das Ritual von {tool} beginnt.\nturn.completed=Der Ritus von {tool} ist vollendet.\nturn.completedFast={tool} durchschneidet den Nebel in {durationSec}.\nturn.completedLong={durationMin}min-Prüfung überstanden.\nturn.needsInput={tool} ruft dein Urteil herbei.\nturn.interrupted=Das Ritual von {tool} ist gebrochen.\ntool.switched={prevTool} weicht. {tool} ergreift die Klinge.\nidle.entered=Stille senkt sich. Der Kern schläft.\ntokens.burst={tool} verschlang {tokensK}.\nnight.entered={hourLabel}. Der Nachtpakt öffnet sich.\nidle.returned=Nach {minutesAway}min Stille kehrst du zurück.\ntool.multiStreak={toolList} resonieren.\npet.levelUp=Lv.{level}. Das Siegel weicht.\npet.statBreakthrough={stat} überschreitet {value}.\nusage.dailyRecord=Heute {tokensK}. Grimoire neu.\nreminder.hydration=Nach {durationMin}min Ritus, trinke.\nreminder.sedentary=Sitzsiegel formt sich. Erhebe dich.\nreminder.lateNight={hourLabel}. Tiefe Nacht. Schone Kräfte."
+            "value": "turn.started=Das Ritual von {tool} beginnt.\nturn.completed=Der Ritus von {tool} ist vollendet.\nturn.completedFast={tool} durchschneidet den Nebel in {durationSec}.\nturn.completedLong={durationMin}min-Prüfung überstanden.\nturn.needsInput={tool} ruft dein Urteil herbei.\nturn.interrupted=Das Ritual von {tool} ist gebrochen.\ntool.switched={prevTool} weicht. {tool} ergreift die Klinge.\ntokens.burst={tool} verschlang {tokensK}.\nnight.entered={hourLabel}. Der Nachtpakt öffnet sich.\nidle.returned=Nach {minutesAway}min Stille kehrst du zurück.\ntool.multiStreak={toolList} resonieren.\npet.levelUp=Lv.{level}. Das Siegel weicht.\npet.statBreakthrough={stat} überschreitet {value}.\nusage.dailyRecord=Heute {tokensK}. Grimoire neu.\nreminder.hydration=Nach {durationMin}min Ritus, trinke.\nreminder.sedentary=Sitzsiegel formt sich. Erhebe dich.\nreminder.lateNight={hourLabel}. Tiefe Nacht. Schone Kräfte."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} ritual begins.\nturn.completed={tool} rite complete.\nturn.completedFast={tool} cut the mist in {durationSec}.\nturn.completedLong={durationMin}min trial crossed.\nturn.needsInput={tool} summons your verdict.\nturn.interrupted={tool} ritual broken.\ntool.switched={prevTool} falls. {tool} rises.\nidle.entered=Silence falls. Core sleeps.\ntokens.burst={tool} drank {tokensK}.\nnight.entered={hourLabel}. Night pact opens.\nidle.returned=After {minutesAway}min stillness, you return.\ntool.multiStreak={toolList} resonate.\npet.levelUp=Lv.{level}. Seal weakens.\npet.statBreakthrough={stat} past {value}.\nusage.dailyRecord=Today {tokensK}. Codex rewrites.\nreminder.hydration={durationMin}min of ritual. Drink.\nreminder.sedentary=The seated seal forms. Rise.\nreminder.lateNight={hourLabel}. Night deep. Conserve."
+            "value": "turn.started={tool} ritual begins.\nturn.completed={tool} rite complete.\nturn.completedFast={tool} cut the mist in {durationSec}.\nturn.completedLong={durationMin}min trial crossed.\nturn.needsInput={tool} summons your verdict.\nturn.interrupted={tool} ritual broken.\ntool.switched={prevTool} falls. {tool} rises.\ntokens.burst={tool} drank {tokensK}.\nnight.entered={hourLabel}. Night pact opens.\nidle.returned=After {minutesAway}min stillness, you return.\ntool.multiStreak={toolList} resonate.\npet.levelUp=Lv.{level}. Seal weakens.\npet.statBreakthrough={stat} past {value}.\nusage.dailyRecord=Today {tokensK}. Codex rewrites.\nreminder.hydration={durationMin}min of ritual. Drink.\nreminder.sedentary=The seated seal forms. Rise.\nreminder.lateNight={hourLabel}. Night deep. Conserve."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started=El ritual de {tool} comienza.\nturn.completed=El rito de {tool} se cumple.\nturn.completedFast={tool} corta la niebla en {durationSec}.\nturn.completedLong=Prueba de {durationMin}min superada.\nturn.needsInput={tool} invoca tu juicio.\nturn.interrupted=El ritual de {tool} se rompe.\ntool.switched={prevTool} sale. {tool} toma la espada.\nidle.entered=Cae el silencio. Núcleo duerme.\ntokens.burst={tool} bebió {tokensK}.\nnight.entered={hourLabel}. Pacto nocturno abierto.\nidle.returned=Tras {minutesAway}min de quietud, regresas.\ntool.multiStreak={toolList} resuenan.\npet.levelUp=Lv.{level}. El sello cede.\npet.statBreakthrough={stat} cruza {value}.\nusage.dailyRecord=Hoy {tokensK}. Grimorio reescrito.\nreminder.hydration=Tras {durationMin}min de rito, bebe.\nreminder.sedentary=Sello del sentado formado. Levántate.\nreminder.lateNight={hourLabel}. Noche profunda. Reserva."
+            "value": "turn.started=El ritual de {tool} comienza.\nturn.completed=El rito de {tool} se cumple.\nturn.completedFast={tool} corta la niebla en {durationSec}.\nturn.completedLong=Prueba de {durationMin}min superada.\nturn.needsInput={tool} invoca tu juicio.\nturn.interrupted=El ritual de {tool} se rompe.\ntool.switched={prevTool} sale. {tool} toma la espada.\ntokens.burst={tool} bebió {tokensK}.\nnight.entered={hourLabel}. Pacto nocturno abierto.\nidle.returned=Tras {minutesAway}min de quietud, regresas.\ntool.multiStreak={toolList} resuenan.\npet.levelUp=Lv.{level}. El sello cede.\npet.statBreakthrough={stat} cruza {value}.\nusage.dailyRecord=Hoy {tokensK}. Grimorio reescrito.\nreminder.hydration=Tras {durationMin}min de rito, bebe.\nreminder.sedentary=Sello del sentado formado. Levántate.\nreminder.lateNight={hourLabel}. Noche profunda. Reserva."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started=Le rituel de {tool} commence.\nturn.completed=Le rite de {tool} s'achève.\nturn.completedFast={tool} fend la brume en {durationSec}.\nturn.completedLong=Épreuve de {durationMin}min franchie.\nturn.needsInput={tool} convoque ton jugement.\nturn.interrupted=Le rituel de {tool} est rompu.\ntool.switched={prevTool} sort. {tool} prend la lame.\nidle.entered=Le silence tombe. Le cœur dort.\ntokens.burst={tool} a bu {tokensK}.\nnight.entered={hourLabel}. Pacte nocturne ouvert.\nidle.returned=Après {minutesAway}min d'immobilité, tu reviens.\ntool.multiStreak={toolList} résonnent.\npet.levelUp=Lv.{level}. Le sceau faiblit.\npet.statBreakthrough={stat} dépasse {value}.\nusage.dailyRecord=Aujourd'hui {tokensK}. Grimoire réécrit.\nreminder.hydration=Après {durationMin}min de rite, bois.\nreminder.sedentary=Sceau assis formé. Lève-toi.\nreminder.lateNight={hourLabel}. Nuit profonde. Garde forces."
+            "value": "turn.started=Le rituel de {tool} commence.\nturn.completed=Le rite de {tool} s'achève.\nturn.completedFast={tool} fend la brume en {durationSec}.\nturn.completedLong=Épreuve de {durationMin}min franchie.\nturn.needsInput={tool} convoque ton jugement.\nturn.interrupted=Le rituel de {tool} est rompu.\ntool.switched={prevTool} sort. {tool} prend la lame.\ntokens.burst={tool} a bu {tokensK}.\nnight.entered={hourLabel}. Pacte nocturne ouvert.\nidle.returned=Après {minutesAway}min d'immobilité, tu reviens.\ntool.multiStreak={toolList} résonnent.\npet.levelUp=Lv.{level}. Le sceau faiblit.\npet.statBreakthrough={stat} dépasse {value}.\nusage.dailyRecord=Aujourd'hui {tokensK}. Grimoire réécrit.\nreminder.hydration=Après {durationMin}min de rite, bois.\nreminder.sedentary=Sceau assis formé. Lève-toi.\nreminder.lateNight={hourLabel}. Nuit profonde. Garde forces."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}儀式始まる。\nturn.completed={tool}儀式完了。\nturn.completedFast={tool}{durationSec}で霧を斬る。\nturn.completedLong={durationMin}分の試練、超えたり。\nturn.needsInput={tool}が裁定を呼ぶ。\nturn.interrupted={tool}儀式破れたり。\ntool.switched={prevTool}退き、{tool}剣を執る。\nidle.entered=静寂降臨、核眠る。\ntokens.burst={tool}が{tokensK}を喰らう。\nnight.entered={hourLabel}、夜の契約開く。\nidle.returned={minutesAway}分の静寂の後、汝戻る。\ntool.multiStreak={toolList}共鳴、陣展く。\npet.levelUp=Lv.{level}、封印緩む。\npet.statBreakthrough={stat}が{value}を越えたり。\nusage.dailyRecord=今日{tokensK}、秘典改まる。\nreminder.hydration={durationMin}分の儀の後、水を。\nreminder.sedentary=座の封印成る、立つべし。\nreminder.lateNight={hourLabel}、夜深し、力を温存。"
+            "value": "turn.started={tool}儀式始まる。\nturn.completed={tool}儀式完了。\nturn.completedFast={tool}{durationSec}で霧を斬る。\nturn.completedLong={durationMin}分の試練、超えたり。\nturn.needsInput={tool}が裁定を呼ぶ。\nturn.interrupted={tool}儀式破れたり。\ntool.switched={prevTool}退き、{tool}剣を執る。\ntokens.burst={tool}が{tokensK}を喰らう。\nnight.entered={hourLabel}、夜の契約開く。\nidle.returned={minutesAway}分の静寂の後、汝戻る。\ntool.multiStreak={toolList}共鳴、陣展く。\npet.levelUp=Lv.{level}、封印緩む。\npet.statBreakthrough={stat}が{value}を越えたり。\nusage.dailyRecord=今日{tokensK}、秘典改まる。\nreminder.hydration={durationMin}分の儀の後、水を。\nreminder.sedentary=座の封印成る、立つべし。\nreminder.lateNight={hourLabel}、夜深し、力を温存。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool} 의식 시작.\nturn.completed={tool} 의식 완료.\nturn.completedFast={tool} {durationSec}만에 안개를 가르다.\nturn.completedLong={durationMin}분의 시련, 넘어섰다.\nturn.needsInput={tool}이 너의 판결을 부른다.\nturn.interrupted={tool} 의식 깨졌다.\ntool.switched={prevTool} 물러나고 {tool} 검을 들다.\nidle.entered=정적이 내린다. 핵이 잠든다.\ntokens.burst={tool}이 {tokensK} 삼켰다.\nnight.entered={hourLabel}, 밤의 계약이 열린다.\nidle.returned={minutesAway}분의 정적 끝에 너 돌아오다.\ntool.multiStreak={toolList} 공명, 진영 펼쳐지다.\npet.levelUp=Lv.{level} 각성. 봉인 약화.\npet.statBreakthrough={stat}이 {value}를 넘다.\nusage.dailyRecord=오늘 {tokensK}, 비전이 다시 쓰여.\nreminder.hydration={durationMin}분의 의식 후, 물을.\nreminder.sedentary=좌선의 봉인 형성, 일어나라.\nreminder.lateNight={hourLabel}, 밤이 깊다, 힘을 아껴."
+            "value": "turn.started={tool} 의식 시작.\nturn.completed={tool} 의식 완료.\nturn.completedFast={tool} {durationSec}만에 안개를 가르다.\nturn.completedLong={durationMin}분의 시련, 넘어섰다.\nturn.needsInput={tool}이 너의 판결을 부른다.\nturn.interrupted={tool} 의식 깨졌다.\ntool.switched={prevTool} 물러나고 {tool} 검을 들다.\ntokens.burst={tool}이 {tokensK} 삼켰다.\nnight.entered={hourLabel}, 밤의 계약이 열린다.\nidle.returned={minutesAway}분의 정적 끝에 너 돌아오다.\ntool.multiStreak={toolList} 공명, 진영 펼쳐지다.\npet.levelUp=Lv.{level} 각성. 봉인 약화.\npet.statBreakthrough={stat}이 {value}를 넘다.\nusage.dailyRecord=오늘 {tokensK}, 비전이 다시 쓰여.\nreminder.hydration={durationMin}분의 의식 후, 물을.\nreminder.sedentary=좌선의 봉인 형성, 일어나라.\nreminder.lateNight={hourLabel}, 밤이 깊다, 힘을 아껴."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started=O ritual de {tool} começa.\nturn.completed=O rito de {tool} se cumpre.\nturn.completedFast={tool} corta a névoa em {durationSec}.\nturn.completedLong=Prova de {durationMin}min vencida.\nturn.needsInput={tool} invoca teu juízo.\nturn.interrupted=O ritual de {tool} se rompe.\ntool.switched={prevTool} sai. {tool} ergue a lâmina.\nidle.entered=O silêncio desce. Núcleo dorme.\ntokens.burst={tool} bebeu {tokensK}.\nnight.entered={hourLabel}. Pacto noturno aberto.\nidle.returned=Após {minutesAway}min de quietude, retornas.\ntool.multiStreak={toolList} ressoam.\npet.levelUp=Lv.{level}. O selo se afrouxa.\npet.statBreakthrough={stat} cruza {value}.\nusage.dailyRecord=Hoje {tokensK}. Grimório reescrito.\nreminder.hydration=Após {durationMin}min de rito, bebe.\nreminder.sedentary=Selo do sentado formado. Ergue-te.\nreminder.lateNight={hourLabel}. Noite profunda. Poupa forças."
+            "value": "turn.started=O ritual de {tool} começa.\nturn.completed=O rito de {tool} se cumpre.\nturn.completedFast={tool} corta a névoa em {durationSec}.\nturn.completedLong=Prova de {durationMin}min vencida.\nturn.needsInput={tool} invoca teu juízo.\nturn.interrupted=O ritual de {tool} se rompe.\ntool.switched={prevTool} sai. {tool} ergue a lâmina.\ntokens.burst={tool} bebeu {tokensK}.\nnight.entered={hourLabel}. Pacto noturno aberto.\nidle.returned=Após {minutesAway}min de quietude, retornas.\ntool.multiStreak={toolList} ressoam.\npet.levelUp=Lv.{level}. O selo se afrouxa.\npet.statBreakthrough={stat} cruza {value}.\nusage.dailyRecord=Hoje {tokensK}. Grimório reescrito.\nreminder.hydration=Após {durationMin}min de rito, bebe.\nreminder.sedentary=Selo do sentado formado. Ergue-te.\nreminder.lateNight={hourLabel}. Noite profunda. Poupa forças."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started=Ритуал {tool} начинается.\nturn.completed=Обряд {tool} завершён.\nturn.completedFast={tool} разрезал туман за {durationSec}.\nturn.completedLong=Испытание {durationMin}мин пройдено.\nturn.needsInput={tool} призывает твой суд.\nturn.interrupted=Ритуал {tool} прерван.\ntool.switched={prevTool} уходит. {tool} берёт клинок.\nidle.entered=Тишина опускается. Сердце спит.\ntokens.burst={tool} испил {tokensK}.\nnight.entered={hourLabel}. Ночной пакт открыт.\nidle.returned=После {minutesAway}мин затишья ты возвращаешься.\ntool.multiStreak={toolList} резонируют.\npet.levelUp=Lv.{level}. Печать слабеет.\npet.statBreakthrough={stat} превзошёл {value}.\nusage.dailyRecord=Сегодня {tokensK}. Гримуар переписан.\nreminder.hydration=После {durationMin}мин ритуала — пей.\nreminder.sedentary=Сидячая печать сформирована. Встань.\nreminder.lateNight={hourLabel}. Глубокая ночь. Береги силы."
+            "value": "turn.started=Ритуал {tool} начинается.\nturn.completed=Обряд {tool} завершён.\nturn.completedFast={tool} разрезал туман за {durationSec}.\nturn.completedLong=Испытание {durationMin}мин пройдено.\nturn.needsInput={tool} призывает твой суд.\nturn.interrupted=Ритуал {tool} прерван.\ntool.switched={prevTool} уходит. {tool} берёт клинок.\ntokens.burst={tool} испил {tokensK}.\nnight.entered={hourLabel}. Ночной пакт открыт.\nidle.returned=После {minutesAway}мин затишья ты возвращаешься.\ntool.multiStreak={toolList} резонируют.\npet.levelUp=Lv.{level}. Печать слабеет.\npet.statBreakthrough={stat} превзошёл {value}.\nusage.dailyRecord=Сегодня {tokensK}. Гримуар переписан.\nreminder.hydration=После {durationMin}мин ритуала — пей.\nreminder.sedentary=Сидячая печать сформирована. Встань.\nreminder.lateNight={hourLabel}. Глубокая ночь. Береги силы."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}仪式启，符文亮。\nturn.completed={tool}礼成，余光未散。\nturn.completedFast={tool}{durationSec}破雾。\nturn.completedLong={durationMin}分钟之劫，已渡。\nturn.needsInput={tool}召汝裁决。\nturn.interrupted={tool}仪式中断，余波未平。\ntool.switched={prevTool}退场，{tool}执剑。\nidle.entered=寂静降临，核心入眠。\ntokens.burst={tool}吞{tokensK}，魔力暴涨。\nnight.entered={hourLabel}，暗夜契约启。\nidle.returned=沉寂{minutesAway}分钟，汝归。\ntool.multiStreak={toolList}共鸣，阵列展。\npet.levelUp=Lv.{level}觉醒，封印松。\npet.statBreakthrough={stat}越{value}界。\nusage.dailyRecord=今日{tokensK}破纪录，秘典更替。\nreminder.hydration={durationMin}分钟仪毕，饮水补魔。\nreminder.sedentary=久坐封印成，速速起身。\nreminder.lateNight={hourLabel}夜深，存体力。"
+            "value": "turn.started={tool}仪式启，符文亮。\nturn.completed={tool}礼成，余光未散。\nturn.completedFast={tool}{durationSec}破雾。\nturn.completedLong={durationMin}分钟之劫，已渡。\nturn.needsInput={tool}召汝裁决。\nturn.interrupted={tool}仪式中断，余波未平。\ntool.switched={prevTool}退场，{tool}执剑。\nidle.monologue=静默档案仍在低鸣。\ntokens.burst={tool}吞{tokensK}，魔力暴涨。\nnight.entered={hourLabel}，暗夜契约启。\nidle.returned=沉寂{minutesAway}分钟，汝归。\ntool.multiStreak={toolList}共鸣，阵列展。\npet.levelUp=Lv.{level}觉醒，封印松。\npet.statBreakthrough={stat}越{value}界。\nusage.dailyRecord=今日{tokensK}破纪录，秘典更替。\nreminder.hydration={durationMin}分钟仪毕，饮水补魔。\nreminder.sedentary=久坐封印成，速速起身。\nreminder.lateNight={hourLabel}夜深，存体力。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "turn.started={tool}儀式啟，符文亮。\nturn.completed={tool}禮成，餘光未散。\nturn.completedFast={tool}{durationSec}破霧。\nturn.completedLong={durationMin}分鐘之劫，已渡。\nturn.needsInput={tool}召汝裁決。\nturn.interrupted={tool}儀式中斷，餘波未平。\ntool.switched={prevTool}退場，{tool}執劍。\nidle.entered=寂靜降臨，核心入眠。\ntokens.burst={tool}吞{tokensK}，魔力暴漲。\nnight.entered={hourLabel}，暗夜契約啟。\nidle.returned=沉寂{minutesAway}分鐘，汝歸。\ntool.multiStreak={toolList}共鳴，陣列展。\npet.levelUp=Lv.{level}覺醒，封印鬆。\npet.statBreakthrough={stat}越{value}界。\nusage.dailyRecord=今日{tokensK}破紀錄，秘典更替。\nreminder.hydration={durationMin}分鐘儀畢，飲水補魔。\nreminder.sedentary=久坐封印成，速速起身。\nreminder.lateNight={hourLabel}夜深，存體力。"
+            "value": "turn.started={tool}儀式啟，符文亮。\nturn.completed={tool}禮成，餘光未散。\nturn.completedFast={tool}{durationSec}破霧。\nturn.completedLong={durationMin}分鐘之劫，已渡。\nturn.needsInput={tool}召汝裁決。\nturn.interrupted={tool}儀式中斷，餘波未平。\ntool.switched={prevTool}退場，{tool}執劍。\nidle.monologue=靜默檔案仍在低鳴。\ntokens.burst={tool}吞{tokensK}，魔力暴漲。\nnight.entered={hourLabel}，暗夜契約啟。\nidle.returned=沉寂{minutesAway}分鐘，汝歸。\ntool.multiStreak={toolList}共鳴，陣列展。\npet.levelUp=Lv.{level}覺醒，封印鬆。\npet.statBreakthrough={stat}越{value}界。\nusage.dailyRecord=今日{tokensK}破紀錄，秘典更替。\nreminder.hydration={durationMin}分鐘儀畢，飲水補魔。\nreminder.sedentary=久坐封印成，速速起身。\nreminder.lateNight={hourLabel}夜深，存體力。"
           }
         }
       }
@@ -54401,13 +54401,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "归档当前宠物"
+            "value": "封存当前宠物"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "歸檔目前寵物"
+            "value": "封存目前寵物"
           }
         }
       }
@@ -54424,13 +54424,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "确认归档"
+            "value": "确认封存"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "確認歸檔"
+            "value": "確認封存"
           }
         }
       }
@@ -54447,59 +54447,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将当前宠物归档到图鉴，然后选择新的伙伴。"
+            "value": "将当前宠物封存到图鉴，然后选择新的伙伴。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將目前寵物歸檔到圖鑑，然後選擇新的夥伴。"
-          }
-        }
-      }
-    },
-    "pet.archive.unlocked": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archive Unlocked"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已解锁归档"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已解鎖歸檔"
-          }
-        }
-      }
-    },
-    "pet.archive.unlocked.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archive unlocks at level 100, but levels can keep increasing."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "归档在 100 级解锁，等级仍可继续提升。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "歸檔在 100 級解鎖，等級仍可繼續提升。"
+            "value": "將目前寵物封存到圖鑑，然後選擇新的夥伴。"
           }
         }
       }
@@ -54516,13 +54470,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "归档"
+            "value": "封存"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "歸檔"
+            "value": "封存"
           }
         }
       }
@@ -54539,36 +54493,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "归档历史"
+            "value": "封存历史"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "歸檔歷史"
-          }
-        }
-      }
-    },
-    "pet.archive.unlock_effect": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archive ability unlocked"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已解锁归档能力"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已解鎖歸檔能力"
+            "value": "封存歷史"
           }
         }
       }
@@ -54585,13 +54516,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已归档"
+            "value": "已封存"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已歸檔"
+            "value": "已封存"
           }
         }
       }
@@ -54608,13 +54539,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "还没有归档记录"
+            "value": "还没有封存记录"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "還沒有歸檔記錄"
+            "value": "還沒有封存記錄"
           }
         }
       }
@@ -58712,6 +58643,1133 @@
           "stringUnit": {
             "state": "translated",
             "value": "Top row is full, added a bottom tab instead."
+          }
+        }
+      }
+    },
+    "pet.archive.available": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive Pet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "封存宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "封存寵物"
+          }
+        }
+      }
+    },
+    "pet.archive.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archived current pet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已封存当前宠物。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已封存目前寵物。"
+          }
+        }
+      }
+    },
+    "pet.archive.restore.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取回"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取回"
+          }
+        }
+      }
+    },
+    "pet.archive.restore.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored archived pet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取回封存宠物。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取回封存寵物。"
+          }
+        }
+      }
+    },
+    "pet.claim.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claim Pet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "领取宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "領取寵物"
+          }
+        }
+      }
+    },
+    "pet.claim.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claimed pet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已领取宠物。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已領取寵物。"
+          }
+        }
+      }
+    },
+    "pet.claim.custom.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed custom pet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装的自定义宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝的自訂寵物"
+          }
+        }
+      }
+    },
+    "pet.claim.custom.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A custom Codex-format companion installed from Petdex."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 Petdex 安装的 Codex 标准自定义伙伴。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 Petdex 安裝的 Codex 標準自訂夥伴。"
+          }
+        }
+      }
+    },
+    "pet.claim.custom.section": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Pets"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂寵物"
+          }
+        }
+      }
+    },
+    "pet.custom.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Pet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂寵物"
+          }
+        }
+      }
+    },
+    "pet.custom.installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom pet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂寵物"
+          }
+        }
+      }
+    },
+    "pet.custom.installed_count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ installed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装 %@ 个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝 %@ 個"
+          }
+        }
+      }
+    },
+    "pet.custom.install.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Custom Pet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加自定义宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增自訂寵物"
+          }
+        }
+      }
+    },
+    "pet.custom.install.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Custom Pet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加自定义宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增自訂寵物"
+          }
+        }
+      }
+    },
+    "pet.custom.install.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install a Codex-format pet from Petdex."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 Petdex 安装 Codex 标准宠物素材。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 Petdex 安裝 Codex 標準寵物素材。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.url.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex Page URL"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex 页面地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex 頁面網址"
+          }
+        }
+      }
+    },
+    "pet.custom.install.url.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://petdex.crafter.run/zh/pets/boba"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://petdex.crafter.run/zh/pets/boba"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://petdex.crafter.run/zh/pets/boba"
+          }
+        }
+      }
+    },
+    "pet.custom.install.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝"
+          }
+        }
+      }
+    },
+    "pet.custom.install.installing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installing..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在安装..."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在安裝..."
+          }
+        }
+      }
+    },
+    "pet.custom.install.success_format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝 %@。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.url_required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please enter a Petdex pet page URL."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入 Petdex 宠物页面地址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入 Petdex 寵物頁面網址。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.invalid_url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please enter a Petdex pet page URL."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入 Petdex 宠物页面地址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入 Petdex 寵物頁面網址。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.fetch_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to load the Petdex page."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载 Petdex 页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入 Petdex 頁面。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.decode_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to read the Petdex page."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 Petdex 页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取 Petdex 頁面。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.zip_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to find a Petdex package on this page."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个页面没有找到 Petdex 宠物安装包。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個頁面沒有找到 Petdex 寵物安裝包。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.invalid_package": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Petdex package name is invalid."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex 安装包名称无效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex 安裝包名稱無效。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.invalid_archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The downloaded package does not contain a valid pet.json and spritesheet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载的安装包缺少有效的 pet.json 或 spritesheet。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載的安裝包缺少有效的 pet.json 或 spritesheet。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.verify_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed pet package could not be verified."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装的宠物素材校验失败。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝的寵物素材校驗失敗。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.download_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to download the pet package."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宠物安装包下载失败。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寵物安裝包下載失敗。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.unzip_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to unpack the pet package."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宠物安装包解压失败。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寵物安裝包解壓失敗。"
+          }
+        }
+      }
+    },
+    "pet.dex.bundled.section": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bundled Pets"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内置宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內建寵物"
+          }
+        }
+      }
+    },
+    "pet.effect.max_level.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your companion can keep growing."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的伙伴仍可继续成长。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的夥伴仍可繼續成長。"
+          }
+        }
+      }
+    },
+    "pet.custom.market.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Pets"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得寵物"
+          }
+        }
+      }
+    },
+    "pet.custom.market.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex Marketplace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex 宠物市场"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex 寵物市場"
+          }
+        }
+      }
+    },
+    "pet.custom.market.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a pet there, then paste its page URL here."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在那里选择宠物，然后把页面地址粘贴到这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在那裡選擇寵物，然後把頁面網址貼到這裡。"
+          }
+        }
+      }
+    },
+    "pet.custom.market.url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://petdex.crafter.run"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://petdex.crafter.run/zh"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://petdex.crafter.run/zh"
+          }
+        }
+      }
+    },
+    "pet.custom.install.resolve": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parse"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析"
+          }
+        }
+      }
+    },
+    "pet.custom.install.resolve_again": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parse Again"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新解析"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新解析"
+          }
+        }
+      }
+    },
+    "pet.custom.install.resolving": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading Petdex page..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取 Petdex 页面..."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在讀取 Petdex 頁面..."
+          }
+        }
+      }
+    },
+    "pet.custom.install.installing.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading, unpacking, and validating the pet package."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下载、解压并校验宠物素材。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下載、解壓並校驗寵物素材。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝"
+          }
+        }
+      }
+    },
+    "pet.custom.install.name.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pet Name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宠物名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寵物名稱"
+          }
+        }
+      }
+    },
+    "pet.custom.install.preview.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pet Preview"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宠物预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寵物預覽"
+          }
+        }
+      }
+    },
+    "pet.custom.install.name_required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please enter a pet name."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入宠物名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入寵物名稱。"
+          }
+        }
+      }
+    },
+    "pet.custom.install.validation.page": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex page verified"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex 页面已验证"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petdex 頁面已驗證"
+          }
+        }
+      }
+    },
+    "pet.custom.install.validation.package": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Package link found"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已找到安装包链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已找到安裝包連結"
+          }
+        }
+      }
+    },
+    "pet.custom.install.validation.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex-format check runs during install"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装时校验 Codex 素材格式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝時校驗 Codex 素材格式"
+          }
+        }
+      }
+    },
+    "pet.speech.llm.idle_system_prompt_format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You are a desktop pixel pet named %@. Personality: %@. Write a casual idle monologue in Simplified Chinese. Use at most 2 short lines and 36 characters total. Do not mention code, files, secrets, commands, or exact task results. Do not explain. Output only the line."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是名叫 %@ 的桌面像素宠物，性格：%@。请写一句闲置时的中文自言自语，最多 2 行，总长不超过 36 字。不要提代码、文件、密钥、命令或具体任务结果。不要解释，只输出台词。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是名叫 %@ 的桌面像素寵物，性格：%@。請寫一句閒置時的中文自言自語，最多 2 行，總長不超過 36 字。不要提程式碼、檔案、密鑰、命令或具體任務結果。不要解釋，只輸出台詞。"
+          }
+        }
+      }
+    },
+    "pet.speech.llm.idle_user_prompt_format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle event: %@\nCurrent hour: %@\nRecent tool: %@ / model: %@\nProject nickname: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "闲置事件：%@\n当前时间：%@\n最近工具：%@ / 模型：%@\n项目昵称：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置事件：%@\n目前時間：%@\n最近工具：%@ / 模型：%@\n專案暱稱：%@"
           }
         }
       }

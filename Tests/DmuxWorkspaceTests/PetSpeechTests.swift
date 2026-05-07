@@ -88,6 +88,27 @@ final class PetSpeechCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.displayLine?.text, "codex is running")
     }
 
+    func testRunningActivityStatusDisplaysAssistantPreviewWhenAvailable() {
+        let coordinator = PetSpeechCoordinator()
+        let settings = AppAIPetSettings()
+        coordinator.configure(
+            settings: { settings },
+            petName: { "测试宠" },
+            activitySnapshots: { [] }
+        )
+
+        coordinator.updateActivityStatus(
+            .running(tool: "codex"),
+            assistantPreview: "我先检查项目结构。\n然后确认入口和配置。"
+        )
+
+        XCTAssertNil(coordinator.currentLine)
+        XCTAssertEqual(coordinator.currentActivityLine?.key, "running-preview:codex:我先检查项目结构。\n然后确认入口和配置。")
+        XCTAssertEqual(coordinator.currentActivityLine?.isLivePreview, true)
+        XCTAssertEqual(coordinator.displayLine?.isActivityStatus, true)
+        XCTAssertEqual(coordinator.displayLine?.text, "我先检查项目结构。\n然后确认入口和配置。")
+    }
+
     func testWaitingInputActivityStatusUsesAttentionToneWhenSpeechModeIsOff() {
         let coordinator = PetSpeechCoordinator()
         let settings = AppAIPetSettings()
@@ -174,7 +195,7 @@ final class PetSpeechCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.displayLine?.text, "codex is running")
     }
 
-    func testSpeechTemporarilyOverridesActivityStatus() {
+    func testActivityStatusOverridesSpeechLine() {
         let coordinator = PetSpeechCoordinator()
         var settings = AppAIPetSettings()
         settings.speechMode = .encourage
@@ -191,8 +212,30 @@ final class PetSpeechCoordinatorTests: XCTestCase {
         coordinator.notify(PetSpeechEvent(kind: .petLevelUp, payload: ["level": "2"]))
 
         XCTAssertEqual(activityLine?.isActivityStatus, true)
-        XCTAssertEqual(coordinator.displayLine?.isActivityStatus, false)
+        XCTAssertEqual(coordinator.displayLine?.isActivityStatus, true)
+        XCTAssertEqual(coordinator.displayLine?.text, "codex is running")
         XCTAssertEqual(coordinator.currentActivityLine?.key, "running:codex")
+        XCTAssertEqual(coordinator.currentLine?.eventKind, .petLevelUp)
+    }
+
+    func testIdleMonologueDoesNotOverrideActivityStatus() {
+        let coordinator = PetSpeechCoordinator(idleMonologueDelayProvider: { 60 })
+        var settings = AppAIPetSettings()
+        settings.speechMode = .encourage
+        settings.speechFrequency = .lively
+        settings.speechQuietDuringWork = false
+        coordinator.configure(
+            settings: { settings },
+            petName: { "测试宠" },
+            activitySnapshots: { [] }
+        )
+
+        coordinator.updateActivityStatus(.running(tool: "codex"))
+        coordinator.notify(PetSpeechEvent(kind: .idleMonologue))
+
+        XCTAssertEqual(coordinator.currentLine?.eventKind, .idleMonologue)
+        XCTAssertEqual(coordinator.displayLine?.isActivityStatus, true)
+        XCTAssertEqual(coordinator.displayLine?.text, "codex is running")
     }
 
     func testAttentionActivityStatusOverridesSpeechLine() {
@@ -231,6 +274,23 @@ final class PetSpeechCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.displayLine?.isActivityStatus, true)
         XCTAssertEqual(coordinator.displayLine?.tone, .success)
         XCTAssertEqual(coordinator.displayLine?.text, "codex completed")
+    }
+
+    func testFailedActivityStatusUsesWarningTone() {
+        let coordinator = PetSpeechCoordinator()
+        let settings = AppAIPetSettings()
+        coordinator.configure(
+            settings: { settings },
+            petName: { "测试宠" },
+            activitySnapshots: { [] }
+        )
+
+        coordinator.updateActivityStatus(.completed(tool: "codex", finishedAt: Date(), exitCode: 1))
+
+        XCTAssertEqual(coordinator.currentActivityLine?.key, "failed:codex:1")
+        XCTAssertEqual(coordinator.displayLine?.isActivityStatus, true)
+        XCTAssertEqual(coordinator.displayLine?.tone, .warning)
+        XCTAssertEqual(coordinator.displayLine?.text, "codex failed")
     }
 
     func testModeOffStillAllowsReminderEvents() {
@@ -343,11 +403,39 @@ final class PetSpeechCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentLine, firstLine)
     }
 
-    func testLLMReplacementOnlyRunsForEligibleEvents() async {
+    func testIdleMonologueUsesLLMReplacementWhenEnabled() async {
         let coordinator = PetSpeechCoordinator()
         var aiSettings = AppAISettings()
         aiSettings.pet.speechMode = .encourage
-        aiSettings.pet.speechFrequency = .normal
+        aiSettings.pet.speechFrequency = .lively
+        aiSettings.pet.speechLLMEnabled = true
+        aiSettings.pet.speechQuietDuringWork = false
+        var requestedKinds: [PetSpeechEventKind] = []
+        coordinator.configure(
+            settings: { aiSettings.pet },
+            aiSettings: { aiSettings },
+            petName: { "测试宠" },
+            activitySnapshots: { [] },
+            llmLineProvider: { event, _, _ in
+                requestedKinds.append(event.kind)
+                return "LLM 台词"
+            }
+        )
+
+        coordinator.notify(PetSpeechEvent(kind: .idleMonologue))
+        XCTAssertEqual(coordinator.currentLine?.source, .template)
+
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(coordinator.currentLine?.text, "LLM 台词")
+        XCTAssertEqual(coordinator.currentLine?.source, .llm)
+        XCTAssertEqual(requestedKinds, [.idleMonologue])
+    }
+
+    func testLLMReplacementDoesNotRunForNonIdleEvents() async {
+        let coordinator = PetSpeechCoordinator()
+        var aiSettings = AppAISettings()
+        aiSettings.pet.speechMode = .encourage
+        aiSettings.pet.speechFrequency = .lively
         aiSettings.pet.speechLLMEnabled = true
         aiSettings.pet.speechQuietDuringWork = false
         var requestedKinds: [PetSpeechEventKind] = []
@@ -363,19 +451,17 @@ final class PetSpeechCoordinatorTests: XCTestCase {
         )
 
         coordinator.notify(PetSpeechEvent(kind: .tokensBurst, payload: ["tokensK": "60K"]))
-        XCTAssertEqual(coordinator.currentLine?.source, .template)
 
         try? await Task.sleep(for: .milliseconds(50))
-        XCTAssertEqual(coordinator.currentLine?.text, "LLM 台词")
-        XCTAssertEqual(coordinator.currentLine?.source, .llm)
-        XCTAssertEqual(requestedKinds, [.tokensBurst])
+        XCTAssertEqual(coordinator.currentLine?.source, .template)
+        XCTAssertTrue(requestedKinds.isEmpty)
     }
 
     func testStopCancelsPendingLLMReplacement() async {
         let coordinator = PetSpeechCoordinator()
         var aiSettings = AppAISettings()
         aiSettings.pet.speechMode = .encourage
-        aiSettings.pet.speechFrequency = .normal
+        aiSettings.pet.speechFrequency = .lively
         aiSettings.pet.speechLLMEnabled = true
         aiSettings.pet.speechQuietDuringWork = false
 
@@ -398,25 +484,64 @@ final class PetSpeechCoordinatorTests: XCTestCase {
             }
         )
 
-        coordinator.notify(PetSpeechEvent(kind: .tokensBurst, payload: ["tokensK": "60K"]))
+        coordinator.notify(PetSpeechEvent(kind: .idleMonologue))
         await fulfillment(of: [providerStarted], timeout: 1)
 
         coordinator.stop()
         await fulfillment(of: [providerCancelled], timeout: 1)
         XCTAssertNotEqual(coordinator.currentLine?.source, .llm)
     }
+
+    func testIdleMonologueIsScheduledAfterIdleWindow() {
+        let coordinator = PetSpeechCoordinator(idleMonologueDelayProvider: { 60 })
+        var settings = AppAIPetSettings()
+        settings.speechMode = .encourage
+        settings.speechFrequency = .lively
+        settings.speechQuietDuringWork = false
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var snapshots: [PetSpeechActivitySnapshot] = []
+        coordinator.configure(
+            settings: { settings },
+            petName: { "测试宠" },
+            activitySnapshots: { snapshots }
+        )
+
+        coordinator.runPeriodicChecksForTesting(now: start)
+        coordinator.runPeriodicChecksForTesting(now: start.addingTimeInterval(300))
+        XCTAssertNil(coordinator.currentLine)
+
+        coordinator.runPeriodicChecksForTesting(now: start.addingTimeInterval(359))
+        XCTAssertEqual(coordinator.currentLine?.eventKind, nil)
+
+        coordinator.runPeriodicChecksForTesting(now: start.addingTimeInterval(360))
+        XCTAssertEqual(coordinator.currentLine?.eventKind, .idleMonologue)
+
+        snapshots = [
+            PetSpeechActivitySnapshot(
+                tool: "codex",
+                model: "gpt-test",
+                projectName: "demo",
+                state: "responding",
+                updatedAt: start.addingTimeInterval(361),
+                activeStartedAt: start.addingTimeInterval(361),
+                totalTokens: 0
+            )
+        ]
+        coordinator.clearCurrentLine()
+        coordinator.runPeriodicChecksForTesting(now: start.addingTimeInterval(420))
+        XCTAssertNil(coordinator.currentLine)
+    }
 }
 
 final class PetSpeechLLMServiceTests: XCTestCase {
-    func testAuditPromptUsesMetadataOnly() {
+    func testAuditPromptUsesIdleMetadataOnly() {
         let prompt = PetSpeechLLMService.auditPrompt(
             event: PetSpeechEvent(
-                kind: .turnCompletedLong,
+                kind: .idleMonologue,
                 payload: [
                     "tool": "codex",
                     "model": "gpt-test",
-                    "tokens": "12000",
-                    "durationMin": "42",
+                    "hourLabel": "17:00",
                     "project": "demo",
                     "message": "不要泄露这段正文",
                     "body": "secret transcript",
@@ -429,9 +554,9 @@ final class PetSpeechLLMServiceTests: XCTestCase {
         let combined = "\(prompt.systemPrompt)\n\(prompt.userPrompt)"
         XCTAssertTrue(combined.contains("codex"))
         XCTAssertTrue(combined.contains("gpt-test"))
-        XCTAssertTrue(combined.contains("12000"))
-        XCTAssertTrue(combined.contains("42"))
+        XCTAssertTrue(combined.contains("17:00"))
         XCTAssertTrue(combined.contains("demo"))
+        XCTAssertTrue(combined.contains("简体中文") || combined.contains("Simplified Chinese"))
         XCTAssertFalse(combined.contains("不要泄露这段正文"))
         XCTAssertFalse(combined.contains("secret transcript"))
         XCTAssertFalse(combined.contains("private answer"))

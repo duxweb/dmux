@@ -26,7 +26,9 @@ final class CodexPetAtlasSpecTests: XCTestCase {
         XCTAssertEqual(durations.count, animation.frameCount)
         XCTAssertEqual(
             durations.reduce(0, +),
-            CodexPetPlaybackPolicy.baseFrameDuration * Double(animation.frameCount),
+            CodexPetPlaybackPolicy.baseFrameDuration
+                * Double(animation.frameCount)
+                * CodexPetPlaybackPolicy.fullFrameCycleDurationMultiplier,
             accuracy: 0.001
         )
         XCTAssertGreaterThan(durations[0], durations[1])
@@ -57,6 +59,35 @@ final class CodexPetAtlasSpecTests: XCTestCase {
             accuracy: 0.001
         )
         XCTAssertGreaterThan(durations[0], durations[1])
+    }
+
+    func testPlaybackSlightlySpeedsUpOnlyFullFrameRows() {
+        let animation = CodexPetAtlasSpec.animation(for: .runningRight)
+        let fullFrameTotal = CodexPetPlaybackPolicy.frameDurations(
+            for: animation,
+            activeFrameCount: animation.frameCount
+        ).reduce(0, +)
+        let shortFrameTotal = CodexPetPlaybackPolicy.frameDurations(
+            for: animation,
+            activeFrameCount: animation.frameCount - 1
+        ).reduce(0, +)
+
+        XCTAssertEqual(
+            fullFrameTotal,
+            CodexPetPlaybackPolicy.baseFrameDuration
+                * Double(animation.frameCount)
+                * CodexPetPlaybackPolicy.fullFrameCycleDurationMultiplier,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            shortFrameTotal,
+            CodexPetPlaybackPolicy.baseFrameDuration * Double(animation.frameCount),
+            accuracy: 0.001
+        )
+        XCTAssertLessThan(
+            fullFrameTotal,
+            CodexPetPlaybackPolicy.baseFrameDuration * Double(animation.frameCount)
+        )
     }
 
     func testPlaybackUsesActiveFrameCountWithoutRushingLongRows() {
@@ -92,7 +123,8 @@ final class CodexPetAtlasSpecTests: XCTestCase {
             waitingTotal,
             CodexPetPlaybackPolicy.baseFrameDuration
                 * Double(waiting.frameCount)
-                * CodexPetPlaybackPolicy.cycleDurationMultiplier(for: .waiting),
+                * CodexPetPlaybackPolicy.cycleDurationMultiplier(for: .waiting)
+                * CodexPetPlaybackPolicy.fullFrameCycleDurationMultiplier,
             accuracy: 0.001
         )
         XCTAssertGreaterThan(waitingTotal, idleTotal)
@@ -281,5 +313,62 @@ final class CodexPetPackageServiceTests: XCTestCase {
 
         XCTAssertEqual(packages.map(\.manifest.id), ["demo"])
         XCTAssertEqual(packages.first?.spritesheetURL.lastPathComponent, "spritesheet.webp")
+    }
+
+    func testCustomPetsScanInstalledPackages() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-custom-pet-\(UUID().uuidString)", isDirectory: true)
+        let valid = root.appendingPathComponent("boba", isDirectory: true)
+        try FileManager.default.createDirectory(at: valid, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Data("{}".utf8).write(to: valid.appendingPathComponent("spritesheet.webp"))
+        try Data(
+            #"{"id":"boba","displayName":"Boba","description":"Bubble tea companion.","spritesheetPath":"spritesheet.webp"}"#.utf8
+        ).write(to: valid.appendingPathComponent("pet.json"))
+
+        let pets = CodexPetPackageService().customPets(rootURL: root)
+
+        XCTAssertEqual(pets.count, 1)
+        XCTAssertEqual(pets[0].id, "boba")
+        XCTAssertEqual(pets[0].directoryName, "boba")
+        XCTAssertEqual(pets[0].spritesheetURL(rootURL: root), valid.appendingPathComponent("spritesheet.webp"))
+    }
+
+    func testPetdexHTMLParsesPreviewMetadataAndPackageURL() throws {
+        let html = #"""
+        <html>
+          <head>
+            <meta property="og:title" content="Boba — Animated Codex pet"/>
+            <meta name="description" content="A tiny otter sipping bubble tea."/>
+            <meta property="og:image" content="https://petdex.crafter.run/pets/boba/opengraph-image"/>
+            <script type="application/ld+json">
+            [{"@type":"CreativeWork","name":"Boba","image":"https://cdn.example.test/boba.webp"}]
+            </script>
+          </head>
+          <body>
+            <script>self.__data={"zipUrl":"https://pub.example.test/curated/boba/boba.zip"}</script>
+          </body>
+        </html>
+        """#
+
+        let request = try CodexPetPackageService.installRequest(
+            fromHTML: html,
+            pageURL: try XCTUnwrap(URL(string: "https://petdex.crafter.run/zh/pets/boba"))
+        )
+
+        XCTAssertEqual(request.slug, "boba")
+        XCTAssertEqual(request.displayName, "Boba")
+        XCTAssertEqual(request.resolvedDisplayName, "Boba")
+        XCTAssertEqual(request.description, "A tiny otter sipping bubble tea.")
+        XCTAssertEqual(request.imageURL?.absoluteString, "https://petdex.crafter.run/pets/boba/opengraph-image")
+        XCTAssertEqual(request.zipURL.absoluteString, "https://pub.example.test/curated/boba/boba.zip")
+        XCTAssertEqual(request.withDisplayName("奶茶").resolvedDisplayName, "奶茶")
+    }
+
+    func testNormalizesPackageIDForInstallDestination() {
+        XCTAssertEqual(CodexPetPackageService.normalizedPackageID(" Boba Pet! "), "boba-pet")
+        XCTAssertEqual(CodexPetPackageService.normalizedPackageID("../bad"), "bad")
+        XCTAssertEqual(CodexPetPackageService.normalizedPackageID("___"), "")
     }
 }

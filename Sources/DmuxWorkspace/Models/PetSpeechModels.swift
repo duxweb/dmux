@@ -127,7 +127,7 @@ enum PetSpeechEventKind: String, Codable, CaseIterable, Sendable {
     case turnNeedsInput = "turn.needsInput"
     case turnInterrupted = "turn.interrupted"
     case toolSwitched = "tool.switched"
-    case idleEntered = "idle.entered"
+    case idleMonologue = "idle.monologue"
     case tokensBurst = "tokens.burst"
     case nightEntered = "night.entered"
     case idleReturned = "idle.returned"
@@ -141,9 +141,9 @@ enum PetSpeechEventKind: String, Codable, CaseIterable, Sendable {
 
     var tier: PetSpeechTier {
         switch self {
-        case .turnStarted, .turnCompleted, .turnCompletedFast, .turnCompletedLong, .turnNeedsInput, .turnInterrupted, .toolSwitched, .idleEntered:
+        case .turnStarted, .turnCompleted, .turnCompletedFast, .turnCompletedLong, .turnNeedsInput, .turnInterrupted, .toolSwitched:
             return .daily
-        case .tokensBurst, .nightEntered, .idleReturned, .toolMultiStreak, .reminderHydration, .reminderSedentary, .reminderLateNight:
+        case .idleMonologue, .tokensBurst, .nightEntered, .idleReturned, .toolMultiStreak, .reminderHydration, .reminderSedentary, .reminderLateNight:
             return .rhythm
         case .petLevelUp, .petStatBreakthrough, .usageDailyRecord:
             return .milestone
@@ -166,6 +166,15 @@ enum PetSpeechEventKind: String, Codable, CaseIterable, Sendable {
     var isTurnFamily: Bool {
         switch self {
         case .turnStarted, .turnCompleted, .turnCompletedFast, .turnCompletedLong, .turnNeedsInput, .turnInterrupted, .toolSwitched:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isIdleSpeech: Bool {
+        switch self {
+        case .idleMonologue:
             return true
         default:
             return false
@@ -232,6 +241,7 @@ struct PetActivityStatusLine: Identifiable, Equatable, Sendable {
     var updatedAt: Date
     var expiresAt: Date?
     var tone: Tone = .normal
+    var isLivePreview = false
 }
 
 struct PetSpeechDisplayLine: Equatable, Sendable {

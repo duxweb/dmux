@@ -2,6 +2,7 @@ import Foundation
 
 struct CodexParsedRuntimeState {
     var model: String?
+    var assistantPreview: String?
     var inputTokens: Int?
     var outputTokens: Int?
     var cachedInputTokens: Int?
@@ -70,6 +71,7 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
     var latestCumulativeUsage: CodexUsageTotals?
     var cumulativeUsageAtTurnStart: CodexUsageTotals?
     var latestResolvedUsage: CodexUsageTotals?
+    var latestAssistantPreview: String?
     var latestTurnWasInterrupted = false
     var latestTurnCompleted = false
 
@@ -85,6 +87,9 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
 
         let rowType = row["type"] as? String
         let payload = row["payload"] as? [String: Any] ?? [:]
+        if let preview = codexAssistantPreview(rowType: rowType, payload: payload) {
+            latestAssistantPreview = preview
+        }
         if rowType == "turn_context",
            let model = payload["model"] as? String,
            !model.isEmpty,
@@ -209,6 +214,7 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
 
     return CodexParsedRuntimeState(
         model: latestModel,
+        assistantPreview: latestAssistantPreview,
         inputTokens: finalUsage?.inputTokens ?? inputTokens,
         outputTokens: finalUsage?.outputTokens ?? outputTokens,
         cachedInputTokens: finalUsage?.cachedInputTokens ?? cachedInputTokens,
@@ -221,6 +227,147 @@ private func parseCodexRuntimeState(fileURL: URL?, projectPath: String?) -> Code
         wasInterrupted: latestTurnWasInterrupted,
         hasCompletedTurn: latestTurnCompleted
     )
+}
+
+private func codexAssistantPreview(rowType: String?, payload: [String: Any]) -> String? {
+    switch rowType {
+    case "event_msg":
+        guard payload["type"] as? String == "agent_message" else {
+            return nil
+        }
+        return codexSanitizedAssistantPreview(from: [
+            payload["message"],
+            payload["text"],
+            payload["content"],
+        ])
+    case "response_item":
+        let payloadType = payload["type"] as? String
+        if payloadType == "reasoning" {
+            return codexSanitizedAssistantPreview(from: [
+                payload["summary"],
+                payload["summary_text"],
+                payload["text"],
+            ])
+        }
+        if payloadType == "agentMessage" {
+            return codexSanitizedAssistantPreview(from: [
+                payload["text"],
+                payload["content"],
+                payload["message"],
+            ])
+        }
+        guard payloadType == "message" else {
+            return nil
+        }
+        let role = payload["role"] as? String
+        guard role == nil || role == "assistant" else {
+            return nil
+        }
+        return codexSanitizedAssistantPreview(from: [
+            payload["content"],
+            payload["message"],
+            payload["text"],
+        ])
+    default:
+        return nil
+    }
+}
+
+private func codexSanitizedAssistantPreview(from values: [Any?]) -> String? {
+    for value in values {
+        for text in codexFlattenText(value) {
+            if let preview = codexSanitizedAssistantPreview(text) {
+                return preview
+            }
+        }
+    }
+    return nil
+}
+
+private func codexFlattenText(_ value: Any?) -> [String] {
+    guard let value else {
+        return []
+    }
+    if let text = value as? String {
+        return [text]
+    }
+    if let values = value as? [Any] {
+        return values.flatMap(codexFlattenText)
+    }
+    if let object = value as? [String: Any] {
+        if let type = object["type"] as? String,
+           ["tool_call", "tool_result", "function_call", "code"].contains(type) {
+            return []
+        }
+        return [
+            object["summary"],
+            object["summary_text"],
+            object["text"],
+            object["content"],
+            object["message"],
+        ].flatMap(codexFlattenText)
+    }
+    return []
+}
+
+private func codexSanitizedAssistantPreview(_ text: String) -> String? {
+    let normalized = text
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .replacingOccurrences(of: "\r", with: "\n")
+    var lines: [String] = []
+    var inCodeBlock = false
+
+    for rawLine in normalized.components(separatedBy: "\n") {
+        let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+            inCodeBlock.toggle()
+            continue
+        }
+        guard !inCodeBlock,
+              codexAssistantPreviewAllowsLine(trimmed) else {
+            continue
+        }
+        lines.append(trimmed)
+        if lines.count >= 3 {
+            break
+        }
+    }
+
+    let preview = lines.joined(separator: "\n")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard preview.isEmpty == false else {
+        return nil
+    }
+    return String(preview.prefix(180)).trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func codexAssistantPreviewAllowsLine(_ line: String) -> Bool {
+    guard line.isEmpty == false else {
+        return false
+    }
+    if line.hasPrefix("$ ")
+        || line.hasPrefix("> ")
+        || line.hasPrefix("➜")
+        || line.hasPrefix("git ")
+        || line.hasPrefix("swift ")
+        || line.hasPrefix("npm ")
+        || line.hasPrefix("pnpm ")
+        || line.hasPrefix("yarn ")
+        || line.hasPrefix("cd ")
+        || line.hasPrefix("./") {
+        return false
+    }
+    if line.contains("<environment_context>")
+        || line.contains("</environment_context>")
+        || line.contains("\"type\":")
+        || line.contains("```") {
+        return false
+    }
+    let symbols = line.filter { "{}[]();=<>".contains($0) }.count
+    if symbols >= 6 && symbols * 3 > line.count {
+        return false
+    }
+    return true
 }
 
 private struct CodexUsageTotals {

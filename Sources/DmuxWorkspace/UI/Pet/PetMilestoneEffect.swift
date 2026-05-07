@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Max Level (Lv.100) Effect
 
 struct PetMaxLevelEffectView: View {
-    let species: PetSpecies
+    let identity: PetIdentity
     let stage: PetStage
     let onComplete: () -> Void
 
@@ -78,7 +78,7 @@ struct PetMaxLevelEffectView: View {
                     .scaleEffect(crownScale)
                     .opacity(crownOpacity)
 
-                PetSpriteView(species: species, stage: stage, staticMode: false, displaySize: 120)
+                PetSpriteView(identity: identity, stage: stage, staticMode: false, displaySize: 120)
                     .scaleEffect(spriteScale)
                     .opacity(spriteOpacity)
 
@@ -93,7 +93,7 @@ struct PetMaxLevelEffectView: View {
                         .font(.system(size: 28, weight: .black, design: .rounded))
                         .foregroundStyle(LinearGradient(colors: [gold, deepGold], startPoint: .top, endPoint: .bottom))
                         .shadow(color: gold.opacity(0.5), radius: 4)
-                    Text(petL("pet.archive.unlock_effect", "Archive ability unlocked"))
+                    Text(petL("pet.effect.max_level.detail", "Your companion can keep growing."))
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.6))
                     Text(petL("common.tap_to_continue", "Tap to continue"))

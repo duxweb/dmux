@@ -6,9 +6,12 @@ import Observation
 @Observable
 final class PetSpeechCoordinator {
     private static let permissionActivityStatusDisplayDuration: TimeInterval = 12
+    private static let idleMonologueInitialDelay: TimeInterval = 300
+    private static let idleMonologueDelayRange: ClosedRange<TimeInterval> = 60 ... 180
 
     private let catalog: PetSpeechCatalog
     private let logger = AppDebugLog.shared
+    private let idleMonologueDelayProvider: () -> TimeInterval
 
     private var settingsProvider: (() -> AppAIPetSettings)?
     private var aiSettingsProvider: (() -> AppAISettings)?
@@ -23,7 +26,7 @@ final class PetSpeechCoordinator {
     private var lastTurnFamilySpeechAt: Date?
     private var lastAnyActivityAt: Date?
     private var currentIdleStartedAt: Date?
-    private var didEmitIdleEnteredForCurrentIdle = false
+    private var nextIdleMonologueAt: Date?
     private var emittedNightDays: Set<String> = []
     private var multiToolStartedAt: Date?
     private var didEmitCurrentMultiToolStreak = false
@@ -41,7 +44,7 @@ final class PetSpeechCoordinator {
     var currentLine: PetSpeechLine?
     var currentActivityLine: PetActivityStatusLine?
     var displayLine: PetSpeechDisplayLine? {
-        if let currentActivityLine, currentActivityLine.tone != .normal {
+        if let currentActivityLine {
             return PetSpeechDisplayLine(
                 text: currentActivityLine.text,
                 isActivityStatus: true,
@@ -55,18 +58,17 @@ final class PetSpeechCoordinator {
                 tone: currentLine.eventKind.displayTone
             )
         }
-        guard let currentActivityLine else {
-            return nil
-        }
-        return PetSpeechDisplayLine(
-            text: currentActivityLine.text,
-            isActivityStatus: true,
-            tone: currentActivityLine.tone
-        )
+        return nil
     }
 
-    init(catalog: PetSpeechCatalog = PetSpeechCatalog()) {
+    init(
+        catalog: PetSpeechCatalog = PetSpeechCatalog(),
+        idleMonologueDelayProvider: @escaping () -> TimeInterval = {
+            TimeInterval.random(in: PetSpeechCoordinator.idleMonologueDelayRange)
+        }
+    ) {
         self.catalog = catalog
+        self.idleMonologueDelayProvider = idleMonologueDelayProvider
     }
 
     func configure(
@@ -103,6 +105,7 @@ final class PetSpeechCoordinator {
         currentActivityLineExpiryTask = nil
         cancelPendingLLMReplacement()
         deferredNormalActivityLine = nil
+        nextIdleMonologueAt = nil
     }
 
     func notify(_ event: PetSpeechEvent) {
@@ -152,8 +155,18 @@ final class PetSpeechCoordinator {
         currentLine = nil
     }
 
-    func updateActivityStatus(_ phase: ProjectActivityPhase, projectName: String? = nil, now: Date = Date()) {
-        let candidate = activityStatusLine(for: phase, projectName: projectName, now: now)
+    func updateActivityStatus(
+        _ phase: ProjectActivityPhase,
+        projectName: String? = nil,
+        assistantPreview: String? = nil,
+        now: Date = Date()
+    ) {
+        let candidate = activityStatusLine(
+            for: phase,
+            projectName: projectName,
+            assistantPreview: assistantPreview,
+            now: now
+        )
         setActivityStatus(candidate, now: now)
     }
 
@@ -269,6 +282,12 @@ final class PetSpeechCoordinator {
         temporaryFrequencyOffset = max(-1, temporaryFrequencyOffset - 1)
         temporaryFrequencyOffsetUntil = Date().addingTimeInterval(3600)
     }
+
+    #if DEBUG
+    func runPeriodicChecksForTesting(now: Date) {
+        runPeriodicChecks(now: now)
+    }
+    #endif
 
     private func shouldSpeak(event: PetSpeechEvent, settings: AppAIPetSettings) -> Bool {
         if event.isHardOverride {
@@ -399,7 +418,7 @@ final class PetSpeechCoordinator {
         cancelPendingLLMReplacement()
         guard let aiSettings,
               aiSettings.pet.speechLLMEnabled,
-              event.tier >= .rhythm,
+              event.kind == .idleMonologue,
               let llmLineProvider else {
             return
         }
@@ -525,15 +544,33 @@ final class PetSpeechCoordinator {
     private func handleIdleTick(now: Date) {
         if currentIdleStartedAt == nil {
             currentIdleStartedAt = lastAnyActivityAt ?? now
-            didEmitIdleEnteredForCurrentIdle = false
+            nextIdleMonologueAt = nil
         }
         guard let idleStartedAt = currentIdleStartedAt,
-              didEmitIdleEnteredForCurrentIdle == false,
-              now.timeIntervalSince(idleStartedAt) >= 300 else {
+              now.timeIntervalSince(idleStartedAt) >= Self.idleMonologueInitialDelay else {
             return
         }
-        didEmitIdleEnteredForCurrentIdle = true
-        notify(PetSpeechEvent(kind: .idleEntered, occurredAt: now))
+
+        guard currentActivityLine == nil,
+              currentLine == nil else {
+            return
+        }
+
+        if nextIdleMonologueAt == nil {
+            nextIdleMonologueAt = now.addingTimeInterval(nextIdleMonologueDelay())
+        }
+        guard let scheduledAt = nextIdleMonologueAt,
+              now >= scheduledAt else {
+            return
+        }
+        nextIdleMonologueAt = now.addingTimeInterval(nextIdleMonologueDelay())
+        notify(
+            PetSpeechEvent(
+                kind: .idleMonologue,
+                payload: idleMonologuePayload(now: now),
+                occurredAt: now
+            )
+        )
     }
 
     private func handleActiveTick(activeSnapshots: [PetSpeechActivitySnapshot], now: Date) {
@@ -548,7 +585,7 @@ final class PetSpeechCoordinator {
             )
         }
         currentIdleStartedAt = nil
-        didEmitIdleEnteredForCurrentIdle = false
+        nextIdleMonologueAt = nil
         lastAnyActivityAt = now
 
         let tools = Array(Set(activeSnapshots.map(\.tool))).sorted()
@@ -670,11 +707,13 @@ final class PetSpeechCoordinator {
     private func activityStatusLine(
         for phase: ProjectActivityPhase,
         projectName: String?,
+        assistantPreview: String?,
         now: Date
     ) -> PetActivityStatusLine? {
         let text: String
         let key: String
         let expiresAt: Date?
+        var isLivePreview = false
         switch phase {
         case .idle:
             return nil
@@ -685,11 +724,17 @@ final class PetSpeechCoordinator {
             key = "loading:\(projectLabel)"
             expiresAt = nil
         case .running(let tool):
-            text = String(
-                format: petSpeechL("pet.activity.running_format", "%@ is running"),
-                tool
-            )
-            key = "running:\(tool)"
+            if let preview = normalizedAssistantPreview(assistantPreview) {
+                text = preview
+                key = "running-preview:\(tool):\(preview)"
+                isLivePreview = true
+            } else {
+                text = String(
+                    format: petSpeechL("pet.activity.running_format", "%@ is running"),
+                    tool
+                )
+                key = "running:\(tool)"
+            }
             expiresAt = nil
         case .waitingInput(let tool):
             text = String(
@@ -717,6 +762,8 @@ final class PetSpeechCoordinator {
         let tone: PetActivityStatusLine.Tone = switch phase {
         case .completed(_, _, let exitCode) where exitCode == nil || exitCode == 0:
             .success
+        case .completed:
+            .warning
         default:
             phase.activityStatusTone
         }
@@ -725,12 +772,53 @@ final class PetSpeechCoordinator {
             key: key,
             updatedAt: now,
             expiresAt: expiresAt,
-            tone: tone
+            tone: tone,
+            isLivePreview: isLivePreview
         )
     }
 
     private func normalizedActivityLabel(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func nextIdleMonologueDelay() -> TimeInterval {
+        max(1, idleMonologueDelayProvider())
+    }
+
+    private func idleMonologuePayload(now: Date) -> [String: String] {
+        var payload = enrichedPayload([:])
+        payload["hourLabel"] = String(
+            format: petSpeechL("pet.speech.payload.hour_format", "%d:00"),
+            Calendar.current.component(.hour, from: now)
+        )
+        if let latest = activitySnapshotsProvider?()
+            .sorted(by: { lhs, rhs in
+                lhs.updatedAt > rhs.updatedAt
+            })
+            .first {
+            payload["tool"] = latest.tool
+            payload["model"] = latest.model ?? "AI"
+            payload["project"] = latest.projectName
+        }
+        return payload
+    }
+
+    private func normalizedAssistantPreview(_ value: String?) -> String? {
+        let text = value?
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard text.isEmpty == false else {
+            return nil
+        }
+        let lines = text
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(3)
+        let preview = lines.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return preview.isEmpty ? nil : preview
     }
 }

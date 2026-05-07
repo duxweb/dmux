@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Sprite Animation View
 
 struct PetSpriteView: View {
-    let species: PetSpecies
+    let identity: PetIdentity
     let stage: PetStage
     var sleeping: Bool = false
     var animationState: CodexPetAnimationState? = nil
@@ -13,6 +13,40 @@ struct PetSpriteView: View {
     @State private var frame: Int = 0
     @State private var loadedCodexAtlas: NSImage? = nil
     @State private var activeFrameCount: Int = 1
+
+    init(
+        identity: PetIdentity,
+        stage: PetStage,
+        sleeping: Bool = false,
+        animationState: CodexPetAnimationState? = nil,
+        staticMode: Bool = false,
+        displaySize: CGFloat
+    ) {
+        self.identity = identity
+        self.stage = stage
+        self.sleeping = sleeping
+        self.animationState = animationState
+        self.staticMode = staticMode
+        self.displaySize = displaySize
+    }
+
+    init(
+        species: PetSpecies,
+        stage: PetStage,
+        sleeping: Bool = false,
+        animationState: CodexPetAnimationState? = nil,
+        staticMode: Bool = false,
+        displaySize: CGFloat
+    ) {
+        self.init(
+            identity: .bundled(species),
+            stage: stage,
+            sleeping: sleeping,
+            animationState: animationState,
+            staticMode: staticMode,
+            displaySize: displaySize
+        )
+    }
 
     private var codexAnimationState: CodexPetAnimationState {
         animationState ?? (sleeping ? .waiting : .idle)
@@ -26,12 +60,12 @@ struct PetSpriteView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(stage.accentColor.opacity(0.12))
                     .frame(width: displaySize, height: displaySize)
-                Image(systemName: species.placeholderSymbol)
+                Image(systemName: identity.placeholderSymbol)
                     .font(.system(size: displaySize * 0.34, weight: .semibold))
                     .foregroundStyle(stage.accentColor.opacity(0.7))
             }
         }
-        .task(id: "\(species.rawValue)-\(codexAnimationState.rawValue)-\(staticMode)") {
+        .task(id: "\(identity.id)-\(codexAnimationState.rawValue)-\(staticMode)") {
             frame = 0
             let codexAtlas = loadCodexAtlas()
             loadedCodexAtlas = codexAtlas
@@ -78,16 +112,25 @@ struct PetSpriteView: View {
     }
 
     private func loadCodexAtlas() -> NSImage? {
-        guard species.isImplemented else {
-            return nil
-        }
-        for fileExtension in ["webp", "png"] {
-            if let url = Bundle.module.url(forResource: "spritesheet", withExtension: fileExtension, subdirectory: "Pets/\(species.assetFolder)"),
-               let image = NSImage(contentsOf: url) {
-                return image
+        switch identity.kind {
+        case .bundled:
+            guard let species = identity.bundledSpecies, species.isImplemented else {
+                return nil
             }
+            for fileExtension in ["webp", "png"] {
+                if let url = Bundle.module.url(forResource: "spritesheet", withExtension: fileExtension, subdirectory: "Pets/\(species.assetFolder)"),
+                   let image = NSImage(contentsOf: url) {
+                    return image
+                }
+            }
+            return nil
+        case .custom:
+            guard let customPet = identity.customPet else {
+                return nil
+            }
+            let url = customPet.spritesheetURL(rootURL: CodexPetPackageService.defaultCustomPetsRootURL())
+            return NSImage(contentsOf: url)
         }
-        return nil
     }
 
     private func codexAtlasActiveFrameCount(_ atlas: NSImage, row: Int, fallback: Int) -> Int {
@@ -146,13 +189,13 @@ struct TitlebarPetButton: View {
     @State private var levelUpTarget: Int = 0
 
     private var petStore: PetStore { model.petStore }
-    private var species: PetSpecies { petStore.species }
+    private var identity: PetIdentity { petStore.currentIdentity }
     private var evoPath: PetEvoPath { petStore.currentEvoPath() }
     private var currentXP: Int { petStore.currentExperienceTokens }
     private var info: PetProgressInfo { PetProgressInfo(totalXP: currentXP) }
     private var petStats: PetStats { petStore.currentStats }
     private var displayName: String {
-        petStore.customName.isEmpty ? info.stage.speciesName(for: species, evoPath: evoPath) : petStore.customName
+        petStore.customName.isEmpty ? info.stage.identityName(for: identity, evoPath: evoPath) : petStore.customName
     }
     private var currentPhase: ProjectActivityPhase {
         guard let project = model.selectedProject else {
@@ -216,12 +259,12 @@ struct TitlebarPetButton: View {
                         isShowingPopover = false
                     }
                 )
-                if showMaxLevelEffect {
-                    PetMaxLevelEffectView(
-                        species: species,
-                        stage: info.stage,
-                        onComplete: { showMaxLevelEffect = false }
-                    )
+            if showMaxLevelEffect {
+                PetMaxLevelEffectView(
+                    identity: identity,
+                    stage: info.stage,
+                    onComplete: { showMaxLevelEffect = false }
+                )
                     .transition(.opacity)
                 }
                 if showLevelUpEffect {
@@ -293,7 +336,7 @@ struct TitlebarPetButton: View {
 
     private var titlebarPill: some View {
         HStack(alignment: .center, spacing: 5) {
-            PetTitlebarBadge(stage: info.stage, size: 19, isMaxLevel: info.hasUnlockedArchive)
+            PetTitlebarBadge(stage: info.stage, size: 19, isMaxLevel: info.isAtMaxLevel)
 
             Text(titleText)
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
@@ -331,16 +374,22 @@ struct TitlebarPetButton: View {
             return
         }
         PetClaimDialogPresenter.present(
-            dialog: PetClaimDialogState(selectedOption: .voidcat),
+            dialog: PetClaimDialogState(
+                selectedOption: .voidcat,
+                customPets: CodexPetPackageService().customPets()
+            ),
             staticMode: model.appSettings.pet.staticMode,
-            parentWindow: parentWindow
+            parentWindow: parentWindow,
+            onAddCustomPet: {
+                PetDexWindowPresenter.showCustomPetInstaller(model: model)
+            }
         ) { result in
             guard let result else { return }
             let hiddenSpeciesChance = model.aiStatsStore.hiddenPetSpeciesChanceAcrossProjects(model.projects)
             petStore.claim(
-                option: result.option,
+                identity: result.selection.resolveIdentity(hiddenSpeciesChance: hiddenSpeciesChance),
                 customName: result.customName,
-                hiddenSpeciesChance: hiddenSpeciesChance
+                totalNormalizedTokens: 0
             )
             model.petRefreshCoordinator.refreshNow(reason: .claim)
         }
@@ -469,17 +518,27 @@ struct PetStatCell: View {
 }
 
 struct PetClaimPreview: View {
-    let option: PetClaimOption
+    let selection: PetClaimSelection
     let staticMode: Bool
+
+    init(option: PetClaimOption, staticMode: Bool) {
+        self.selection = .bundled(option)
+        self.staticMode = staticMode
+    }
+
+    init(selection: PetClaimSelection, staticMode: Bool) {
+        self.selection = selection
+        self.staticMode = staticMode
+    }
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.clear)
 
-            if let species = option.previewSpecies {
+            if let identity = selection.previewIdentity {
                 PetSpriteView(
-                    species: species,
+                    identity: identity,
                     stage: .companion,
                     staticMode: true,
                     displaySize: 60

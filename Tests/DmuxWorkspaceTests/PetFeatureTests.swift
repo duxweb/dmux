@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import DmuxWorkspace
 
@@ -790,13 +791,78 @@ final class PetStoreLifecycleTests: XCTestCase {
         XCTAssertEqual(reloadedStore.customName, "旧宠物")
     }
 
+    func testVersionSevenStateWithoutIdentityPreservesExperienceAndSpecies() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = tempDir.appendingPathComponent("pet-state.dat")
+        let storage = PetStore.Storage(
+            fileURL: fileURL,
+            cryptoNamespace: "tests-v7-migration",
+            legacyFileURLs: [],
+            legacyCryptoNamespaces: []
+        )
+        let original = PetStore(storage: storage)
+        original.claim(option: .phoenix, customName: "老伙伴")
+        original.debugForceExperienceTokens(PetProgressInfo.totalXPRequired(toReach: 42))
+
+        var stateJSON = try decryptedPetStateJSON(fileURL: fileURL, namespace: "tests-v7-migration")
+        stateJSON["stateVersion"] = 7
+        stateJSON.removeValue(forKey: "currentIdentity")
+        try writeEncryptedPetStateJSON(stateJSON, fileURL: fileURL, namespace: "tests-v7-migration")
+
+        let migrated = PetStore(storage: storage)
+
+        XCTAssertTrue(migrated.isClaimed)
+        XCTAssertEqual(migrated.species, .phoenix)
+        XCTAssertEqual(migrated.currentIdentity, .bundled(.phoenix))
+        XCTAssertEqual(migrated.customName, "老伙伴")
+        XCTAssertEqual(migrated.currentExperienceTokens, PetProgressInfo.totalXPRequired(toReach: 42))
+
+        let reloaded = PetStore(storage: storage)
+        XCTAssertEqual(reloaded.currentExperienceTokens, PetProgressInfo.totalXPRequired(toReach: 42))
+        XCTAssertEqual(reloaded.currentIdentity, .bundled(.phoenix))
+
+        let rewrittenJSON = try decryptedPetStateJSON(fileURL: fileURL, namespace: "tests-v7-migration")
+        XCTAssertEqual(rewrittenJSON["stateVersion"] as? Int, 7)
+        XCTAssertNotNil(rewrittenJSON["currentIdentity"])
+    }
+
+    func testTransientVersionEightStatePreservesExperienceAndRewritesVersionSeven() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = tempDir.appendingPathComponent("pet-state.dat")
+        let storage = PetStore.Storage(
+            fileURL: fileURL,
+            cryptoNamespace: "tests-v8-transient",
+            legacyFileURLs: [],
+            legacyCryptoNamespaces: []
+        )
+        let original = PetStore(storage: storage)
+        original.claim(option: .panda, customName: "老等级")
+        original.debugForceExperienceTokens(PetProgressInfo.totalXPRequired(toReach: 51))
+
+        var stateJSON = try decryptedPetStateJSON(fileURL: fileURL, namespace: "tests-v8-transient")
+        stateJSON["stateVersion"] = 8
+        try writeEncryptedPetStateJSON(stateJSON, fileURL: fileURL, namespace: "tests-v8-transient")
+
+        let recovered = PetStore(storage: storage)
+
+        XCTAssertTrue(recovered.isClaimed)
+        XCTAssertEqual(recovered.species, .panda)
+        XCTAssertEqual(recovered.currentIdentity, .bundled(.panda))
+        XCTAssertEqual(recovered.customName, "老等级")
+        XCTAssertEqual(recovered.currentExperienceTokens, PetProgressInfo.totalXPRequired(toReach: 51))
+
+        let rewrittenJSON = try decryptedPetStateJSON(fileURL: fileURL, namespace: "tests-v8-transient")
+        XCTAssertEqual(rewrittenJSON["stateVersion"] as? Int, 7)
+        XCTAssertEqual(rewrittenJSON["currentExperienceTokens"] as? Int, PetProgressInfo.totalXPRequired(toReach: 51))
+    }
+
     func testArchiveCurrentPetResetsClaimState() {
         let store = PetStore(storage: .inMemory)
         store.claim(option: .goose, customName: "阿呆")
-
-        let maxXP = PetProgressInfo.totalXPRequired(toReach: PetProgressInfo.maxLevel)
         let stats = PetStats(wisdom: 8, chaos: 25, night: 12, stamina: 20, empathy: 80)
-        store.debugForceExperienceTokens(maxXP)
+        store.debugForceExperienceTokens(123)
         store.refreshDerivedState(
             totalNormalizedTokens: 0,
             computedStats: stats,
@@ -813,8 +879,86 @@ final class PetStoreLifecycleTests: XCTestCase {
         XCTAssertEqual(store.currentStats, .neutral)
         XCTAssertEqual(store.legacy.count, 1)
         XCTAssertEqual(store.legacy[0].species, .goose)
+        XCTAssertEqual(store.legacy[0].petIdentity, .bundled(.goose))
         XCTAssertEqual(store.legacy[0].customName, "阿呆")
         XCTAssertEqual(store.legacy[0].evoPath, .pathA)
+    }
+
+    func testRestoreArchivedPetMakesItCurrentAgain() throws {
+        let store = PetStore(storage: .inMemory)
+        store.claim(option: .panda, customName: "团子")
+        let stats = PetStats(wisdom: 40, chaos: 5, night: 12, stamina: 50, empathy: 90)
+        store.debugForceExperienceTokens(456)
+        store.refreshDerivedState(
+            totalNormalizedTokens: 0,
+            computedStats: stats,
+            now: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        store.archiveCurrentPet()
+
+        let recordID = try XCTUnwrap(store.legacy.first?.id)
+        store.restoreArchivedPet(recordID)
+
+        XCTAssertTrue(store.isClaimed)
+        XCTAssertEqual(store.species, .panda)
+        XCTAssertEqual(store.currentIdentity, .bundled(.panda))
+        XCTAssertEqual(store.customName, "团子")
+        XCTAssertEqual(store.currentExperienceTokens, 456)
+        XCTAssertEqual(store.currentStats, stats)
+        XCTAssertTrue(store.legacy.isEmpty)
+    }
+
+    func testCustomPetCanBeClaimedArchivedAndRestored() throws {
+        let store = PetStore(storage: .inMemory)
+        let customPet = PetCustomPet(
+            id: "boba",
+            displayName: "Boba",
+            description: "Bubble tea companion.",
+            spritesheetPath: "spritesheet.webp",
+            directoryName: "boba",
+            sourcePageURL: URL(string: "https://petdex.crafter.run/zh/pets/boba"),
+            sourceZipURL: nil,
+            installedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        store.claim(identity: .custom(customPet), customName: "奶茶")
+        XCTAssertTrue(store.isClaimed)
+        XCTAssertEqual(store.species, .code)
+        XCTAssertEqual(store.currentIdentity, .custom(customPet))
+
+        store.archiveCurrentPet()
+        XCTAssertFalse(store.isClaimed)
+        XCTAssertEqual(store.legacy.first?.petIdentity, .custom(customPet))
+
+        let recordID = try XCTUnwrap(store.legacy.first?.id)
+        store.restoreArchivedPet(recordID)
+
+        XCTAssertTrue(store.isClaimed)
+        XCTAssertEqual(store.currentIdentity, .custom(customPet))
+        XCTAssertEqual(store.species, .code)
+        XCTAssertEqual(store.customName, "奶茶")
+    }
+
+    func testRestoreArchivedPetSwapsCurrentPetIntoArchive() throws {
+        let store = PetStore(storage: .inMemory)
+        store.claim(option: .goose, customName: "旧伙伴")
+        store.debugForceExperienceTokens(111)
+        store.archiveCurrentPet()
+        let archivedID = try XCTUnwrap(store.legacy.first?.id)
+
+        store.claim(option: .dragon, customName: "新伙伴")
+        store.debugForceExperienceTokens(222)
+        store.restoreArchivedPet(archivedID)
+
+        XCTAssertTrue(store.isClaimed)
+        XCTAssertEqual(store.species, .goose)
+        XCTAssertEqual(store.currentIdentity, .bundled(.goose))
+        XCTAssertEqual(store.customName, "旧伙伴")
+        XCTAssertEqual(store.currentExperienceTokens, 111)
+        XCTAssertEqual(store.legacy.count, 1)
+        XCTAssertEqual(store.legacy[0].petIdentity, .bundled(.dragon))
+        XCTAssertEqual(store.legacy[0].customName, "新伙伴")
+        XCTAssertEqual(store.legacy[0].totalXP, 222)
     }
 
     func testDebugForceExperienceTokensMovesPetToRequestedXP() {
@@ -879,4 +1023,39 @@ final class PetStoreLifecycleTests: XCTestCase {
 
         XCTAssertEqual(store.currentExperienceTokens, overflow + 123)
     }
+}
+
+private func decryptedPetStateJSON(fileURL: URL, namespace: String) throws -> [String: Any] {
+    let rawData = try Data(contentsOf: fileURL)
+    let data: Data
+    if let sealedBox = try? AES.GCM.SealedBox(combined: rawData),
+       let openedData = try? AES.GCM.open(sealedBox, using: petStateCipherKey(namespace: namespace)) {
+        data = openedData
+    } else {
+        data = rawData
+    }
+
+    let json = try JSONSerialization.jsonObject(with: data)
+    return try XCTUnwrap(json as? [String: Any])
+}
+
+private func writeEncryptedPetStateJSON(
+    _ json: [String: Any],
+    fileURL: URL,
+    namespace: String
+) throws {
+    try FileManager.default.createDirectory(
+        at: fileURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    let jsonData = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+    let sealedBox = try AES.GCM.seal(jsonData, using: petStateCipherKey(namespace: namespace))
+    let data = try XCTUnwrap(sealedBox.combined)
+    try data.write(to: fileURL, options: .atomic)
+}
+
+private func petStateCipherKey(namespace: String) -> SymmetricKey {
+    let material = "dmux.pet.state.v2|\(namespace)|codux".data(using: .utf8) ?? Data()
+    let digest = SHA256.hash(data: material)
+    return SymmetricKey(data: Data(digest))
 }

@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-05-07
+
+### Added
+
+- Added pet archive and restore flows in the Petdex, allowing the current companion to be archived at any level, restored later, or swapped while keeping only one active pet.
+- Added custom pet installation from Codex-style pet market pages, with page URL resolution, metadata preview, editable pet names, package validation, install progress, and adoption support.
+
+### Changed
+
+- Refined pet speech so task status always has priority, running Codex turns can show sanitized assistant text, and random pet monologues only appear during idle time.
+- Simplified Petdex and claim surfaces by removing archive history from the titlebar popover and moving custom pet entry points into adoption/Petdex flows.
+- Updated pet bubble sizing and animation timing so speech is easier to read and full-frame animations play slightly faster while short-frame animations keep their calmer cadence.
+
+### Fixed
+
+- Fixed interrupted AI turns so pet status treats them as failures and completion/failure animations remain short-lived status reactions.
+- Fixed pet progress preservation when loading newer identity state, avoiding level rollback while keeping the existing XP algorithm version unchanged.
+- Fixed leftover idle-entry speech templates that made pets appear to interject at a fixed time instead of speaking randomly while idle.
+
 ## [0.9.6] - 2026-05-07
 
 ### Added

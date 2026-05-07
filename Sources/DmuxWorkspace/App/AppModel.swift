@@ -34,6 +34,7 @@ final class AppModel {
         var tool: String
         var finishedAt: Date
         var exitCode: Int?
+        var presentedAt: Date
     }
 
     struct ProjectActivityCache: Equatable {
@@ -120,6 +121,7 @@ final class AppModel {
     var pendingActivityRefreshTask: Task<Void, Never>?
     var pendingActivityRefreshShouldNotify = false
     var pendingMemorySessionSnapshotTask: Task<Void, Never>?
+    var pendingCompletionPresentationDismissalTasks: [UUID: Task<Void, Never>] = [:]
     private var pendingDragReorderPersistTask: Task<Void, Never>?
     var activityCacheByProjectID: [UUID: ProjectActivityCache] = [:]
     var isSystemUIReady = false
@@ -300,6 +302,7 @@ final class AppModel {
     }
 
     private func resetActivityState() {
+        cancelCompletionPresentationDismissalTasks()
         aiSessionStore.reset()
         activityByProjectID = [:]
         activityRenderVersion = 0
@@ -311,7 +314,7 @@ final class AppModel {
         if !trimmedName.isEmpty {
             return trimmedName
         }
-        return petStore.species.displayName
+        return petStore.currentIdentity.displayName
     }
 
     private func petSpeechActivitySnapshots() -> [PetSpeechActivitySnapshot] {
@@ -826,6 +829,7 @@ final class AppModel {
         pendingActivityRefreshTask = nil
         pendingMemorySessionSnapshotTask?.cancel()
         pendingMemorySessionSnapshotTask = nil
+        cancelCompletionPresentationDismissalTasks()
         petSpeechCoordinator.stop()
     }
 

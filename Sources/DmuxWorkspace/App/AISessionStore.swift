@@ -73,6 +73,7 @@ final class AISessionStore {
         var notificationType: String?
         var targetToolName: String?
         var interactionMessage: String?
+        var latestAssistantPreview: String?
 
         var logicalSessionKey: LogicalSessionKey? {
             guard let aiSessionID else {
@@ -127,7 +128,8 @@ final class AISessionStore {
             transcriptPath: String? = nil,
             notificationType: String? = nil,
             targetToolName: String? = nil,
-            interactionMessage: String? = nil
+            interactionMessage: String? = nil,
+            latestAssistantPreview: String? = nil
         ) {
             self.terminalID = terminalID
             self.terminalInstanceID = terminalInstanceID
@@ -160,6 +162,7 @@ final class AISessionStore {
             self.notificationType = notificationType
             self.targetToolName = targetToolName
             self.interactionMessage = interactionMessage
+            self.latestAssistantPreview = latestAssistantPreview
         }
     }
 
@@ -460,6 +463,35 @@ final class AISessionStore {
         return true
     }
 
+    func latestAssistantPreview(projectID: UUID) -> String? {
+        terminalSessionsByID.values
+            .filter { $0.projectID == projectID && $0.state == .responding }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .compactMap { normalizedNonEmptyString($0.latestAssistantPreview) }
+            .first
+    }
+
+    private func sanitizedAssistantPreview(_ value: String?) -> String? {
+        let normalized = value?
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard normalized.isEmpty == false else {
+            return nil
+        }
+        let preview = normalized
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(3)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard preview.isEmpty == false else {
+            return nil
+        }
+        return String(preview.prefix(180)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     @discardableResult
     func markInterrupted(terminalID: UUID, updatedAt: Double = Date().timeIntervalSince1970) -> Bool {
         guard var session = terminalSessionsByID[terminalID],
@@ -478,6 +510,7 @@ final class AISessionStore {
         session.notificationType = nil
         session.targetToolName = nil
         session.interactionMessage = nil
+        session.latestAssistantPreview = nil
         terminalSessionsByID[terminalID] = session
         reconcileLogicalSession(for: session, previousLogicalKey: previousLogicalKey)
 
@@ -584,6 +617,9 @@ final class AISessionStore {
             if let normalizedModel {
                 session.model = normalizedModel
             }
+            if let assistantPreview = sanitizedAssistantPreview(snapshot.assistantPreview) {
+                session.latestAssistantPreview = assistantPreview
+            }
             if shouldIgnoreRuntimeSnapshot(session: session, snapshot: snapshot) {
                 logger.log(
                     "ai-session-store",
@@ -639,6 +675,7 @@ final class AISessionStore {
         session.notificationType = nil
         session.targetToolName = nil
         session.interactionMessage = nil
+        session.latestAssistantPreview = nil
     }
 
     private func applyPromptSubmitted(_ session: inout TerminalSessionState, event: AIHookEvent) {
@@ -650,6 +687,7 @@ final class AISessionStore {
         session.notificationType = nil
         session.targetToolName = nil
         session.interactionMessage = nil
+        session.latestAssistantPreview = nil
     }
 
     private func applyTurnCompleted(_ session: inout TerminalSessionState, event: AIHookEvent) {
@@ -667,6 +705,7 @@ final class AISessionStore {
         session.notificationType = nil
         session.targetToolName = nil
         session.interactionMessage = nil
+        session.latestAssistantPreview = nil
     }
 
     private func shouldIgnoreRuntimeSnapshot(
@@ -726,6 +765,7 @@ final class AISessionStore {
                 session.notificationType = nil
                 session.targetToolName = nil
                 session.interactionMessage = nil
+                session.latestAssistantPreview = nil
             }
             return
         }
@@ -838,6 +878,7 @@ final class AISessionStore {
             session.notificationType = nil
             session.targetToolName = nil
             session.interactionMessage = nil
+            session.latestAssistantPreview = nil
         }
     }
 

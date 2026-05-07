@@ -61,8 +61,7 @@ extension AISessionStore {
 
         guard let completed = trackedSessions.first(where: {
             $0.state == .idle
-                && $0.wasInterrupted == false
-                && $0.hasCompletedTurn
+                && ($0.hasCompletedTurn || $0.wasInterrupted)
         }) else {
             return nil
         }
@@ -70,7 +69,7 @@ extension AISessionStore {
         return .completed(
             tool: completed.tool,
             finishedAt: Date(timeIntervalSince1970: completed.updatedAt),
-            exitCode: nil
+            exitCode: completed.wasInterrupted ? 1 : nil
         )
     }
 
@@ -85,15 +84,15 @@ extension AISessionStore {
 
         guard let completed = trackedSessions.first(where: {
             $0.state == .idle
-                && $0.wasInterrupted == false
-                && $0.hasCompletedTurn
+                && ($0.hasCompletedTurn || $0.wasInterrupted)
         }) else {
             return nil
         }
 
         let sessionID = completed.aiSessionID ?? completed.terminalID.uuidString
         let startedAt = completed.activeTurnStartedAt ?? completed.startedAt ?? completed.updatedAt
-        return [completed.tool, sessionID, String(Int(startedAt * 1000))].joined(separator: "|")
+        let outcome = completed.wasInterrupted ? "failed" : "completed"
+        return [completed.tool, sessionID, outcome, String(Int(startedAt * 1000))].joined(separator: "|")
     }
 
     func completedTerminalID(projectID: UUID) -> UUID? {
@@ -107,8 +106,7 @@ extension AISessionStore {
 
         return trackedSessions.first(where: {
             $0.state == .idle
-                && $0.wasInterrupted == false
-                && $0.hasCompletedTurn
+                && ($0.hasCompletedTurn || $0.wasInterrupted)
         })?.terminalID
     }
 

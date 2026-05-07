@@ -206,8 +206,26 @@ final class PetSpeechCatalog {
     }
 
     private func localizedCoreMap(key: String, defaultValue: String) -> [String: String] {
-        var result: [String: String] = [:]
+        var result = coreMap(from: defaultValue)
         for line in localizedLines(key: key, defaultValue: defaultValue) {
+            guard let separator = line.firstIndex(of: "=") else {
+                continue
+            }
+            let rawKey = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawValue = line[line.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !rawKey.isEmpty, !rawValue.isEmpty {
+                result[String(rawKey)] = String(rawValue)
+            }
+        }
+        return result
+    }
+
+    private func coreMap(from value: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for line in value
+            .components(separatedBy: "\n")
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .filter({ !$0.isEmpty }) {
             guard let separator = line.firstIndex(of: "=") else {
                 continue
             }
@@ -235,7 +253,7 @@ final class PetSpeechCatalog {
             turn.needsInput={tool} froze. Save it, hero.
             turn.interrupted={tool} cut off. Awkward.
             tool.switched={prevTool} out, {tool} in. Again.
-            idle.entered=Five quiet min. Keyboard's cold.
+            idle.monologue=Nothing dramatic yet. Suspicious.
             tokens.burst={tool} ate {tokensK}. Hungry.
             night.entered={hourLabel} and still up.
             idle.returned=Gone {minutesAway}min. Finally back.
@@ -256,7 +274,7 @@ final class PetSpeechCatalog {
             turn.needsInput={tool} is waiting on you.
             turn.interrupted={tool} stopped. Breathe and retry.
             tool.switched={prevTool} to {tool}. Smooth.
-            idle.entered=A pause is fine.
+            idle.monologue=Still here, keeping watch.
             tokens.burst={tool} pushed {tokensK}. Big push.
             night.entered={hourLabel} and still here.
             idle.returned=Back after {minutesAway}min.
@@ -277,7 +295,7 @@ final class PetSpeechCatalog {
             turn.needsInput={tool} wants a word from you.
             turn.interrupted={tool} cut off. I paused too.
             tool.switched={prevTool} to {tool}. Nice taste.
-            idle.entered=Quiet... missing me?
+            idle.monologue=I'll stay close. Quietly.
             tokens.burst={tool} burned {tokensK}. Hot hands.
             night.entered={hourLabel} and you stayed. Sweet.
             idle.returned=Gone {minutesAway}min. I waited.
@@ -298,7 +316,7 @@ final class PetSpeechCatalog {
             turn.needsInput={tool} summons your verdict.
             turn.interrupted={tool} ritual broken.
             tool.switched={prevTool} falls. {tool} rises.
-            idle.entered=Silence falls. Core sleeps.
+            idle.monologue=The quiet archive hums.
             tokens.burst={tool} drank {tokensK}. Power surges.
             night.entered={hourLabel}. Night pact opens.
             idle.returned=After {minutesAway}min stillness, you return.

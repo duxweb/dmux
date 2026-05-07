@@ -87,6 +87,7 @@ struct CodexToolDriver: AIToolDriver {
             tool: id,
             externalSessionID: normalizedNonEmptyString(session.aiSessionID),
             model: parsedState.model ?? session.model,
+            assistantPreview: parsedState.assistantPreview,
             inputTokens: max(session.committedInputTokens, parsedState.inputTokens ?? 0),
             outputTokens: max(session.committedOutputTokens, parsedState.outputTokens ?? 0),
             cachedInputTokens: max(session.committedCachedInputTokens, parsedState.cachedInputTokens ?? 0),

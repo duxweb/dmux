@@ -8,16 +8,14 @@ struct PetPopoverView: View {
     let petStats: PetStats
     let onInheritConfirmed: (() -> Void)?
     @State private var isEditingName = false
-    @State private var showsArchiveConfirmation = false
 
     private var petStore: PetStore { model.petStore }
-    private var species: PetSpecies { petStore.species }
+    private var currentPetIdentity: PetIdentity { petStore.currentIdentity }
     private var path: PetEvoPath { petStore.currentEvoPath() }
     private var currentXP: Int { petStore.currentExperienceTokens }
     private var info: PetProgressInfo { PetProgressInfo(totalXP: currentXP) }
-    private var identity: PetResolvedIdentity { info.stage.resolvedIdentity(for: species, evoPath: path, customName: petStore.customName) }
+    private var identity: PetResolvedIdentity { info.stage.resolvedIdentity(for: currentPetIdentity, evoPath: path, customName: petStore.customName) }
     private var displayName: String { identity.title }
-    private var hasLegacy: Bool { !petStore.legacy.isEmpty }
     private var maxStatValue: Int { PetStats.traitDisplayMaxValue }
     private var widestStatText: String { petStore.currentStats.widestCompactValueText }
 
@@ -25,15 +23,6 @@ struct PetPopoverView: View {
         AnyView(
             mainContent
                 .frame(width: 300)
-                .alert(petL("pet.archive.alert.title", "Archive Current Pet"), isPresented: $showsArchiveConfirmation) {
-                    Button(petL("common.cancel", "Cancel"), role: .cancel) {}
-                    Button(petL("pet.archive.confirm", "Confirm Archive")) {
-                        petStore.archiveCurrentPet()
-                        onInheritConfirmed?()
-                    }
-                } message: {
-                    Text(petL("pet.archive.alert.message", "Archive this pet into the dex and choose a new companion."))
-                }
         )
     }
 
@@ -41,7 +30,7 @@ struct PetPopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(spacing: 0) {
                 PetSpriteView(
-                    species: species,
+                    identity: currentPetIdentity,
                     stage: info.stage,
                     sleeping: sleeping,
                     staticMode: model.appSettings.pet.staticMode,
@@ -214,91 +203,22 @@ struct PetPopoverView: View {
                     PetStatCell(label: petL("pet.total_xp", "Total XP"), value: petFormatCompactNumber(info.totalXP))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-
-                    if info.hasUnlockedArchive {
-                        Divider().padding(.horizontal, 14)
-
-                        HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(petL("pet.archive.unlocked", "Archive Unlocked"))
-                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                Text(petL("pet.archive.unlocked.detail", "Archive unlocks at level 100, but levels can keep increasing."))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button(petL("pet.archive.action", "Archive")) {
-                                showsArchiveConfirmation = true
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                    }
-
-                    if hasLegacy {
-                        Divider().padding(.horizontal, 14)
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(petL("pet.archive.history", "Archive History"))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.tertiary)
-
-                            ForEach(Array(petStore.legacy.prefix(2))) { record in
-                                PetLegacyRow(
-                                    record: record,
-                                    stage: PetProgressInfo(totalXP: record.totalXP).stage
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                    }
         }
-    }
-}
-
-private struct PetLegacyRow: View {
-    let record: PetLegacyRecord
-    let stage: PetStage
-
-    private var identity: PetResolvedIdentity {
-        record.resolvedIdentity(for: stage)
-    }
-
-    private var subtitleText: String {
-        let parts = [identity.subtitle, "\(petFormatCompactNumber(record.totalXP)) XP"]
-            .compactMap { $0 }
-        return parts.joined(separator: " · ")
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: record.species.placeholderSymbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(identity.title)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                Text(subtitleText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
-        .padding(.vertical, 4)
     }
 }
 
 struct PetClaimDialogState: Equatable {
-    var selectedOption: PetClaimOption
+    var selectedSelection: PetClaimSelection
+    var customPets: [PetCustomPet] = []
+
+    init(selectedOption: PetClaimOption, customPets: [PetCustomPet] = []) {
+        self.selectedSelection = .bundled(selectedOption)
+        self.customPets = customPets
+    }
 }
 
 struct PetClaimResult {
-    let option: PetClaimOption
+    let selection: PetClaimSelection
     let customName: String
 }
 
@@ -308,20 +228,21 @@ enum PetClaimDialogPresenter {
         dialog: PetClaimDialogState,
         staticMode: Bool,
         parentWindow: NSWindow,
+        onAddCustomPet: (() -> Void)? = nil,
         completion: @escaping (PetClaimResult?) -> Void
     ) {
-        let controller = PetClaimDialogController(dialog: dialog, staticMode: staticMode)
+        let controller = PetClaimDialogController(dialog: dialog, staticMode: staticMode, onAddCustomPet: onAddCustomPet)
         controller.beginSheet(for: parentWindow, completion: completion)
     }
 }
 
 @MainActor
 private final class PetClaimDialogViewModel: ObservableObject {
-    @Published var selectedOption: PetClaimOption
+    @Published var selectedSelection: PetClaimSelection
     @Published var customName: String = ""
 
     init(dialog: PetClaimDialogState) {
-        self.selectedOption = dialog.selectedOption
+        self.selectedSelection = dialog.selectedSelection
     }
 }
 
@@ -331,89 +252,77 @@ private struct PetClaimDialogView: View {
 
     @ObservedObject var viewModel: PetClaimDialogViewModel
     let staticMode: Bool
+    let customPets: [PetCustomPet]
     let onCancel: () -> Void
     let onConfirm: () -> Void
+    let onAddCustomPet: (() -> Void)?
 
-    private var selectedOption: PetClaimOption { viewModel.selectedOption }
+    private var bundledSelections: [PetClaimSelection] {
+        PetClaimOption.allCases.map { .bundled($0) }
+    }
+
+    private var customSelections: [PetClaimSelection] {
+        customPets.map { .custom($0) }
+    }
+
+    private var selectedSelection: PetClaimSelection { viewModel.selectedSelection }
 
     private var accentColor: Color {
-        switch selectedOption {
-        case .voidcat:
-            return Color(hex: 0x2A80FF)
-        case .rusthound:
-            return Color(hex: 0xFF6030)
-        case .goose:
-            return Color(hex: 0xF5DEB3)
-        case .chaossprite:
-            return Color(hex: 0xFF4FA3)
-        case .code:
-            return Color(hex: 0x2F8FFF)
-        case .sheep:
-            return Color(hex: 0xF28FB8)
-        case .ox:
-            return Color(hex: 0xF3B43F)
-        case .dragon:
-            return Color(hex: 0xE04435)
-        case .phoenix:
-            return Color(hex: 0xFF7A22)
-        case .dolphin:
-            return Color(hex: 0x1E9BFF)
-        case .penguin:
-            return Color(hex: 0x5C6D85)
-        case .panda:
-            return Color(hex: 0x6A6F78)
-        case .random:
-            return .purple
+        switch selectedSelection {
+        case .bundled(let option):
+            switch option {
+            case .voidcat:
+                return Color(hex: 0x2A80FF)
+            case .rusthound:
+                return Color(hex: 0xFF6030)
+            case .goose:
+                return Color(hex: 0xF5DEB3)
+            case .chaossprite:
+                return Color(hex: 0xFF4FA3)
+            case .code:
+                return Color(hex: 0x2F8FFF)
+            case .sheep:
+                return Color(hex: 0xF28FB8)
+            case .ox:
+                return Color(hex: 0xF3B43F)
+            case .dragon:
+                return Color(hex: 0xE04435)
+            case .phoenix:
+                return Color(hex: 0xFF7A22)
+            case .dolphin:
+                return Color(hex: 0x1E9BFF)
+            case .penguin:
+                return Color(hex: 0x5C6D85)
+            case .panda:
+                return Color(hex: 0x6A6F78)
+            case .random:
+                return .purple
+            }
+        case .custom:
+            return AppTheme.focus
         }
     }
 
     private var description: String {
-        switch selectedOption {
-        case .voidcat:
-            return petL("pet.claim.voidcat.description", "A black cat that loves long thoughts in the middle of the night.")
-        case .rusthound:
-            return petL("pet.claim.rusthound.description", "It falls over, gets up again, and keeps going anyway.")
-        case .goose:
-            return petL("pet.claim.goose.description", "A steady companion with a relaxed rhythm.")
-        case .chaossprite:
-            return petL("pet.claim.chaossprite.description", "A bright companion for messy ideas and sudden turns.")
-        case .code:
-            return petL("pet.claim.code.description", "A coding companion that keeps your terminal alive.")
-        case .sheep:
-            return petL("pet.claim.sheep.description", "A soft companion that keeps long work calm.")
-        case .ox:
-            return petL("pet.claim.ox.description", "A steady companion for reliable, grounded progress.")
-        case .dragon:
-            return petL("pet.claim.dragon.description", "A brave companion for big pushes and hot paths.")
-        case .phoenix:
-            return petL("pet.claim.phoenix.description", "A bright companion that makes every restart feel lighter.")
-        case .dolphin:
-            return petL("pet.claim.dolphin.description", "A nimble companion that moves quickly through ideas.")
-        case .penguin:
-            return petL("pet.claim.penguin.description", "A calm companion for focused work and cool heads.")
-        case .panda:
-            return petL("pet.claim.panda.description", "A round, gentle companion that keeps the pace steady.")
-        case .random:
-            return petL("pet.claim.random.description", "Let Codux choose one companion for you.")
-        }
+        selectedSelection.description
     }
 
     @ViewBuilder
-    private func optionRow(_ option: PetClaimOption) -> some View {
-        let isSelected = viewModel.selectedOption == option
+    private func optionRow(_ selection: PetClaimSelection) -> some View {
+        let isSelected = viewModel.selectedSelection == selection
         Button {
             withAnimation(.easeInOut(duration: 0.15)) {
-                viewModel.selectedOption = option
+                viewModel.selectedSelection = selection
             }
         } label: {
             HStack(spacing: 10) {
-                PetClaimPreview(option: option, staticMode: staticMode)
+                PetClaimPreview(selection: selection, staticMode: staticMode)
                     .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(option.title)
+                    Text(selection.title)
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.primary)
-                    Text(option.subtitle)
+                    Text(selection.subtitle)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
@@ -473,8 +382,22 @@ private struct PetClaimDialogView: View {
             HStack(alignment: .top, spacing: 0) {
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(spacing: 8) {
-                        ForEach(PetClaimOption.allCases) { option in
-                            optionRow(option)
+                        ForEach(bundledSelections) { selection in
+                            optionRow(selection)
+                        }
+                        if !customSelections.isEmpty {
+                            HStack {
+                                Text(petL("pet.claim.custom.section", "Custom Pets"))
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                                Spacer()
+                            }
+                            .padding(.top, 4)
+                            .padding(.horizontal, 4)
+
+                            ForEach(customSelections) { selection in
+                                optionRow(selection)
+                            }
                         }
                     }
                     .padding(14)
@@ -488,9 +411,9 @@ private struct PetClaimDialogView: View {
                         Circle()
                             .fill(accentColor.opacity(0.08))
                             .frame(width: 100, height: 100)
-                        if let species = selectedOption.previewSpecies {
+                        if let identity = selectedSelection.previewIdentity {
                             PetSpriteView(
-                                species: species,
+                                identity: identity,
                                 stage: .companion,
                                 staticMode: true,
                                 displaySize: 84
@@ -502,9 +425,9 @@ private struct PetClaimDialogView: View {
                                 .foregroundStyle(accentColor.opacity(0.7))
                         }
                     }
-                    .animation(.easeInOut(duration: 0.2), value: selectedOption)
+                    .animation(.easeInOut(duration: 0.2), value: selectedSelection.id)
 
-                    Text(selectedOption.title)
+                    Text(selectedSelection.title)
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundStyle(.primary)
 
@@ -543,6 +466,12 @@ private struct PetClaimDialogView: View {
             HStack {
                 Button(petL("common.cancel", "Cancel")) { onCancel() }
                     .keyboardShortcut(.escape)
+                if let onAddCustomPet {
+                    Button(action: onAddCustomPet) {
+                        Label(petL("pet.custom.install.action", "Add Custom Pet"), systemImage: "plus.circle.fill")
+                    }
+                    .buttonStyle(.bordered)
+                }
                 Spacer()
                 Button(petL("pet.claim.confirm", "Confirm Claim")) { onConfirm() }
                     .buttonStyle(.borderedProminent)
@@ -559,7 +488,7 @@ private struct PetClaimDialogView: View {
 private final class PetClaimDialogController: AppDialogController<PetClaimResult> {
     private let viewModel: PetClaimDialogViewModel
 
-    init(dialog: PetClaimDialogState, staticMode: Bool) {
+    init(dialog: PetClaimDialogState, staticMode: Bool, onAddCustomPet: (() -> Void)?) {
         self.viewModel = PetClaimDialogViewModel(dialog: dialog)
 
         let panel = AppDialogPanel(
@@ -590,16 +519,25 @@ private final class PetClaimDialogController: AppDialogController<PetClaimResult
         let contentView = PetClaimDialogView(
             viewModel: viewModel,
             staticMode: staticMode,
+            customPets: dialog.customPets,
             onCancel: { [weak self] in
                 self?.finish(with: .abort)
             },
             onConfirm: { [weak self] in
                 guard let self else { return }
                 let result = PetClaimResult(
-                    option: viewModel.selectedOption,
+                    selection: viewModel.selectedSelection,
                     customName: viewModel.customName.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
                 self.finish(with: .continue, value: result)
+            },
+            onAddCustomPet: onAddCustomPet.map { callback in
+                { [weak self] in
+                    self?.finish(with: .abort)
+                    DispatchQueue.main.async {
+                        callback()
+                    }
+                }
             }
         )
         let hostingController = NSHostingController(rootView: contentView)

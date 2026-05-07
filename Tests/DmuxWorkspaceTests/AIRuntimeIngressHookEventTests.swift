@@ -486,6 +486,51 @@ final class AIRuntimeIngressHookEventTests: XCTestCase {
         XCTAssertEqual(session.model, "gpt-5.4")
     }
 
+    func testCodexRuntimeSnapshotCapturesAssistantPreviewFromTranscriptTail() async throws {
+        let terminalID = UUID()
+        let projectID = UUID()
+        let transcriptURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("dmux-codex-preview-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: transcriptURL) }
+
+        let rows = [
+            #"{"timestamp":"2026-04-21T03:00:00Z","type":"turn_context","payload":{"model":"gpt-5.4","cwd":"/tmp/codex-preview-project"}}"#,
+            #"{"timestamp":"2026-04-21T03:00:01Z","type":"event_msg","payload":{"type":"task_started","started_at":1713668401}}"#,
+            #"{"timestamp":"2026-04-21T03:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"我先检查项目结构。\n```swift\nlet value = 1\n```\n然后确认入口和配置。"}]}}"#,
+            #"{"timestamp":"2026-04-21T03:00:03Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":20,"output_tokens":8},"total_token_usage":{"input_tokens":20,"output_tokens":8}}}}"#
+        ]
+        try rows.joined(separator: "\n").appending("\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let promptPayload = try JSONEncoder().encode(
+            AIHookEvent(
+                kind: .promptSubmitted,
+                terminalID: terminalID,
+                terminalInstanceID: "instance-codex-preview",
+                projectID: projectID,
+                projectName: "Codux",
+                projectPath: "/tmp/codex-preview-project",
+                sessionTitle: "Terminal",
+                tool: "codex",
+                aiSessionID: "codex-preview-thread",
+                model: "gpt-5.4",
+                totalTokens: 0,
+                updatedAt: 100,
+                metadata: .init(transcriptPath: transcriptURL.path)
+            )
+        )
+        await ingress.ingestManagedRuntimeSocketEventForTesting(kind: "ai-hook", payloadData: promptPayload)
+
+        let runtimeSession = try XCTUnwrap(store.session(for: terminalID))
+        let optionalSnapshot = await CodexToolDriver().runtimeSnapshot(for: runtimeSession)
+        let snapshot = try XCTUnwrap(optionalSnapshot)
+        XCTAssertEqual(snapshot.assistantPreview, "我先检查项目结构。\n然后确认入口和配置。")
+        XCTAssertTrue(store.applyRuntimeSnapshot(terminalID: terminalID, snapshot: snapshot))
+
+        let session = try XCTUnwrap(store.session(for: terminalID))
+        XCTAssertEqual(session.latestAssistantPreview, "我先检查项目结构。\n然后确认入口和配置。")
+        XCTAssertEqual(store.latestAssistantPreview(projectID: projectID), "我先检查项目结构。\n然后确认入口和配置。")
+    }
+
     func testAIHookNeedsInputPreservesInteractionMetadata() async throws {
         let terminalID = UUID()
         let projectID = UUID()

@@ -29,6 +29,7 @@ struct CodexPetAnimation: Equatable, Sendable {
 
 enum CodexPetPlaybackPolicy {
     static let baseFrameDuration: TimeInterval = 1.875
+    static let fullFrameCycleDurationMultiplier: TimeInterval = 0.92
 
     static func frameDuration(
         for animation: CodexPetAnimation,
@@ -57,6 +58,7 @@ enum CodexPetPlaybackPolicy {
         let targetTotal = baseFrameDuration
             * TimeInterval(max(1, max(animation.frameCount, activeFrameCount)))
             * cycleDurationMultiplier(for: animation.state)
+            * cycleDurationMultiplierAdjustment(for: animation, activeFrameCount: activeFrameCount)
         let scale = targetTotal / sourceTotal
         return sourceDurations.map { max(0.08, $0 * scale) }
     }
@@ -95,6 +97,16 @@ enum CodexPetPlaybackPolicy {
         case .runningRight, .runningLeft, .waving, .jumping, .failed, .running:
             return 1.0
         }
+    }
+
+    private static func cycleDurationMultiplierAdjustment(
+        for animation: CodexPetAnimation,
+        activeFrameCount: Int
+    ) -> TimeInterval {
+        guard activeFrameCount == animation.frameCount else {
+            return 1.0
+        }
+        return fullFrameCycleDurationMultiplier
     }
 }
 

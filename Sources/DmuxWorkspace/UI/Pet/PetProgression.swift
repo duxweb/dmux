@@ -35,7 +35,7 @@ struct PetProgressInfo {
         return min(1.0, Double(xpInLevel) / Double(xpForLevel))
     }
 
-    var hasUnlockedArchive: Bool { level >= Self.maxLevel }
+    var isAtMaxLevel: Bool { level >= Self.maxLevel }
 
     static func xpForLevel(_ level: Int) -> Int {
         if level >= maxLevel {
@@ -131,6 +131,13 @@ enum PetStage: String {
         species.displayName
     }
 
+    func identityName(for identity: PetIdentity, evoPath: PetEvoPath = .pathA) -> String {
+        if let species = identity.bundledSpecies {
+            return speciesName(for: species, evoPath: evoPath)
+        }
+        return identity.displayName
+    }
+
     var accentColor: Color { Color(hex: 0x2F8FFF) }
 }
 
@@ -161,5 +168,14 @@ extension PetStage {
             return PetResolvedIdentity(title: speciesName, subtitle: nil)
         }
         return PetResolvedIdentity(title: trimmedName, subtitle: speciesName)
+    }
+
+    func resolvedIdentity(for identity: PetIdentity, evoPath: PetEvoPath = .pathA, customName: String) -> PetResolvedIdentity {
+        let baseName = identityName(for: identity, evoPath: evoPath)
+        let trimmedName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            return PetResolvedIdentity(title: baseName, subtitle: nil)
+        }
+        return PetResolvedIdentity(title: trimmedName, subtitle: baseName)
     }
 }

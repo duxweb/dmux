@@ -162,6 +162,92 @@ enum PetSpecies: String, Codable, CaseIterable, Equatable, Sendable {
     }
 }
 
+struct PetCustomPet: Codable, Equatable, Identifiable, Sendable {
+    var id: String
+    var displayName: String
+    var description: String
+    var spritesheetPath: String
+    var directoryName: String
+    var sourcePageURL: URL?
+    var sourceZipURL: URL?
+    var installedAt: Date?
+
+    var normalizedDisplayName: String {
+        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? id : trimmedName
+    }
+
+    var normalizedDescription: String {
+        description.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func spritesheetURL(rootURL: URL) -> URL {
+        rootURL
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(spritesheetPath, isDirectory: false)
+    }
+}
+
+struct PetIdentity: Codable, Equatable, Identifiable, Sendable {
+    enum Kind: String, Codable, Sendable {
+        case bundled
+        case custom
+    }
+
+    var kind: Kind
+    var species: PetSpecies?
+    var customPet: PetCustomPet?
+
+    var id: String {
+        switch kind {
+        case .bundled:
+            return "bundled:\((species ?? .voidcat).rawValue)"
+        case .custom:
+            return "custom:\(customPet?.id ?? "missing")"
+        }
+    }
+
+    var displayName: String {
+        switch kind {
+        case .bundled:
+            return (species ?? .voidcat).displayName
+        case .custom:
+            return customPet?.normalizedDisplayName ?? petL("pet.custom.missing", "Custom Pet")
+        }
+    }
+
+    var detailText: String {
+        switch kind {
+        case .bundled:
+            return PetStage.companion.displayName
+        case .custom:
+            let description = customPet?.normalizedDescription ?? ""
+            return description.isEmpty ? petL("pet.custom.installed", "Custom pet") : description
+        }
+    }
+
+    var bundledSpecies: PetSpecies? {
+        kind == .bundled ? (species ?? .voidcat) : nil
+    }
+
+    var placeholderSymbol: String {
+        switch kind {
+        case .bundled:
+            return (species ?? .voidcat).placeholderSymbol
+        case .custom:
+            return "pawprint.fill"
+        }
+    }
+
+    static func bundled(_ species: PetSpecies) -> PetIdentity {
+        PetIdentity(kind: .bundled, species: species, customPet: nil)
+    }
+
+    static func custom(_ pet: PetCustomPet) -> PetIdentity {
+        PetIdentity(kind: .custom, species: nil, customPet: pet)
+    }
+}
+
 enum PetClaimOption: String, CaseIterable, Identifiable, Sendable {
     case voidcat
     case rusthound
@@ -227,6 +313,37 @@ enum PetClaimOption: String, CaseIterable, Identifiable, Sendable {
         case .penguin:      return petL("pet.claim.penguin.subtitle", "Calm, focused, cool-headed")
         case .panda:        return petL("pet.claim.panda.subtitle", "Round, gentle, steady pace")
         case .random:       return petL("pet.claim.random.subtitle", "随机选择一个伙伴")
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .voidcat:
+            return petL("pet.claim.voidcat.description", "A black cat that loves long thoughts in the middle of the night.")
+        case .rusthound:
+            return petL("pet.claim.rusthound.description", "It falls over, gets up again, and keeps going anyway.")
+        case .goose:
+            return petL("pet.claim.goose.description", "A steady companion with a relaxed rhythm.")
+        case .chaossprite:
+            return petL("pet.claim.chaossprite.description", "A bright companion for messy ideas and sudden turns.")
+        case .code:
+            return petL("pet.claim.code.description", "A coding companion that keeps your terminal alive.")
+        case .sheep:
+            return petL("pet.claim.sheep.description", "A soft companion that keeps long work calm.")
+        case .ox:
+            return petL("pet.claim.ox.description", "A steady companion for reliable, grounded progress.")
+        case .dragon:
+            return petL("pet.claim.dragon.description", "A brave companion for big pushes and hot paths.")
+        case .phoenix:
+            return petL("pet.claim.phoenix.description", "A bright companion that makes every restart feel lighter.")
+        case .dolphin:
+            return petL("pet.claim.dolphin.description", "A nimble companion that moves quickly through ideas.")
+        case .penguin:
+            return petL("pet.claim.penguin.description", "A calm companion for focused work and cool heads.")
+        case .panda:
+            return petL("pet.claim.panda.description", "A round, gentle companion that keeps the pace steady.")
+        case .random:
+            return petL("pet.claim.random.description", "Let Codux choose one companion for you.")
         }
     }
 
@@ -332,9 +449,89 @@ enum PetClaimOption: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum PetClaimSelection: Equatable, Identifiable, Sendable {
+    case bundled(PetClaimOption)
+    case custom(PetCustomPet)
+
+    var id: String {
+        switch self {
+        case .bundled(let option):
+            return "bundled:\(option.id)"
+        case .custom(let pet):
+            return "custom:\(pet.id)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .bundled(let option):
+            return option.title
+        case .custom(let pet):
+            return pet.normalizedDisplayName
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .bundled(let option):
+            return option.subtitle
+        case .custom:
+            return petL("pet.claim.custom.subtitle", "Installed custom pet")
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .bundled(let option):
+            return option.description
+        case .custom(let pet):
+            let description = pet.normalizedDescription
+            return description.isEmpty
+                ? petL("pet.claim.custom.description", "A custom Codex-format companion installed from Petdex.")
+                : description
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .bundled(let option):
+            return option.symbol
+        case .custom:
+            return "pawprint.fill"
+        }
+    }
+
+    var previewIdentity: PetIdentity? {
+        switch self {
+        case .bundled(let option):
+            return option.previewSpecies.map { .bundled($0) }
+        case .custom(let pet):
+            return .custom(pet)
+        }
+    }
+
+    func resolveIdentity(
+        hiddenSpeciesChance: Double = 0.15,
+        randomValue: Double? = nil
+    ) -> PetIdentity {
+        switch self {
+        case .bundled(let option):
+            return .bundled(
+                option.resolveSpecies(
+                    hiddenSpeciesChance: hiddenSpeciesChance,
+                    randomValue: randomValue
+                )
+            )
+        case .custom(let pet):
+            return .custom(pet)
+        }
+    }
+}
+
 struct PetLegacyRecord: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
     let species: PetSpecies
+    var identity: PetIdentity? = nil
     let customName: String
     let evoPath: PetEvoPath
     let totalXP: Int
@@ -348,8 +545,12 @@ struct PetResolvedIdentity: Equatable, Sendable {
 }
 
 extension PetLegacyRecord {
+    var petIdentity: PetIdentity {
+        identity ?? .bundled(species)
+    }
+
     func resolvedIdentity(for stage: PetStage) -> PetResolvedIdentity {
-        stage.resolvedIdentity(for: species, evoPath: evoPath, customName: customName)
+        stage.resolvedIdentity(for: petIdentity, evoPath: evoPath, customName: customName)
     }
 }
 

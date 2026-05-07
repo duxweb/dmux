@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 enum PetDesktopWindowPresenter {
     private static var controller: NSWindowController?
-    private static let windowSize = NSSize(width: 330, height: 185)
+    private static let windowSize = NSSize(width: 352, height: 218)
 
     static func sync(model: AppModel) {
         guard model.appSettings.pet.enabled,
@@ -195,10 +195,12 @@ private struct PetDesktopWidgetView: View {
             if let desktopMessage {
                 messageBubble(desktopMessage)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: bubbleCorner.bubbleAlignment)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
             }
         }
-        .frame(width: 330, height: 185)
+        .frame(width: 352, height: 218)
         .background(Color.clear)
         .onAppear {
             recentActivityTick = Date()
@@ -278,7 +280,7 @@ private struct PetDesktopWidgetView: View {
 
     private var petSprite: some View {
         PetSpriteView(
-            species: petStore.species,
+            identity: petStore.currentIdentity,
             stage: info.stage,
             sleeping: isSleeping,
             animationState: desktopAnimationState,
@@ -297,7 +299,7 @@ private struct PetDesktopWidgetView: View {
             tailSide: corner.tailSide,
             tailVerticalPosition: corner.tailVerticalPosition
         )
-        .frame(width: 184)
+        .frame(width: 214)
         .fixedSize(horizontal: false, vertical: true)
         .alignmentGuide(.top) { dimensions in
             corner.topAlignmentGuide(dimensions)
@@ -398,18 +400,17 @@ private struct DesktopPetMessageBubble: View {
             tailVerticalPosition: tailVerticalPosition
         )
         Text(text)
-            .font(.system(size: isActivityStatus ? 11 : 12, weight: isActivityStatus ? .semibold : .bold, design: .monospaced))
-            .tracking(isActivityStatus ? 0.2 : 0.4)
+            .font(.system(size: 14, weight: isActivityStatus ? .semibold : .bold, design: .monospaced))
+            .tracking(0.2)
             .foregroundStyle(palette.text)
-            .lineLimit(4)
+            .lineLimit(3)
             .multilineTextAlignment(.center)
-            .minimumScaleFactor(0.78)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
             .padding(.leading, tailSide == .left ? 24 : 15)
             .padding(.trailing, tailSide == .right ? 24 : 15)
-            .frame(minHeight: 44)
+            .frame(minHeight: 50)
             .background(shape.fill(palette.fill))
             .overlay(
                 shape

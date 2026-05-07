@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class PetStore {
     private static let stateVersion = 7
+    private static let transientIdentityStateVersion = 8
     private static let statsModelVersion = 3
     private static let statsRefreshInterval: TimeInterval = 3600
     private static let ledgerLogCategory = "pet-ledger"
@@ -101,6 +102,7 @@ final class PetStore {
 
     private(set) var claimedAt: Date?
     private(set) var species: PetSpecies = .voidcat
+    private(set) var currentIdentity: PetIdentity = .bundled(.voidcat)
     private(set) var customName: String = ""
     private(set) var currentExperienceTokens: Int = 0
     private(set) var currentStats: PetStats = .neutral
@@ -139,6 +141,29 @@ final class PetStore {
         }
         claimedAt = Date()
         species = option.resolveSpecies(hiddenSpeciesChance: hiddenSpeciesChance)
+        currentIdentity = .bundled(species)
+        applyClaimedIdentityDefaults()
+        self.customName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
+        currentExperienceTokens = 0
+        currentStats = .neutral
+        statsUpdatedDay = nil
+        lockedEvoPath = nil
+        globalNormalizedTotalWatermark = max(0, totalNormalizedTokens)
+        projectNormalizedTokenWatermarks = [:]
+        save()
+    }
+
+    func claim(
+        identity: PetIdentity,
+        customName: String,
+        totalNormalizedTokens: Int = 0
+    ) {
+        guard !isClaimed else {
+            return
+        }
+        claimedAt = Date()
+        currentIdentity = identity
+        applyClaimedIdentityDefaults()
         self.customName = customName.trimmingCharacters(in: .whitespacesAndNewlines)
         currentExperienceTokens = 0
         currentStats = .neutral
@@ -162,7 +187,7 @@ final class PetStore {
     }
 
     func canArchive() -> Bool {
-        isClaimed && PetProgressInfo.levelFromXP(currentExperienceTokens) >= PetProgressInfo.maxLevel
+        isClaimed
     }
 
     func archiveCurrentPet() {
@@ -173,6 +198,7 @@ final class PetStore {
         let record = PetLegacyRecord(
             id: UUID(),
             species: species,
+            identity: currentIdentity,
             customName: customName,
             evoPath: currentEvoPath(),
             totalXP: currentExperienceTokens,
@@ -183,6 +209,7 @@ final class PetStore {
 
         claimedAt = nil
         species = .voidcat
+        currentIdentity = .bundled(.voidcat)
         customName = ""
         currentExperienceTokens = 0
         currentStats = .neutral
@@ -242,6 +269,39 @@ final class PetStore {
         case .sheep, .ox, .dragon, .phoenix, .dolphin, .penguin, .panda:
             return .pathA
         }
+    }
+
+    func restoreArchivedPet(_ recordID: UUID) {
+        guard let index = legacy.firstIndex(where: { $0.id == recordID }) else {
+            return
+        }
+
+        let record = legacy.remove(at: index)
+        if isClaimed {
+            let currentRecord = PetLegacyRecord(
+                id: UUID(),
+                species: species,
+                identity: currentIdentity,
+                customName: customName,
+                evoPath: currentEvoPath(),
+                totalXP: currentExperienceTokens,
+                stats: currentStats,
+                retiredAt: Date()
+            )
+            legacy.insert(currentRecord, at: 0)
+        }
+
+        claimedAt = Date()
+        currentIdentity = record.petIdentity
+        species = currentIdentity.bundledSpecies ?? record.species
+        customName = record.customName
+        currentExperienceTokens = max(0, record.totalXP)
+        currentStats = record.stats
+        statsUpdatedDay = Date()
+        lockedEvoPath = record.evoPath
+        globalNormalizedTotalWatermark = nil
+        projectNormalizedTokenWatermarks = [:]
+        save()
     }
 
     func shouldRefreshStats(now: Date = .init()) -> Bool {
@@ -471,6 +531,7 @@ final class PetStore {
             projectNormalizedTokenWatermarks = [:]
         }
         species = nextSpecies
+        currentIdentity = .bundled(nextSpecies)
         customName = ""
         lockedEvoPath = nil
         save()
@@ -484,13 +545,16 @@ final class PetStore {
 
         claimedAt = resolvedState.claimedAt
         species = resolvedState.species ?? .voidcat
+        currentIdentity = resolvedState.currentIdentity ?? .bundled(species)
+        applyClaimedIdentityDefaults()
         customName = resolvedState.customName ?? ""
         currentStats = resolvedState.currentStats ?? .neutral
         statsUpdatedDay = resolvedState.statsUpdatedDay
         lockedEvoPath = resolvedState.lockedEvoPath
         legacy = resolvedState.legacy ?? []
 
-        if resolvedState.stateVersion == Self.stateVersion {
+        if resolvedState.stateVersion == Self.stateVersion
+            || resolvedState.stateVersion == Self.transientIdentityStateVersion {
             applyLedgerState(from: resolvedState)
             if resolvedState.statsModelVersion != Self.statsModelVersion {
                 currentStats = .neutral
@@ -500,10 +564,12 @@ final class PetStore {
                     "invalidate-stats-cache from=\(resolvedState.statsModelVersion ?? 0) to=\(Self.statsModelVersion)"
                 )
                 save()
-            } else if loadedState.needsRewrite {
+            } else if loadedState.needsRewrite
+                || resolvedState.stateVersion == Self.transientIdentityStateVersion
+                || resolvedState.currentIdentity == nil {
                 debugLog.log(
                     "pet-state",
-                    "rewrite current-format path=\(storage.fileURL?.path ?? "nil") reason=legacy-layout"
+                    "rewrite current-format path=\(storage.fileURL?.path ?? "nil") reason=compatible-layout"
                 )
                 save()
             }
@@ -559,6 +625,7 @@ final class PetStore {
             statsModelVersion: Self.statsModelVersion,
             claimedAt: claimedAt,
             species: species,
+            currentIdentity: currentIdentity,
             customName: customName,
             legacyPreXPTokenCount: nil,
             currentExperienceTokens: currentExperienceTokens,
@@ -610,6 +677,14 @@ final class PetStore {
             try data.write(to: fileURL, options: .atomic)
         } catch {
             debugLog.log("pet-state", "save failed path=\(fileURL.path) error=\(error.localizedDescription)")
+        }
+    }
+
+    private func applyClaimedIdentityDefaults() {
+        if let bundledSpecies = currentIdentity.bundledSpecies {
+            species = bundledSpecies
+        } else if currentIdentity.kind == .custom {
+            species = .code
         }
     }
 
@@ -685,6 +760,7 @@ private struct PersistedPetState: Codable, Equatable {
     var statsModelVersion: Int?
     var claimedAt: Date?
     var species: PetSpecies?
+    var currentIdentity: PetIdentity?
     var customName: String?
     var legacyPreXPTokenCount: Int?
     var currentExperienceTokens: Int?
@@ -706,6 +782,7 @@ private struct PersistedPetState: Codable, Equatable {
         case statsModelVersion
         case claimedAt
         case species
+        case currentIdentity
         case customName
         case legacyPreXPTokenCount = "currentHatchTokens"
         case currentExperienceTokens

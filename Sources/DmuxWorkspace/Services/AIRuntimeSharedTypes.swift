@@ -382,6 +382,7 @@ struct AIRuntimeContextSnapshot: Sendable {
     var tool: String
     var externalSessionID: String?
     var model: String?
+    var assistantPreview: String? = nil
     var inputTokens: Int
     var outputTokens: Int
     var cachedInputTokens: Int = 0

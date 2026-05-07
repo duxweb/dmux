@@ -167,6 +167,10 @@ extension AppModel {
             return
         }
 
+        guard !event.kind.isTurnFamily else {
+            return
+        }
+
         petSpeechCoordinator.notify(event)
     }
 
@@ -326,7 +330,8 @@ extension AppModel {
             } else {
                 petSpeechCoordinator.updateActivityStatus(
                     waitingInput.1,
-                    projectName: waitingInput.0.name
+                    projectName: waitingInput.0.name,
+                    assistantPreview: aiSessionStore.latestAssistantPreview(projectID: waitingInput.0.id)
                 )
             }
             return
@@ -336,7 +341,8 @@ extension AppModel {
            let selected = visibleEntries.first(where: { $0.0.id == selectedProjectID }) {
             petSpeechCoordinator.updateActivityStatus(
                 selected.1,
-                projectName: selected.0.name
+                projectName: selected.0.name,
+                assistantPreview: aiSessionStore.latestAssistantPreview(projectID: selected.0.id)
             )
             return
         }
@@ -350,11 +356,19 @@ extension AppModel {
             return
         }
 
-        petSpeechCoordinator.updateActivityStatus(fallback.1, projectName: fallback.0.name)
+        petSpeechCoordinator.updateActivityStatus(
+            fallback.1,
+            projectName: fallback.0.name,
+            assistantPreview: aiSessionStore.latestAssistantPreview(projectID: fallback.0.id)
+        )
     }
 
     private func completionPresentationPhase(for projectID: UUID) -> ProjectActivityPhase {
         guard let presentation = activityCacheByProjectID[projectID]?.completionPresentation else {
+            return .idle
+        }
+        guard presentation.isFreshForPet(now: Date()) else {
+            _ = clearCompletionPresentation(projectID: projectID)
             return .idle
         }
 
@@ -536,9 +550,11 @@ extension AppModel {
             cache.completionPresentation = ProjectCompletionPresentation(
                 tool: tool,
                 finishedAt: finishedAt,
-                exitCode: exitCode
+                exitCode: exitCode,
+                presentedAt: Date()
             )
         }
+        scheduleCompletionPresentationDismissal(projectID: project.id)
         sendNextQueuedTaskMemoAfterCompletion(projectID: project.id, completionToken: token)
         activityService.notifyCompletion(
             projectName: project.name,
@@ -582,9 +598,41 @@ extension AppModel {
         guard activityCacheByProjectID[projectID]?.completionPresentation != nil else {
             return false
         }
+        pendingCompletionPresentationDismissalTasks[projectID]?.cancel()
+        pendingCompletionPresentationDismissalTasks[projectID] = nil
         updateActivityCache(projectID: projectID) { cache in
             cache.completionPresentation = nil
         }
         return true
+    }
+
+    private func scheduleCompletionPresentationDismissal(projectID: UUID) {
+        pendingCompletionPresentationDismissalTasks[projectID]?.cancel()
+        pendingCompletionPresentationDismissalTasks[projectID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                nanoseconds: UInt64(ProjectActivityPhase.petCompletedActivityStatusDisplayDuration * 1_000_000_000)
+            )
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            self.pendingCompletionPresentationDismissalTasks[projectID] = nil
+            _ = self.dismissCompletionPresentationIfNeeded(
+                projectID: projectID,
+                reason: "completed-expired"
+            )
+        }
+    }
+
+    func cancelCompletionPresentationDismissalTasks() {
+        for task in pendingCompletionPresentationDismissalTasks.values {
+            task.cancel()
+        }
+        pendingCompletionPresentationDismissalTasks.removeAll()
+    }
+}
+
+extension AppModel.ProjectCompletionPresentation {
+    func isFreshForPet(now: Date) -> Bool {
+        now.timeIntervalSince(presentedAt) <= ProjectActivityPhase.petCompletedActivityStatusDisplayDuration
     }
 }

@@ -2372,7 +2372,11 @@ final class AISessionStoreTests: XCTestCase {
         XCTAssertTrue(session.wasInterrupted)
         XCTAssertFalse(session.hasCompletedTurn)
         XCTAssertEqual(store.projectPhase(projectID: projectID), .idle)
-        XCTAssertNil(store.completedPhase(projectID: projectID))
+        guard case .completed(let tool, _, let exitCode) = store.completedPhase(projectID: projectID) else {
+            return XCTFail("expected interrupted turn to surface as failed completion")
+        }
+        XCTAssertEqual(tool, "opencode")
+        XCTAssertEqual(exitCode, 1)
     }
 
     func testOpencodeCompletedIdleProducesCompletedTurn() throws {
@@ -2512,7 +2516,13 @@ final class AISessionStoreTests: XCTestCase {
                 )
             )
         )
-        XCTAssertNil(store.completedNotificationToken(projectID: projectID))
+        let failedToken = try XCTUnwrap(store.completedNotificationToken(projectID: projectID))
+        XCTAssertNotEqual(failedToken, firstToken)
+        guard case .completed(let failedTool, _, let failedExitCode) = store.completedPhase(projectID: projectID) else {
+            return XCTFail("expected interrupted turn to surface as failed completion")
+        }
+        XCTAssertEqual(failedTool, "opencode")
+        XCTAssertEqual(failedExitCode, 1)
 
         XCTAssertTrue(
             store.apply(
