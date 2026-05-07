@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-05-07
+
+### Added
+
+- Added desktop pet context-menu controls to make the pet larger, smaller, or reset it to the default size, with the scale persisted in app settings.
+
+### Changed
+
+- Updated the bundled `code` and `voidcat` pet assets and regenerated their standard Codex atlases; `voidcat` now uses the new high-resolution source while the black-background `sheep` source remains validated.
+- Kept desktop pet bubble text visually fixed at 14pt while the pet is scaled, preventing oversized speech text after enlarging the pet.
+
 ## [0.9.7] - 2026-05-07
 
 ### Added

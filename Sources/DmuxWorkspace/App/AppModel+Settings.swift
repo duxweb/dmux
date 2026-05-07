@@ -470,6 +470,17 @@ extension AppModel {
         persist()
     }
 
+    func updatePetDesktopWidgetScale(_ scale: Double) {
+        let normalizedScale = AppPetSettings.normalizedDesktopWidgetScale(scale)
+        guard appSettings.pet.desktopWidgetScale != normalizedScale else {
+            return
+        }
+        var settings = appSettings
+        settings.pet.desktopWidgetScale = normalizedScale
+        appSettings = settings
+        persist()
+    }
+
     func updatePetHydrationReminderEnabled(_ enabled: Bool) {
         var settings = appSettings
         settings.pet.hydrationReminderEnabled = enabled

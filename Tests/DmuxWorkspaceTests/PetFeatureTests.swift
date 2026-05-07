@@ -46,6 +46,22 @@ final class PetFeatureTests: XCTestCase {
         )
     }
 
+    func testPetDesktopWidgetScaleDefaultsAndClamps() throws {
+        let legacySettings = try JSONDecoder().decode(AppPetSettings.self, from: Data("{}".utf8))
+        XCTAssertEqual(legacySettings.desktopWidgetScale, AppPetSettings.defaultDesktopWidgetScale)
+
+        XCTAssertEqual(AppPetSettings.normalizedDesktopWidgetScale(0.2), AppPetSettings.minDesktopWidgetScale)
+        XCTAssertEqual(AppPetSettings.normalizedDesktopWidgetScale(2.0), AppPetSettings.maxDesktopWidgetScale)
+        XCTAssertEqual(AppPetSettings.normalizedDesktopWidgetScale(1.04), 1.0)
+        XCTAssertEqual(AppPetSettings.normalizedDesktopWidgetScale(1.06), 1.1)
+
+        let stored = try JSONDecoder().decode(
+            AppPetSettings.self,
+            from: Data(#"{"desktopWidgetScale":1.46}"#.utf8)
+        )
+        XCTAssertEqual(stored.desktopWidgetScale, AppPetSettings.maxDesktopWidgetScale)
+    }
+
     func testPetSpeciesNamesAreUnified() {
         XCTAssertEqual(PetSpecies.chaossprite.displayName, "Chaos")
         XCTAssertEqual(PetSpecies.code.displayName, "code")

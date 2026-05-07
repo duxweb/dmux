@@ -44,6 +44,9 @@ struct RootView: View {
         .onChange(of: model.appSettings.pet.staticMode) { _, _ in
             PetDesktopWindowPresenter.sync(model: model)
         }
+        .onChange(of: model.appSettings.pet.desktopWidgetScale) { _, _ in
+            PetDesktopWindowPresenter.sync(model: model)
+        }
         .onChange(of: model.petStore.isClaimed) { _, _ in
             PetDesktopWindowPresenter.sync(model: model)
         }

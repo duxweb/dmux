@@ -211,9 +211,15 @@ struct AppRemoteSettings: Codable, Equatable {
 }
 
 struct AppPetSettings: Codable, Equatable {
+    static let defaultDesktopWidgetScale = 1.0
+    static let minDesktopWidgetScale = 0.75
+    static let maxDesktopWidgetScale = 1.5
+    static let desktopWidgetScaleStep = 0.1
+
     var enabled = true
     var desktopWidgetEnabled = false
     var staticMode = false
+    var desktopWidgetScale = Self.defaultDesktopWidgetScale
     var hydrationReminderEnabled = true
     var hydrationReminderInterval: TimeInterval = 7200
     var sedentaryReminderEnabled = true
@@ -223,10 +229,16 @@ struct AppPetSettings: Codable, Equatable {
 
     init() {}
 
+    static func normalizedDesktopWidgetScale(_ scale: Double) -> Double {
+        let stepped = (scale / desktopWidgetScaleStep).rounded() * desktopWidgetScaleStep
+        return min(maxDesktopWidgetScale, max(minDesktopWidgetScale, stepped))
+    }
+
     enum CodingKeys: String, CodingKey {
         case enabled
         case desktopWidgetEnabled
         case staticMode
+        case desktopWidgetScale
         case hydrationReminderEnabled
         case hydrationReminderInterval
         case sedentaryReminderEnabled
@@ -240,6 +252,9 @@ struct AppPetSettings: Codable, Equatable {
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         desktopWidgetEnabled = try container.decodeIfPresent(Bool.self, forKey: .desktopWidgetEnabled) ?? false
         staticMode = try container.decodeIfPresent(Bool.self, forKey: .staticMode) ?? false
+        desktopWidgetScale = Self.normalizedDesktopWidgetScale(
+            try container.decodeIfPresent(Double.self, forKey: .desktopWidgetScale) ?? Self.defaultDesktopWidgetScale
+        )
         hydrationReminderEnabled = try container.decodeIfPresent(Bool.self, forKey: .hydrationReminderEnabled) ?? true
         hydrationReminderInterval = max(300, try container.decodeIfPresent(TimeInterval.self, forKey: .hydrationReminderInterval) ?? 7200)
         sedentaryReminderEnabled = try container.decodeIfPresent(Bool.self, forKey: .sedentaryReminderEnabled) ?? true

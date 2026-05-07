@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 enum PetDesktopWindowPresenter {
     private static var controller: NSWindowController?
-    private static let windowSize = NSSize(width: 352, height: 218)
+    private static let baseWindowSize = NSSize(width: 352, height: 218)
 
     static func sync(model: AppModel) {
         guard model.appSettings.pet.enabled,
@@ -18,6 +18,7 @@ enum PetDesktopWindowPresenter {
 
     static func show(model: AppModel) {
         if let window = controller?.window {
+            updateWindowSizeIfNeeded(window, scale: model.appSettings.pet.desktopWidgetScale)
             updateContentIfNeeded(model: model)
             if !window.isVisible {
                 window.orderFrontRegardless()
@@ -25,6 +26,7 @@ enum PetDesktopWindowPresenter {
             return
         }
 
+        let windowSize = scaledWindowSize(for: model.appSettings.pet.desktopWidgetScale)
         let initialFrame = DesktopPetPlacementStore.initialFrame(size: windowSize)
         let window = DesktopPetPanel(
             contentRect: initialFrame,
@@ -72,6 +74,33 @@ enum PetDesktopWindowPresenter {
         let bubbleCorner = controller?.window.map { DesktopPetPlacementStore.bubbleCorner(for: $0.frame) } ?? .topLeading
         hosting.rootView = PetDesktopWidgetView(model: model, initialBubbleCorner: bubbleCorner)
         makeHostingViewTransparent(hosting.view)
+    }
+
+    private static func updateWindowSizeIfNeeded(_ window: NSWindow, scale: Double) {
+        let nextSize = scaledWindowSize(for: scale)
+        guard abs(window.frame.width - nextSize.width) > 0.5
+            || abs(window.frame.height - nextSize.height) > 0.5 else {
+            return
+        }
+        let previousFrame = window.frame
+        let nextOrigin = CGPoint(
+            x: previousFrame.midX - nextSize.width / 2,
+            y: previousFrame.midY - nextSize.height / 2
+        )
+        let nextFrame = NSRect(
+            origin: DesktopPetPlacementStore.clamped(nextOrigin, size: nextSize),
+            size: nextSize
+        )
+        window.setFrame(nextFrame, display: true)
+        DesktopPetPlacementStore.save(nextFrame.origin)
+    }
+
+    private static func scaledWindowSize(for scale: Double) -> NSSize {
+        let normalizedScale = AppPetSettings.normalizedDesktopWidgetScale(scale)
+        return NSSize(
+            width: round(baseWindowSize.width * normalizedScale),
+            height: round(baseWindowSize.height * normalizedScale)
+        )
     }
 
     private static func makeHostingViewTransparent(_ view: NSView?) {
@@ -141,6 +170,9 @@ private extension DesktopPetBubbleCorner {
 }
 
 private struct PetDesktopWidgetView: View {
+    private static let bubbleBaseFontSize: CGFloat = 14
+    private static let bubbleBaseTracking: CGFloat = 0.2
+
     let model: AppModel
     @State private var bubbleCorner: DesktopPetBubbleCorner
     @State private var recentActivityTick = Date()
@@ -182,6 +214,21 @@ private struct PetDesktopWidgetView: View {
             hasAnyRunningActivity: hasAnyRunningActivity
         )
     }
+    private var desktopScale: CGFloat {
+        CGFloat(model.appSettings.pet.desktopWidgetScale)
+    }
+    private var scaledWidth: CGFloat {
+        352 * desktopScale
+    }
+    private var scaledHeight: CGFloat {
+        218 * desktopScale
+    }
+    private var bubbleFontSize: CGFloat {
+        Self.bubbleBaseFontSize / max(desktopScale, 0.1)
+    }
+    private var bubbleTracking: CGFloat {
+        Self.bubbleBaseTracking / max(desktopScale, 0.1)
+    }
 
     init(model: AppModel, initialBubbleCorner: DesktopPetBubbleCorner) {
         self.model = model
@@ -190,17 +237,21 @@ private struct PetDesktopWidgetView: View {
 
     var body: some View {
         ZStack {
-            petSprite
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: bubbleCorner.petAlignment)
-            if let desktopMessage {
-                messageBubble(desktopMessage)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: bubbleCorner.bubbleAlignment)
-                    .transaction { transaction in
-                        transaction.animation = nil
+            ZStack {
+                petSprite
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: bubbleCorner.petAlignment)
+                if let desktopMessage {
+                    messageBubble(desktopMessage)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: bubbleCorner.bubbleAlignment)
+                        .transaction { transaction in
+                            transaction.animation = nil
+                        }
                     }
             }
+            .frame(width: 352, height: 218)
+            .scaleEffect(desktopScale)
         }
-        .frame(width: 352, height: 218)
+        .frame(width: scaledWidth, height: scaledHeight)
         .background(Color.clear)
         .onAppear {
             recentActivityTick = Date()
@@ -246,6 +297,22 @@ private struct PetDesktopWidgetView: View {
                 },
                 onSpeakLess: {
                     model.petSpeechCoordinator.speakLessTemporarily()
+                },
+                canScaleUp: model.appSettings.pet.desktopWidgetScale < AppPetSettings.maxDesktopWidgetScale,
+                canScaleDown: model.appSettings.pet.desktopWidgetScale > AppPetSettings.minDesktopWidgetScale,
+                canResetScale: model.appSettings.pet.desktopWidgetScale != AppPetSettings.defaultDesktopWidgetScale,
+                onScaleUp: {
+                    model.updatePetDesktopWidgetScale(
+                        model.appSettings.pet.desktopWidgetScale + AppPetSettings.desktopWidgetScaleStep
+                    )
+                },
+                onScaleDown: {
+                    model.updatePetDesktopWidgetScale(
+                        model.appSettings.pet.desktopWidgetScale - AppPetSettings.desktopWidgetScaleStep
+                    )
+                },
+                onResetScale: {
+                    model.updatePetDesktopWidgetScale(AppPetSettings.defaultDesktopWidgetScale)
                 }
             )
         )
@@ -271,6 +338,23 @@ private struct PetDesktopWidgetView: View {
                 model.petSpeechCoordinator.speakLessTemporarily()
             }
             Divider()
+            Button(petL("pet.desktop.scale_up", "Make Larger")) {
+                model.updatePetDesktopWidgetScale(
+                    model.appSettings.pet.desktopWidgetScale + AppPetSettings.desktopWidgetScaleStep
+                )
+            }
+            .disabled(model.appSettings.pet.desktopWidgetScale >= AppPetSettings.maxDesktopWidgetScale)
+            Button(petL("pet.desktop.scale_down", "Make Smaller")) {
+                model.updatePetDesktopWidgetScale(
+                    model.appSettings.pet.desktopWidgetScale - AppPetSettings.desktopWidgetScaleStep
+                )
+            }
+            .disabled(model.appSettings.pet.desktopWidgetScale <= AppPetSettings.minDesktopWidgetScale)
+            Button(petL("pet.desktop.scale_reset", "Reset Size")) {
+                model.updatePetDesktopWidgetScale(AppPetSettings.defaultDesktopWidgetScale)
+            }
+            .disabled(model.appSettings.pet.desktopWidgetScale == AppPetSettings.defaultDesktopWidgetScale)
+            Divider()
             Button(petL("pet.desktop.hide", "Hide Desktop Pet")) {
                 model.updatePetDesktopWidgetEnabled(false)
                 PetDesktopWindowPresenter.sync(model: model)
@@ -294,6 +378,8 @@ private struct PetDesktopWidgetView: View {
         let corner = bubbleCorner
         return DesktopPetMessageBubble(
             text: desktopMessage.text,
+            fontSize: bubbleFontSize,
+            tracking: bubbleTracking,
             isActivityStatus: desktopMessage.isActivityStatus,
             tone: desktopMessage.tone,
             tailSide: corner.tailSide,
@@ -321,6 +407,8 @@ private enum PixelSpeechBubbleTailVerticalPosition {
 
 private struct DesktopPetMessageBubble: View {
     let text: String
+    let fontSize: CGFloat
+    let tracking: CGFloat
     var isActivityStatus = false
     var tone: PetActivityStatusLine.Tone = .normal
     let tailSide: DesktopPetBubbleTailSide
@@ -400,8 +488,8 @@ private struct DesktopPetMessageBubble: View {
             tailVerticalPosition: tailVerticalPosition
         )
         Text(text)
-            .font(.system(size: 14, weight: isActivityStatus ? .semibold : .bold, design: .monospaced))
-            .tracking(0.2)
+            .font(.system(size: fontSize, weight: isActivityStatus ? .semibold : .bold, design: .monospaced))
+            .tracking(tracking)
             .foregroundStyle(palette.text)
             .lineLimit(3)
             .multilineTextAlignment(.center)
@@ -541,6 +629,12 @@ private struct DesktopPetDragSurface: NSViewRepresentable {
     let onSkip: () -> Void
     let onSpeakMore: () -> Void
     let onSpeakLess: () -> Void
+    let canScaleUp: Bool
+    let canScaleDown: Bool
+    let canResetScale: Bool
+    let onScaleUp: () -> Void
+    let onScaleDown: () -> Void
+    let onResetScale: () -> Void
 
     func makeNSView(context: Context) -> NSView {
         DesktopPetDragView(
@@ -551,7 +645,13 @@ private struct DesktopPetDragSurface: NSViewRepresentable {
             onMuteToday: onMuteToday,
             onSkip: onSkip,
             onSpeakMore: onSpeakMore,
-            onSpeakLess: onSpeakLess
+            onSpeakLess: onSpeakLess,
+            canScaleUp: canScaleUp,
+            canScaleDown: canScaleDown,
+            canResetScale: canResetScale,
+            onScaleUp: onScaleUp,
+            onScaleDown: onScaleDown,
+            onResetScale: onResetScale
         )
     }
 
@@ -567,6 +667,12 @@ private struct DesktopPetDragSurface: NSViewRepresentable {
         view.onSkip = onSkip
         view.onSpeakMore = onSpeakMore
         view.onSpeakLess = onSpeakLess
+        view.canScaleUp = canScaleUp
+        view.canScaleDown = canScaleDown
+        view.canResetScale = canResetScale
+        view.onScaleUp = onScaleUp
+        view.onScaleDown = onScaleDown
+        view.onResetScale = onResetScale
     }
 }
 
@@ -579,6 +685,12 @@ private final class DesktopPetDragView: NSView {
     var onSkip: () -> Void
     var onSpeakMore: () -> Void
     var onSpeakLess: () -> Void
+    var canScaleUp: Bool
+    var canScaleDown: Bool
+    var canResetScale: Bool
+    var onScaleUp: () -> Void
+    var onScaleDown: () -> Void
+    var onResetScale: () -> Void
 
     private var dragStartMouseLocation: CGPoint?
     private var dragStartWindowOrigin: CGPoint?
@@ -591,7 +703,13 @@ private final class DesktopPetDragView: NSView {
         onMuteToday: @escaping () -> Void,
         onSkip: @escaping () -> Void,
         onSpeakMore: @escaping () -> Void,
-        onSpeakLess: @escaping () -> Void
+        onSpeakLess: @escaping () -> Void,
+        canScaleUp: Bool,
+        canScaleDown: Bool,
+        canResetScale: Bool,
+        onScaleUp: @escaping () -> Void,
+        onScaleDown: @escaping () -> Void,
+        onResetScale: @escaping () -> Void
     ) {
         self.hideTitle = hideTitle
         self.onFrameChanged = onFrameChanged
@@ -601,6 +719,12 @@ private final class DesktopPetDragView: NSView {
         self.onSkip = onSkip
         self.onSpeakMore = onSpeakMore
         self.onSpeakLess = onSpeakLess
+        self.canScaleUp = canScaleUp
+        self.canScaleDown = canScaleDown
+        self.canResetScale = canResetScale
+        self.onScaleUp = onScaleUp
+        self.onScaleDown = onScaleDown
+        self.onResetScale = onResetScale
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
@@ -656,14 +780,19 @@ private final class DesktopPetDragView: NSView {
         menu.addItem(menuItem(petL("pet.desktop.speak_more", "Speak More"), #selector(speakMore)))
         menu.addItem(menuItem(petL("pet.desktop.speak_less", "Speak Less"), #selector(speakLess)))
         menu.addItem(.separator())
+        menu.addItem(menuItem(petL("pet.desktop.scale_up", "Make Larger"), #selector(scaleUp), enabled: canScaleUp))
+        menu.addItem(menuItem(petL("pet.desktop.scale_down", "Make Smaller"), #selector(scaleDown), enabled: canScaleDown))
+        menu.addItem(menuItem(petL("pet.desktop.scale_reset", "Reset Size"), #selector(resetScale), enabled: canResetScale))
+        menu.addItem(.separator())
         let item = menuItem(hideTitle, #selector(hideDesktopPet))
         menu.addItem(item)
         menu.popUp(positioning: item, at: convert(event.locationInWindow, from: nil), in: self)
     }
 
-    private func menuItem(_ title: String, _ action: Selector) -> NSMenuItem {
+    private func menuItem(_ title: String, _ action: Selector, enabled: Bool = true) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
+        item.isEnabled = enabled
         return item
     }
 
@@ -693,6 +822,18 @@ private final class DesktopPetDragView: NSView {
 
     @objc private func speakLess() {
         onSpeakLess()
+    }
+
+    @objc private func scaleUp() {
+        onScaleUp()
+    }
+
+    @objc private func scaleDown() {
+        onScaleDown()
+    }
+
+    @objc private func resetScale() {
+        onResetScale()
     }
 }
 
@@ -744,7 +885,7 @@ private enum DesktopPetPlacementStore {
         )
     }
 
-    private static func clamped(_ origin: CGPoint, size: NSSize) -> CGPoint {
+    static func clamped(_ origin: CGPoint, size: NSSize) -> CGPoint {
         let screens = NSScreen.screens.map(\.visibleFrame)
         guard !screens.isEmpty else {
             return origin
