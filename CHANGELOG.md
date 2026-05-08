@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-05-08
+
+### Fixed
+
+- Updated Codex hook feature flag handling to prefer `--enable hooks`, falling back to `codex_hooks` only when older CLIs still expose the legacy flag, migrate startup-managed Codex config to `[features].hooks = true`, and trust only the Codux-managed hook hashes written by the app.
+- Removed Codux-managed legacy Codex tool-use and unsupported session-end hooks, plus duplicate cross-owner managed hooks, to reduce redundant entries in the new Codex `/hooks` review flow.
+
 ## [0.9.9] - 2026-05-07
 
 ### Added

@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-05-08
+
+### 修复
+
+- 兼容新版 Codex hooks feature flag，启动 Codex 时优先使用 `--enable hooks`，仅在旧版 CLI 仍只暴露 `codex_hooks` 时回退，在应用启动托管配置时迁移为 `[features].hooks = true`，并只信任 Codux 自己写入的 hook hash。
+- 清理 Codux 托管的旧 Codex tool-use hook、不再支持的 session-end hook 和跨 owner 重复 hook，减少新版 Codex `/hooks` 审查列表中的冗余项。
+
 ## [0.9.9] - 2026-05-07
 
 ### 新增

@@ -1,6 +1,12 @@
+import CryptoKit
 import Foundation
 
 extension AIRuntimeBridgeService {
+    struct CodexHookTrustState: Equatable {
+        var key: String
+        var trustedHash: String
+    }
+
     func codexHooksFileURL() -> URL {
         toolConfigFileURL(directoryName: ".codex", filename: "hooks.json")
     }
@@ -40,7 +46,10 @@ extension AIRuntimeBridgeService {
         try? fileManager.createDirectory(at: configDirectoryURL, withIntermediateDirectories: true)
 
         let existingText = (try? String(contentsOf: configFileURL, encoding: .utf8)) ?? ""
-        let updatedText = updatedCodexConfigText(from: existingText)
+        let updatedText = updatedCodexConfigText(
+            from: existingText,
+            codexHookTrustStates: managedCodexHookTrustStates()
+        )
 
         guard updatedText != existingText else {
             return
@@ -54,8 +63,13 @@ extension AIRuntimeBridgeService {
         }
     }
 
-    func updatedCodexConfigText(from existingText: String) -> String {
+    func updatedCodexConfigText(
+        from existingText: String,
+        codexHookTrustStates: [CodexHookTrustState] = []
+    ) -> String {
         let targetLine = "suppress_unstable_features_warning = true"
+        let featuresHeader = "[features]"
+        let hooksFeatureLine = "hooks = true"
 
         func normalized(_ line: String) -> String {
             line.trimmingCharacters(in: .whitespaces)
@@ -68,6 +82,160 @@ extension AIRuntimeBridgeService {
         func isTableHeader(_ line: String) -> Bool {
             let trimmed = normalized(line)
             return trimmed.hasPrefix("[") && trimmed.hasSuffix("]")
+        }
+
+        func isFeaturesHeader(_ line: String) -> Bool {
+            normalized(line) == featuresHeader
+        }
+
+        func keyName(_ line: String) -> String? {
+            let trimmed = normalized(line)
+            guard trimmed.isEmpty == false,
+                  trimmed.hasPrefix("#") == false,
+                  let equalsIndex = trimmed.firstIndex(of: "=") else {
+                return nil
+            }
+            return trimmed[..<equalsIndex].trimmingCharacters(in: .whitespaces)
+        }
+
+        func featuresSectionEnd(in lines: [String], start: Int) -> Int {
+            var index = start + 1
+            while index < lines.count, isTableHeader(lines[index]) == false {
+                index += 1
+            }
+            return index
+        }
+
+        func ensureHooksFeatureFlag(in lines: inout [String]) {
+            guard let featuresIndex = lines.firstIndex(where: isFeaturesHeader) else {
+                if lines.isEmpty == false, normalized(lines.last ?? "").isEmpty == false {
+                    lines.append("")
+                }
+                lines.append(featuresHeader)
+                lines.append(hooksFeatureLine)
+                return
+            }
+
+            let sectionEnd = featuresSectionEnd(in: lines, start: featuresIndex)
+            var hooksIndex: Int?
+            var legacyHooksIndex: Int?
+            var removalIndices: [Int] = []
+
+            for index in (featuresIndex + 1)..<sectionEnd {
+                switch keyName(lines[index]) {
+                case "hooks":
+                    if hooksIndex == nil {
+                        hooksIndex = index
+                    } else {
+                        removalIndices.append(index)
+                    }
+                case "codex_hooks":
+                    if legacyHooksIndex == nil {
+                        legacyHooksIndex = index
+                    } else {
+                        removalIndices.append(index)
+                    }
+                default:
+                    break
+                }
+            }
+
+            if let hooksIndex {
+                lines[hooksIndex] = hooksFeatureLine
+                if let legacyHooksIndex {
+                    removalIndices.append(legacyHooksIndex)
+                }
+            } else if let legacyHooksIndex {
+                lines[legacyHooksIndex] = hooksFeatureLine
+            } else {
+                var insertionIndex = sectionEnd
+                while insertionIndex > featuresIndex + 1,
+                      normalized(lines[insertionIndex - 1]).isEmpty {
+                    insertionIndex -= 1
+                }
+                lines.insert(hooksFeatureLine, at: insertionIndex)
+            }
+
+            for index in removalIndices.sorted(by: >) {
+                lines.remove(at: index)
+            }
+        }
+
+        func hookStateKey(fromHeader line: String) -> String? {
+            let trimmed = normalized(line)
+            let prefix = "[hooks.state.\""
+            let suffix = "\"]"
+            guard trimmed.hasPrefix(prefix), trimmed.hasSuffix(suffix) else {
+                return nil
+            }
+            let start = trimmed.index(trimmed.startIndex, offsetBy: prefix.count)
+            let end = trimmed.index(trimmed.endIndex, offsetBy: -suffix.count)
+            return String(trimmed[start..<end])
+        }
+
+        func removeManagedHookTrustStateBlocks(from lines: [String], keys: Set<String>) -> [String] {
+            guard keys.isEmpty == false else {
+                return lines
+            }
+
+            var result: [String] = []
+            var index = 0
+            while index < lines.count {
+                if let key = hookStateKey(fromHeader: lines[index]), keys.contains(key) {
+                    index += 1
+                    while index < lines.count, isTableHeader(lines[index]) == false {
+                        index += 1
+                    }
+                    continue
+                }
+
+                result.append(lines[index])
+                index += 1
+            }
+            return result
+        }
+
+        func tomlQuotedString(_ value: String) -> String {
+            var output = "\""
+            for scalar in value.unicodeScalars {
+                switch scalar {
+                case "\"":
+                    output += "\\\""
+                case "\\":
+                    output += "\\\\"
+                case "\n":
+                    output += "\\n"
+                case "\r":
+                    output += "\\r"
+                case "\t":
+                    output += "\\t"
+                default:
+                    output.unicodeScalars.append(scalar)
+                }
+            }
+            output += "\""
+            return output
+        }
+
+        func appendManagedHookTrustStates(_ states: [CodexHookTrustState], to lines: inout [String]) {
+            guard states.isEmpty == false else {
+                return
+            }
+
+            if lines.contains(where: { normalized($0) == "[hooks.state]" }) == false {
+                if lines.isEmpty == false, normalized(lines.last ?? "").isEmpty == false {
+                    lines.append("")
+                }
+                lines.append("[hooks.state]")
+            }
+
+            for state in states {
+                if lines.isEmpty == false, normalized(lines.last ?? "").isEmpty == false {
+                    lines.append("")
+                }
+                lines.append("[hooks.state.\(tomlQuotedString(state.key))]")
+                lines.append("trusted_hash = \(tomlQuotedString(state.trustedHash))")
+            }
         }
 
         var lines = existingText
@@ -101,7 +269,169 @@ extension AIRuntimeBridgeService {
             }
         }
 
+        ensureHooksFeatureFlag(in: &lines)
+
+        let sortedTrustStates = codexHookTrustStates.sorted { $0.key < $1.key }
+        let trustKeys = Set(sortedTrustStates.map(\.key))
+        lines = removeManagedHookTrustStateBlocks(from: lines, keys: trustKeys)
+        appendManagedHookTrustStates(sortedTrustStates, to: &lines)
+
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    func managedCodexHookTrustStates() -> [CodexHookTrustState] {
+        guard let data = try? Data(contentsOf: codexHooksFileURL()),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
+        }
+        return managedCodexHookTrustStates(from: root)
+    }
+
+    func managedCodexHookTrustStates(from rootObject: [String: Any]) -> [CodexHookTrustState] {
+        guard let hooksObject = rootObject["hooks"] as? [String: Any] else {
+            return []
+        }
+
+        let expectedActionsByEvent = codexManagedHookActionsByEvent()
+        let expectedCommands = codexManagedHookCommandsByEvent()
+        var states: [CodexHookTrustState] = []
+
+        for (eventKey, eventLabel) in codexHookEventLabelsByKey() {
+            guard let expectedAction = expectedActionsByEvent[eventKey],
+                  let expectedCommand = expectedCommands[eventKey],
+                  let groups = hooksObject[eventKey] as? [[String: Any]] else {
+                continue
+            }
+
+            for (groupIndex, group) in groups.enumerated() {
+                let hooks = group["hooks"] as? [[String: Any]] ?? []
+                for (handlerIndex, hook) in hooks.enumerated() {
+                    guard (hook["type"] as? String) == "command",
+                          (hook["command"] as? String) == expectedCommand else {
+                        continue
+                    }
+
+                    let statusMessage = hook["statusMessage"] as? String
+                    let timeout = hook["timeout"] as? Int ?? 600
+                    let matcher = codexHookMatcherForTrustHash(eventKey: eventKey, group: group)
+                    let hash = codexCommandHookTrustHash(
+                        eventLabel: eventLabel,
+                        matcher: matcher,
+                        command: expectedCommand,
+                        timeout: max(timeout, 1),
+                        statusMessage: statusMessage
+                    )
+                    states.append(
+                        CodexHookTrustState(
+                            key: "\(codexHooksFileURL().path):\(eventLabel):\(groupIndex):\(handlerIndex)",
+                            trustedHash: hash
+                        )
+                    )
+
+                    debugLog.log(
+                        "codex-hook-config",
+                        "prepared trusted hook action=\(expectedAction) key=\(codexHooksFileURL().path):\(eventLabel):\(groupIndex):\(handlerIndex)"
+                    )
+                }
+            }
+        }
+
+        return states
+    }
+
+    func codexManagedHookActionsByEvent() -> [String: String] {
+        [
+            "SessionStart": "codex-session-start",
+            "UserPromptSubmit": "codex-prompt-submit",
+            "PermissionRequest": "codex-permission-request",
+            "Stop": "codex-stop",
+        ]
+    }
+
+    func codexManagedHookCommandsByEvent() -> [String: String] {
+        let helperScriptURL = managedRuntimeHookHelperURL()
+        let owner = AppRuntimePaths.runtimeOwnerID()
+        return codexManagedHookActionsByEvent().mapValues { action in
+            hookCommand(
+                helperScriptURL: helperScriptURL,
+                action: action,
+                owner: owner,
+                tool: "codex"
+            )
+        }
+    }
+
+    func codexHookEventLabelsByKey() -> [String: String] {
+        [
+            "PermissionRequest": "permission_request",
+            "SessionStart": "session_start",
+            "Stop": "stop",
+            "UserPromptSubmit": "user_prompt_submit",
+        ]
+    }
+
+    func codexHookMatcherForTrustHash(eventKey: String, group: [String: Any]) -> String? {
+        switch eventKey {
+        case "UserPromptSubmit", "Stop":
+            return nil
+        default:
+            return group["matcher"] as? String
+        }
+    }
+
+    func codexCommandHookTrustHash(
+        eventLabel: String,
+        matcher: String?,
+        command: String,
+        timeout: Int,
+        statusMessage: String?
+    ) -> String {
+        let statusJSON = statusMessage.map(jsonStringLiteral) ?? "null"
+        let hookJSON = """
+        "hooks":[{"async":false,"command":\(jsonStringLiteral(command)),"statusMessage":\(statusJSON),"timeout":\(timeout),"type":"command"}]
+        """
+        let canonicalJSON: String
+        if let matcher {
+            canonicalJSON = """
+            {"event_name":\(jsonStringLiteral(eventLabel)),\(hookJSON),"matcher":\(jsonStringLiteral(matcher))}
+            """
+        } else {
+            canonicalJSON = """
+            {"event_name":\(jsonStringLiteral(eventLabel)),\(hookJSON)}
+            """
+        }
+        let digest = SHA256.hash(data: Data(canonicalJSON.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "sha256:\(digest)"
+    }
+
+    func jsonStringLiteral(_ value: String) -> String {
+        var output = "\""
+        for scalar in value.unicodeScalars {
+            switch scalar.value {
+            case 0x08:
+                output += "\\b"
+            case 0x09:
+                output += "\\t"
+            case 0x0A:
+                output += "\\n"
+            case 0x0C:
+                output += "\\f"
+            case 0x0D:
+                output += "\\r"
+            case 0x22:
+                output += "\\\""
+            case 0x5C:
+                output += "\\\\"
+            case 0x00...0x1F:
+                output += String(format: "\\u%04x", scalar.value)
+            default:
+                output.unicodeScalars.append(scalar)
+            }
+        }
+        output += "\""
+        return output
     }
 
     func installClaudeHooks(_ rootObject: inout [String: Any]) {
@@ -141,13 +471,15 @@ extension AIRuntimeBridgeService {
             definitions: [
                 ("SessionStart", "codex-session-start", 1000, false),
                 ("UserPromptSubmit", "codex-prompt-submit", 1000, false),
-                ("PreToolUse", "codex-pre-tool-use", 1000, false),
-                ("PostToolUse", "codex-post-tool-use", 1000, false),
                 ("PermissionRequest", "codex-permission-request", 1000, false),
                 ("Stop", "codex-stop", 1000, false),
-                ("SessionEnd", "codex-session-end", 1000, false),
             ],
-            removedDefinitions: []
+            removedDefinitions: [
+                ("PreToolUse", "codex-pre-tool-use"),
+                ("PostToolUse", "codex-post-tool-use"),
+                ("SessionEnd", "codex-session-end"),
+            ],
+            stripAnyManagedHookForAction: true
         )
     }
 
@@ -203,7 +535,9 @@ extension AIRuntimeBridgeService {
             from: &hooksObject,
             owner: AppRuntimePaths.runtimeOwnerID(),
             helperScriptURL: helperScriptURL,
-            statusMessage: statusMessage
+            statusMessage: statusMessage,
+            tool: tool,
+            stripAnyManagedHookForAction: stripAnyManagedHookForAction
         )
         let specs = managedHookSpecs(
             tool: tool,
@@ -242,15 +576,19 @@ extension AIRuntimeBridgeService {
         from hooksObject: inout [String: Any],
         owner: String,
         helperScriptURL: URL,
-        statusMessage: String
+        statusMessage: String,
+        tool: String? = nil,
+        stripAnyManagedHookForAction: Bool = false
     ) {
         for definition in definitions {
             let strippedGroups = strippedManagedHookGroups(
                 existingValue: hooksObject[definition.eventKey],
                 action: definition.action,
+                tool: tool,
                 owner: owner,
                 helperScriptURL: helperScriptURL,
-                statusMessage: statusMessage
+                statusMessage: statusMessage,
+                stripAnyManagedHookForAction: stripAnyManagedHookForAction
             )
 
             if strippedGroups.isEmpty {
