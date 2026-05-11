@@ -35,7 +35,13 @@ struct AppCommands: Commands {
             .disabled(model.projects.isEmpty)
         }
 
-        CommandGroup(replacing: .saveItem) {}
+        CommandGroup(replacing: .saveItem) {
+            Button(String(localized: "common.save", defaultValue: "Save", bundle: .module)) {
+                handleSaveCommand()
+            }
+            .disabled(!canHandleSaveCommand)
+            .keyboardShortcut("s", modifiers: [.command])
+        }
         CommandGroup(replacing: .importExport) {}
         CommandGroup(replacing: .toolbar) {}
         CommandGroup(replacing: .windowArrangement) {}
@@ -148,23 +154,39 @@ struct AppCommands: Commands {
         NSApp.keyWindow ?? NSApp.mainWindow
     }
 
+    private var activeWorkspaceWindow: NSWindow? {
+        if let activeWindow, isMainWorkspaceWindow(activeWindow) {
+            return activeWindow
+        }
+        return NSApp.windows.first { window in
+            window.isVisible && isMainWorkspaceWindow(window)
+        }
+    }
+
     private var isClosingStandardWindow: Bool {
         guard let activeWindow else {
             return false
         }
-        return isStandardChromeWindow(activeWindow) || isFilePreviewWindow(activeWindow)
+        return isStandardChromeWindow(activeWindow)
+            || isDetachedTerminalWindow(activeWindow)
     }
 
     private var canHandleCloseCommand: Bool {
         if isClosingStandardWindow {
             return activeWindow?.styleMask.contains(.closable) ?? true
         }
-        return activeWindow != nil
+        if isWorkspaceFileCommandActive {
+            return model.canCloseWorkspaceFileCommandTab()
+        }
+        return focusedTerminalSessionID != nil
     }
 
     private var closeCommandTitle: String {
         if isClosingStandardWindow {
             return String(localized: "menu.file.close_window", defaultValue: "Close Window", bundle: .module)
+        }
+        if isWorkspaceFileCommandActive {
+            return String(localized: "menu.file.close_file_tab", defaultValue: "Close File Tab", bundle: .module)
         }
         return String(localized: "menu.file.close_current_split", defaultValue: "Close Current Split", bundle: .module)
     }
@@ -174,13 +196,41 @@ struct AppCommands: Commands {
             activeWindow?.performClose(nil)
             return
         }
+        if isWorkspaceFileCommandActive {
+            let didClose = model.closeWorkspaceFileCommandTab()
+            AppDebugLog.shared.log("keyboard-routing", "menu-close-file-tab result=\(didClose)")
+            return
+        }
         guard focusedTerminalSessionID != nil else {
             return
         }
         model.confirmCloseSelectedSession()
+        AppDebugLog.shared.log("keyboard-routing", "menu-close-terminal-split result=true")
+    }
+
+    private func handleSaveCommand() {
+        let didSave = model.requestSaveWorkspaceFileCommandTab()
+        AppDebugLog.shared.log("keyboard-routing", "menu-save-file-tab result=\(didSave)")
+    }
+
+    private var canHandleSaveCommand: Bool {
+        isWorkspaceFileCommandActive && model.canSaveWorkspaceFileCommandTab()
+    }
+
+    private var isWorkspaceFileCommandActive: Bool {
+        guard activeWorkspaceWindow != nil,
+              isClosingStandardWindow == false else {
+            return false
+        }
+        return model.isWorkspaceFileCommandActive() || model.isSelectedWorkspaceFilesModeActive()
     }
 
     private var focusedTerminalSessionID: UUID? {
+        guard FileBrowserKeyboardFocusState.isWorkspaceFileEditorActive == false,
+              model.isWorkspaceFileCommandActive() == false,
+              model.isSelectedWorkspaceFilesModeActive() == false else {
+            return nil
+        }
         guard let focusedSessionID = DmuxTerminalBackend.shared.registry.focusedSessionID(),
               model.selectedSessionID == focusedSessionID else {
             return nil

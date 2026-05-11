@@ -33,11 +33,14 @@ struct SidebarView: View {
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(model.projects) { project in
+                        let activityPhase = model.activityPhase(for: project.id)
                         ProjectRow(
                             project: project,
                             isExpanded: model.isSidebarExpanded,
                             isSelected: project.id == model.selectedProjectID,
-                            activityPhase: model.activityPhase(for: project.id),
+                            activityPhase: activityPhase,
+                            activityCount: model.activityIndicatorCount(for: project.id, phase: activityPhase),
+                            worktreeSummary: model.worktreeStatusSummary(for: project.id),
                             draggingProjectID: $draggingProjectID,
                             onMove: { draggedProjectID in
                                 model.moveProject(draggedProjectID, to: project.id, persists: false)
@@ -52,6 +55,10 @@ struct SidebarView: View {
                             model.selectProject(project.id)
                         }
                         .contextMenu {
+                            Button(String(localized: "worktree.create.title", defaultValue: "New Worktree", bundle: .module)) {
+                                model.createWorktree(for: project.id)
+                            }
+                            Divider()
                             Button(String(localized: "sidebar.project.open_folder", defaultValue: "Open Folder", bundle: .module)) {
                                 model.openProjectDirectory(project.id)
                             }
@@ -119,7 +126,68 @@ struct SidebarView: View {
             .padding(.top, 12)
         }
         .background(Color.clear)
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+            ProjectDirectoryDropPayload.loadURLs(from: providers) { urls in
+                model.importDroppedProjectDirectories(urls)
+            }
+            return true
+        }
         .animation(.snappy(duration: 0.22), value: model.isSidebarExpanded)
+    }
+}
+
+enum ProjectDirectoryDropPayload {
+    static func loadURLs(from providers: [NSItemProvider], completion: @escaping @MainActor ([URL]) -> Void) {
+        let collector = ProjectDirectoryDropURLCollector()
+        let group = DispatchGroup()
+
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            group.enter()
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                defer { group.leave() }
+                let loadedURL: URL?
+                if let url = item as? URL {
+                    loadedURL = url
+                } else if let data = item as? Data,
+                          let value = String(data: data, encoding: .utf8),
+                          let url = URL(string: value) {
+                    loadedURL = url
+                } else if let value = item as? String,
+                          let url = URL(string: value) {
+                    loadedURL = url
+                } else {
+                    loadedURL = nil
+                }
+                if let loadedURL {
+                    collector.append(loadedURL)
+                }
+            }
+        }
+
+        group.notify(queue: .main) {
+            let urls = collector.urls()
+            Task { @MainActor in
+                completion(urls)
+            }
+        }
+    }
+}
+
+private final class ProjectDirectoryDropURLCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedURLs: [URL] = []
+
+    func append(_ url: URL) {
+        lock.lock()
+        storedURLs.append(url)
+        lock.unlock()
+    }
+
+    func urls() -> [URL] {
+        lock.lock()
+        let urls = storedURLs
+        lock.unlock()
+        return urls
     }
 }
 
@@ -220,6 +288,8 @@ private struct ProjectRow: View {
     let isExpanded: Bool
     let isSelected: Bool
     let activityPhase: ProjectActivityPhase
+    let activityCount: Int?
+    let worktreeSummary: String?
     @Binding var draggingProjectID: UUID?
     let onMove: (UUID) -> Void
     let onFinishMove: () -> Void
@@ -245,7 +315,7 @@ private struct ProjectRow: View {
         Group {
             if isExpanded {
                 HStack(spacing: 9) {
-                    ProjectBadge(project: project, isSelected: isSelected, size: 38, activityPhase: activityPhase)
+                    ProjectBadge(project: project, isSelected: isSelected, size: 38, activityPhase: activityPhase, activityCount: activityCount)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(project.name)
@@ -253,7 +323,7 @@ private struct ProjectRow: View {
                             .foregroundStyle(isSelected ? AppTheme.textPrimary : AppTheme.textSecondary.opacity(0.9))
                             .lineLimit(1)
 
-                        Text(project.path)
+                        Text(worktreeSummary ?? project.path)
                             .font(.system(size: 11, weight: .medium, design: .default))
                             .foregroundStyle(isSelected ? AppTheme.textMuted : AppTheme.textMuted.opacity(0.75))
                             .lineLimit(1)
@@ -263,7 +333,7 @@ private struct ProjectRow: View {
                 }
             } else {
                 VStack(spacing: 6) {
-                    ProjectBadge(project: project, isSelected: isSelected, size: 36, activityPhase: activityPhase)
+                    ProjectBadge(project: project, isSelected: isSelected, size: 36, activityPhase: activityPhase, activityCount: activityCount)
                 }
             }
         }
@@ -347,6 +417,7 @@ private struct ProjectBadge: View {
     let isSelected: Bool
     let size: CGFloat
     let activityPhase: ProjectActivityPhase
+    let activityCount: Int?
 
     private var initials: String {
         if let badgeText = project.badgeText?.trimmingCharacters(in: .whitespacesAndNewlines), !badgeText.isEmpty {
@@ -390,7 +461,7 @@ private struct ProjectBadge: View {
         }
         .frame(width: size, height: size)
         .overlay(alignment: .topTrailing) {
-            ActivityBadgeView(phase: activityPhase)
+            ActivityBadgeView(phase: activityPhase, count: activityCount)
                 .offset(x: 4, y: -4)
         }
     }
@@ -398,6 +469,7 @@ private struct ProjectBadge: View {
 
 private struct ActivityBadgeView: View {
     let phase: ProjectActivityPhase
+    let count: Int?
     @State private var rotation = 0.0
 
     var body: some View {
@@ -406,44 +478,87 @@ private struct ActivityBadgeView: View {
             case .idle:
                 EmptyView()
             case .loading, .running:
-                Circle()
-                    .stroke(Color.white.opacity(0.16), lineWidth: 1.6)
-                    .overlay(
-                        Circle()
-                            .trim(from: 0.14, to: 0.76)
-                            .stroke(Color.white, style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-                            .rotationEffect(.degrees(rotation))
-                    )
-                    .overlay(
-                        Circle()
-                            .fill(AppTheme.warning)
-                            .frame(width: 5, height: 5)
-                    )
-                    .frame(width: 12, height: 12)
-                    .background(Color.black.opacity(0.28))
-                    .clipShape(Circle())
-                    .onAppear {
-                        rotation = 0
-                        withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
-                            rotation = 360
-                        }
-                    }
+                runningBadge
             case .waitingInput:
-                Circle()
-                    .fill(AppTheme.warning)
-                    .frame(width: 10, height: 10)
-                    .overlay(
-                        Circle().stroke(Color.white.opacity(0.18), lineWidth: 1)
-                    )
+                solidBadge(color: AppTheme.warning)
             case .completed:
-                Circle()
-                    .fill(Color(hex: 0x31C46B))
-                    .frame(width: 10, height: 10)
-                    .overlay(
-                        Circle().stroke(Color.white.opacity(0.18), lineWidth: 1)
-                    )
+                solidBadge(color: Color(hex: 0x31C46B))
             }
         }
+    }
+
+    private var displayCount: String? {
+        guard let count, count > 1 else {
+            return nil
+        }
+        return count > 9 ? "9+" : "\(count)"
+    }
+
+    private var badgeSize: CGFloat {
+        12
+    }
+
+    private var solidBadgeSize: CGFloat {
+        12
+    }
+
+    private var countFontSize: CGFloat {
+        displayCount?.count == 2 ? 5.4 : 6.2
+    }
+
+    private var runningBadge: some View {
+        Circle()
+            .fill(displayCount == nil ? Color.clear : AppTheme.warning)
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(0.16), lineWidth: 1.6)
+            )
+            .overlay(
+                Circle()
+                    .trim(from: 0.14, to: 0.76)
+                    .stroke(Color.white, style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+                    .rotationEffect(.degrees(rotation))
+            )
+            .overlay {
+                if let displayCount {
+                    Text(displayCount)
+                        .font(.system(size: countFontSize, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.white)
+                        .minimumScaleFactor(0.7)
+                } else {
+                    Circle()
+                        .fill(AppTheme.warning)
+                        .frame(width: 5, height: 5)
+                }
+            }
+            .frame(width: badgeSize, height: badgeSize)
+            .background(Color.black.opacity(0.28))
+            .clipShape(Circle())
+            .onAppear {
+                rotation = 0
+                withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+            }
+    }
+
+    private func solidBadge(color: Color) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: solidBadgeSize, height: solidBadgeSize)
+            .overlay(
+                Circle().stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
+            .overlay {
+                if let displayCount {
+                    Text(displayCount)
+                        .font(.system(size: countFontSize, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.white)
+                        .minimumScaleFactor(0.7)
+                }
+            }
     }
 }
 

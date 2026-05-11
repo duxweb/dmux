@@ -353,8 +353,13 @@ enum GhosttyPortalHostRegistry {
 }
 private final class GhosttyTerminalPortalOverlayView: NSView {
     var accessoryViews: [NSView] = []
+    weak var portalHostView: NSView?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if let dividerHit = splitDividerHit(at: point) {
+            dividerHit.cursor.set()
+            return self
+        }
         for accessoryView in accessoryViews.reversed() where !accessoryView.isHidden && accessoryView.alphaValue > 0.001 {
             guard accessoryView.superview === self, accessoryView.frame.contains(point) else {
                 continue
@@ -377,6 +382,72 @@ private final class GhosttyTerminalPortalOverlayView: NSView {
         }
 
         return nil
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let dividerHit = splitDividerHit(at: point) {
+            dividerHit.cursor.set()
+            return
+        }
+        super.cursorUpdate(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let dividerHit = splitDividerHit(at: point) {
+            dividerHit.cursor.set()
+            return
+        }
+        super.mouseMoved(with: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let dividerHit = splitDividerHit(at: point) {
+            dividerHit.cursor.set()
+            dividerHit.targetView.mouseDown(with: event)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    private func splitDividerHit(at point: NSPoint) -> CoduxSplitDividerHitRegion? {
+        guard let portalHostView else {
+            return nil
+        }
+        return splitDividerHit(in: portalHostView, at: point)
+    }
+
+    private func splitDividerHit(in view: NSView, at overlayPoint: NSPoint) -> CoduxSplitDividerHitRegion? {
+        guard view !== self,
+              !view.isHidden,
+              view.alphaValue > 0.001 else {
+            return nil
+        }
+
+        let pointInView = convert(overlayPoint, to: view)
+        guard view.bounds.contains(pointInView) else {
+            return nil
+        }
+
+        for subview in view.subviews.reversed() {
+            if let hit = splitDividerHit(in: subview, at: overlayPoint) {
+                return hit
+            }
+        }
+
+        guard let provider = view as? CoduxSplitDividerHitRegionProviding else {
+            return nil
+        }
+        let regions = provider.coduxSplitDividerHitRegions()
+        return regions.first { region in
+            region.rect.contains(pointInView)
+        }
     }
 }
 
@@ -454,6 +525,7 @@ private final class GhosttyTerminalPortalMountedView: NSView {
             hostedView.portalDidUpdateFrame()
         }
     }
+
 }
 
 @MainActor
@@ -488,6 +560,7 @@ private final class GhosttyWindowPortal {
         if overlayView.frame != hostView.bounds {
             overlayView.frame = hostView.bounds
         }
+        overlayView.portalHostView = hostView
         overlayView.wantsLayer = false
         self.overlayView = overlayView
 

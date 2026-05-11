@@ -217,6 +217,12 @@ struct PersistenceService {
             sanitizedProjects.append(sanitizedProject)
         }
 
+        let sanitizedWorktrees = sanitizeWorktrees(
+            snapshot.worktrees,
+            projects: sanitizedProjects,
+            didChange: &didChange
+        )
+
         var workspaceByProjectID: [UUID: ProjectWorkspace] = [:]
         var emittedWorkspaceIDs = Set<UUID>()
         for workspace in snapshot.workspaces {
@@ -228,9 +234,24 @@ struct PersistenceService {
         }
 
         var sanitizedWorkspaces: [ProjectWorkspace] = []
-        for project in sanitizedProjects {
-            let existingWorkspace = workspaceByProjectID[project.id]
-            let sanitizedWorkspace = sanitizeWorkspace(existingWorkspace, for: project)
+        for worktree in sanitizedWorktrees {
+            guard let rootProject = sanitizedProjects.first(where: { $0.id == worktree.projectID }) else {
+                didChange = true
+                continue
+            }
+            let effectiveProject = Project(
+                id: worktree.id,
+                name: worktree.isDefault ? rootProject.name : "\(rootProject.name) · \(worktree.name)",
+                path: worktree.path,
+                shell: rootProject.shell,
+                defaultCommand: rootProject.defaultCommand,
+                badgeText: rootProject.badgeText,
+                badgeSymbol: rootProject.badgeSymbol,
+                badgeColorHex: rootProject.badgeColorHex,
+                gitDefaultPushRemoteName: rootProject.gitDefaultPushRemoteName
+            )
+            let existingWorkspace = workspaceByProjectID[worktree.id]
+            let sanitizedWorkspace = sanitizeWorkspace(existingWorkspace, for: effectiveProject)
             if sanitizedWorkspace.didChange {
                 didChange = true
             }
@@ -247,11 +268,39 @@ struct PersistenceService {
                 didChange = true
             }
         }
+        let sanitizedSelectedWorktreeID: UUID?
+        if let selectedWorktreeID = snapshot.selectedWorktreeID,
+           sanitizedWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
+            sanitizedSelectedWorktreeID = selectedWorktreeID
+        } else if let sanitizedSelectedProjectID {
+            sanitizedSelectedWorktreeID = sanitizedWorktrees.first(where: { $0.projectID == sanitizedSelectedProjectID && $0.isDefault })?.id
+                ?? sanitizedWorktrees.first(where: { $0.projectID == sanitizedSelectedProjectID })?.id
+            if snapshot.selectedWorktreeID != sanitizedSelectedWorktreeID {
+                didChange = true
+            }
+        } else {
+            sanitizedSelectedWorktreeID = nil
+            if snapshot.selectedWorktreeID != nil {
+                didChange = true
+            }
+        }
 
         let sanitizedSnapshot = AppSnapshot(
             projects: sanitizedProjects,
+            worktrees: sanitizedWorktrees,
+            worktreeTasks: sanitizeWorktreeTasks(
+                snapshot.worktreeTasks ?? [],
+                worktrees: sanitizedWorktrees,
+                didChange: &didChange
+            ),
             workspaces: sanitizedWorkspaces,
             selectedProjectID: sanitizedSelectedProjectID,
+            selectedWorktreeID: sanitizedSelectedWorktreeID,
+            workspaceContentStates: sanitizeWorkspaceContentStates(
+                snapshot.workspaceContentStates ?? [],
+                worktrees: sanitizedWorktrees,
+                didChange: &didChange
+            ),
             appSettings: snapshot.appSettings,
             taskMemos: sanitizeTaskMemos(snapshot.taskMemos ?? [], projects: sanitizedProjects, workspaces: sanitizedWorkspaces, didChange: &didChange),
             sshProfiles: sanitizeSSHProfiles(snapshot.sshProfiles ?? [], didChange: &didChange)
@@ -260,13 +309,104 @@ struct PersistenceService {
         return SanitizedSnapshot(snapshot: sanitizedSnapshot, didChange: didChange)
     }
 
+    private func sanitizeWorktrees(
+        _ worktrees: [ProjectWorktree]?,
+        projects: [Project],
+        didChange: inout Bool
+    ) -> [ProjectWorktree] {
+        let projectIDs = Set(projects.map(\.id))
+        var seenIDs = Set<UUID>()
+        var seenPaths = Set<String>()
+        var sanitizedWorktrees: [ProjectWorktree] = []
+
+        for worktree in worktrees ?? [] {
+            guard projectIDs.contains(worktree.projectID),
+                  seenIDs.insert(worktree.id).inserted else {
+                didChange = true
+                continue
+            }
+
+            let normalizedPath = normalizePath(worktree.path)
+            guard !normalizedPath.isEmpty,
+                  seenPaths.insert(normalizedPath).inserted else {
+                didChange = true
+                continue
+            }
+
+            var sanitized = worktree
+            sanitized.path = normalizedPath
+            sanitized.name = worktree.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if sanitized.name.isEmpty {
+                sanitized.name = worktree.isDefault
+                    ? String(localized: "worktree.default.name", defaultValue: "Default", bundle: .module)
+                    : URL(fileURLWithPath: normalizedPath, isDirectory: true).lastPathComponent
+            }
+            sanitized.branch = worktree.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if sanitized != worktree {
+                didChange = true
+            }
+            sanitizedWorktrees.append(sanitized)
+        }
+
+        for project in projects where sanitizedWorktrees.contains(where: { $0.projectID == project.id && $0.isDefault }) == false {
+            let defaultWorktree = ProjectWorktree.defaultWorktree(for: project)
+            if seenIDs.insert(defaultWorktree.id).inserted,
+               seenPaths.insert(normalizePath(defaultWorktree.path)).inserted {
+                sanitizedWorktrees.append(defaultWorktree)
+                didChange = true
+            }
+        }
+
+        let projectOrder = Dictionary(uniqueKeysWithValues: projects.enumerated().map { ($0.element.id, $0.offset) })
+        return sanitizedWorktrees.sorted { lhs, rhs in
+            let lhsProjectOrder = projectOrder[lhs.projectID] ?? Int.max
+            let rhsProjectOrder = projectOrder[rhs.projectID] ?? Int.max
+            if lhsProjectOrder != rhsProjectOrder {
+                return lhsProjectOrder < rhsProjectOrder
+            }
+            if lhs.isDefault != rhs.isDefault {
+                return lhs.isDefault
+            }
+            return lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
+    private func sanitizeWorktreeTasks(
+        _ tasks: [WorktreeTask],
+        worktrees: [ProjectWorktree],
+        didChange: inout Bool
+    ) -> [WorktreeTask] {
+        let validWorktreeIDs = Set(worktrees.map(\.id))
+        var seenWorktreeIDs = Set<UUID>()
+        return tasks.compactMap { task in
+            guard validWorktreeIDs.contains(task.worktreeID),
+                  seenWorktreeIDs.insert(task.worktreeID).inserted else {
+                didChange = true
+                return nil
+            }
+
+            var sanitized = task
+            sanitized.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            sanitized.baseBranch = task.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+            if sanitized.title.isEmpty {
+                sanitized.title = worktrees.first(where: { $0.id == task.worktreeID })?.name
+                    ?? String(localized: "worktree.task.untitled", defaultValue: "Untitled Task", bundle: .module)
+            }
+            if sanitized != task {
+                didChange = true
+            }
+            return sanitized
+        }
+    }
+
     private func sanitizeTaskMemos(
         _ taskMemos: [TaskMemoItem],
         projects: [Project],
         workspaces: [ProjectWorkspace],
         didChange: inout Bool
     ) -> [TaskMemoItem] {
-        let projectIDs = Set(projects.map(\.id))
+        let projectIDs = Set(workspaces.map(\.projectID))
         let sessionIDsByProjectID = Dictionary(
             uniqueKeysWithValues: workspaces.map { workspace in
                 (workspace.projectID, Set(workspace.sessions.map(\.id)))
@@ -337,6 +477,75 @@ struct PersistenceService {
         return sanitizedProfiles.sorted { lhs, rhs in
             lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
+    }
+
+    private func sanitizeWorkspaceContentStates(
+        _ states: [WorkspaceContentState],
+        worktrees: [ProjectWorktree],
+        didChange: inout Bool
+    ) -> [WorkspaceContentState]? {
+        let validWorktreeIDs = Set(worktrees.map(\.id))
+        var seenWorktreeIDs = Set<UUID>()
+        var sanitizedStates: [WorkspaceContentState] = []
+
+        for state in states {
+            guard validWorktreeIDs.contains(state.worktreeID),
+                  seenWorktreeIDs.insert(state.worktreeID).inserted else {
+                didChange = true
+                continue
+            }
+
+            var seenFileTabIDs = Set<String>()
+            var sanitizedTabs: [WorkspaceFileTab] = []
+            for tab in state.fileTabs {
+                var sanitizedTab = tab
+                sanitizedTab.fileURL = tab.fileURL.standardizedFileURL
+                sanitizedTab.rootURL = tab.rootURL.standardizedFileURL
+                let fallbackTitle = sanitizedTab.fileURL.lastPathComponent
+                let title = sanitizedTab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                sanitizedTab.title = title.isEmpty ? fallbackTitle : title
+
+                guard !sanitizedTab.id.isEmpty,
+                      seenFileTabIDs.insert(sanitizedTab.id).inserted else {
+                    didChange = true
+                    continue
+                }
+
+                if sanitizedTab != tab {
+                    didChange = true
+                }
+                sanitizedTabs.append(sanitizedTab)
+            }
+
+            let selectedFileTabID: String?
+            if let candidate = state.selectedFileTabID,
+               sanitizedTabs.contains(where: { $0.id == candidate }) {
+                selectedFileTabID = candidate
+            } else {
+                selectedFileTabID = nil
+                if state.selectedFileTabID != nil {
+                    didChange = true
+                }
+            }
+
+            let sanitizedState = WorkspaceContentState(
+                worktreeID: state.worktreeID,
+                primaryViewMode: state.primaryViewMode,
+                selectedFileTabID: selectedFileTabID,
+                fileTabs: sanitizedTabs
+            )
+
+            guard sanitizedState.primaryViewMode != .terminal
+                || !sanitizedState.fileTabs.isEmpty
+                || sanitizedState.selectedFileTabID != nil else {
+                didChange = true
+                continue
+            }
+
+            sanitizedStates.append(sanitizedState)
+        }
+
+        return sanitizedStates.isEmpty ? nil : sanitizedStates
     }
 
     private func sanitizeWorkspace(_ workspace: ProjectWorkspace?, for project: Project) -> SanitizedWorkspace {
@@ -440,9 +649,9 @@ struct PersistenceService {
         let sanitizedWorkspace = ProjectWorkspace(
             projectID: project.id,
             topSessionIDs: finalTopSessionIDs,
-            topPaneRatios: workspace.topPaneRatios,
+            topPaneRatios: [],
             bottomTabSessionIDs: finalBottomSessionIDs,
-            bottomPaneHeight: max(ProjectWorkspace.minimumBottomPaneHeight, workspace.bottomPaneHeight),
+            bottomPaneHeight: ProjectWorkspace.defaultBottomPaneHeight,
             selectedSessionID: selectedSessionID,
             selectedBottomTabSessionID: selectedBottomTabSessionID,
             sessions: sessions

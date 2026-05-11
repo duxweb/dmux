@@ -276,6 +276,7 @@ final class GhosttyTerminalRegistry {
         guard containers[sessionID] != nil else {
             return
         }
+        FileBrowserKeyboardFocusState.activateTerminal()
         guard explicitFocusedSessionID != sessionID else {
             return
         }

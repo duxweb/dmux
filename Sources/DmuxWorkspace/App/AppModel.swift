@@ -50,6 +50,7 @@ final class AppModel {
     }
 
     var projects: [Project]
+    var worktrees: [ProjectWorktree]
     var workspaces: [ProjectWorkspace]
     var selectedProjectID: UUID? {
         didSet {
@@ -62,15 +63,18 @@ final class AppModel {
         }
     }
     var appSettings: AppSettings
+    var selectedWorktreeID: UUID?
     var activeTerminalBackgroundPreset: AppTerminalBackgroundPreset
     var activeBackgroundColorPreset: AppBackgroundColorPreset
     var rightPanel: RightPanelKind?
     var taskMemos: [TaskMemoItem] = []
+    var worktreeTasks: [WorktreeTask] = []
     var taskMemoFocusedSessionID: UUID?
     var sshProfiles: [SSHConnectionProfile] = []
     var commitMessage = ""
     var statusMessage = ""
     var isSidebarExpanded = false
+    var isWorktreeSidebarExpanded = true
     var activityByProjectID: [UUID: ProjectActivityPhase] = [:]
     var activityRenderVersion: UInt64 = 0
     var rightPanelWidth: CGFloat = 360
@@ -121,7 +125,6 @@ final class AppModel {
     var pendingActivityRefreshTask: Task<Void, Never>?
     var pendingActivityRefreshShouldNotify = false
     var pendingMemorySessionSnapshotTask: Task<Void, Never>?
-    var pendingCompletionPresentationDismissalTasks: [UUID: Task<Void, Never>] = [:]
     private var pendingDragReorderPersistTask: Task<Void, Never>?
     var activityCacheByProjectID: [UUID: ProjectActivityCache] = [:]
     var isSystemUIReady = false
@@ -134,7 +137,19 @@ final class AppModel {
     private var pendingStartupRecoveryDialog: ConfirmDialogState?
     private var hasPresentedStartupRecoveryDialog = false
     var hasScheduledLaunchUpdateCheck = false
+    var pendingWorktreeGitSummaryRefreshTask: Task<Void, Never>?
     var detachedTerminalPlacementBySessionID: [UUID: DetachedTerminalPlacement] = [:]
+    var workspaceFileTabsByWorktreeID: [UUID: [WorkspaceFileTab]] = [:]
+    var selectedWorkspaceContentByWorktreeID: [UUID: WorkspaceContentSelection] = [:]
+    var workspacePrimaryViewModeByWorktreeID: [UUID: WorkspacePrimaryViewMode] = [:]
+    var dirtyWorkspaceFileTabIDs: Set<String> = []
+    var workspaceFileEditorSaveRequestTokensByTabID: [String: Int] = [:]
+    var workspaceFileEditorSaveAndCloseRequestTokensByTabID: [String: Int] = [:]
+    var worktreeGitSummaries: [UUID: ProjectWorktreeGitSummary] = [:]
+    var selectedWorktreeReviewID: UUID?
+    var selectedWorktreeReviewFileID: String?
+    var worktreeReviewSnapshot: WorktreeReviewSnapshot?
+    var isLoadingWorktreeReview = false
 
     init(snapshot: AppSnapshot?, persistenceService: PersistenceService, startupIssues: [PersistenceLoadIssue] = []) {
         self.persistenceService = persistenceService
@@ -142,20 +157,44 @@ final class AppModel {
 
         let resolvedSettings: AppSettings
         if let snapshot {
-            self.projects = snapshot.projects
-            self.workspaces = snapshot.workspaces
-            self.selectedProjectID = snapshot.selectedProjectID ?? snapshot.projects.first?.id
+            let resolvedProjects = snapshot.projects
+            let resolvedWorktrees = Self.resolvedWorktrees(snapshot.worktrees, projects: resolvedProjects)
+            let resolvedWorkspaces = Self.resolvedWorkspaces(snapshot.workspaces, projects: resolvedProjects, worktrees: resolvedWorktrees)
+            let resolvedSelectedProjectID = snapshot.selectedProjectID ?? resolvedProjects.first?.id
+            self.projects = resolvedProjects
+            self.worktrees = resolvedWorktrees
+            self.workspaces = resolvedWorkspaces
+            self.selectedProjectID = resolvedSelectedProjectID
+            self.selectedWorktreeID = Self.resolvedSelectedWorktreeID(
+                snapshot.selectedWorktreeID,
+                selectedProjectID: resolvedSelectedProjectID,
+                worktrees: resolvedWorktrees
+            )
+            let resolvedWorkspaceContent = Self.resolvedWorkspaceContentStates(
+                snapshot.workspaceContentStates,
+                worktrees: resolvedWorktrees
+            )
+            self.workspaceFileTabsByWorktreeID = resolvedWorkspaceContent.fileTabs
+            self.selectedWorkspaceContentByWorktreeID = resolvedWorkspaceContent.selections
+            self.workspacePrimaryViewModeByWorktreeID = resolvedWorkspaceContent.primaryModes
             resolvedSettings = snapshot.appSettings ?? AppSettings()
             self.appSettings = resolvedSettings
             self.taskMemos = snapshot.taskMemos ?? []
+            self.worktreeTasks = Self.resolvedWorktreeTasks(
+                snapshot.worktreeTasks,
+                worktrees: resolvedWorktrees
+            )
             self.sshProfiles = snapshot.sshProfiles ?? []
         } else {
             self.projects = []
+            self.worktrees = []
             self.workspaces = []
             self.selectedProjectID = nil
+            self.selectedWorktreeID = nil
             resolvedSettings = AppSettings()
             self.appSettings = resolvedSettings
             self.taskMemos = []
+            self.worktreeTasks = []
             self.sshProfiles = []
         }
         self.activeTerminalBackgroundPreset = resolvedSettings.terminalBackgroundPreset
@@ -302,7 +341,6 @@ final class AppModel {
     }
 
     private func resetActivityState() {
-        cancelCompletionPresentationDismissalTasks()
         aiSessionStore.reset()
         activityByProjectID = [:]
         activityRenderVersion = 0
@@ -345,12 +383,180 @@ final class AppModel {
         )
     }
 
+    private static func resolvedWorktrees(_ persisted: [ProjectWorktree]?, projects: [Project]) -> [ProjectWorktree] {
+        var seenIDs = Set<UUID>()
+        var seenPaths = Set<String>()
+        let projectIDs = Set(projects.map(\.id))
+        var resolved: [ProjectWorktree] = []
+
+        for worktree in persisted ?? [] {
+            guard projectIDs.contains(worktree.projectID),
+                  seenIDs.insert(worktree.id).inserted else {
+                continue
+            }
+            var sanitized = worktree
+            sanitized.name = sanitized.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if sanitized.name.isEmpty {
+                sanitized.name = sanitized.isDefault
+                    ? String(localized: "worktree.default.name", defaultValue: "Default", bundle: .module)
+                    : URL(fileURLWithPath: sanitized.path, isDirectory: true).lastPathComponent
+            }
+            sanitized.path = URL(fileURLWithPath: sanitized.path).standardizedFileURL.path
+            guard !sanitized.path.isEmpty,
+                  seenPaths.insert(sanitized.path).inserted else {
+                continue
+            }
+            resolved.append(sanitized)
+        }
+
+        for project in projects where resolved.contains(where: { $0.projectID == project.id && $0.isDefault }) == false {
+            let defaultWorktree = ProjectWorktree.defaultWorktree(for: project)
+            if seenIDs.insert(defaultWorktree.id).inserted,
+               seenPaths.insert(URL(fileURLWithPath: defaultWorktree.path).standardizedFileURL.path).inserted {
+                resolved.append(defaultWorktree)
+            }
+        }
+
+        let projectOrder = Dictionary(uniqueKeysWithValues: projects.enumerated().map { ($0.element.id, $0.offset) })
+        return resolved.sorted { lhs, rhs in
+            let lhsProjectOrder = projectOrder[lhs.projectID] ?? Int.max
+            let rhsProjectOrder = projectOrder[rhs.projectID] ?? Int.max
+            if lhsProjectOrder != rhsProjectOrder {
+                return lhsProjectOrder < rhsProjectOrder
+            }
+            if lhs.isDefault != rhs.isDefault {
+                return lhs.isDefault
+            }
+            return lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
+    private static func resolvedWorkspaces(
+        _ persisted: [ProjectWorkspace],
+        projects: [Project],
+        worktrees: [ProjectWorktree]
+    ) -> [ProjectWorkspace] {
+        var workspaceByID = Dictionary(uniqueKeysWithValues: persisted.map { ($0.projectID, $0) })
+        return worktrees.compactMap { worktree in
+            guard let rootProject = projects.first(where: { $0.id == worktree.projectID }) else {
+                return nil
+            }
+            let effectiveProject = Project(
+                id: worktree.id,
+                name: worktree.isDefault ? rootProject.name : "\(rootProject.name) · \(worktree.name)",
+                path: worktree.path,
+                shell: rootProject.shell,
+                defaultCommand: rootProject.defaultCommand,
+                badgeText: rootProject.badgeText,
+                badgeSymbol: rootProject.badgeSymbol,
+                badgeColorHex: rootProject.badgeColorHex,
+                gitDefaultPushRemoteName: rootProject.gitDefaultPushRemoteName
+            )
+            if var workspace = workspaceByID.removeValue(forKey: worktree.id) {
+                workspace.projectID = worktree.id
+                workspace.topPaneRatios = []
+                workspace.bottomPaneHeight = ProjectWorkspace.defaultBottomPaneHeight
+                workspace.sessions = workspace.sessions.map { session in
+                    var updated = session
+                    updated.projectID = effectiveProject.id
+                    updated.projectName = effectiveProject.name
+                    updated.cwd = effectiveProject.path
+                    updated.shell = effectiveProject.shell
+                    return updated
+                }
+                workspace.topPaneRatios = workspace.resolvedTopPaneRatios()
+                return workspace
+            }
+            return ProjectWorkspace.sample(projectID: worktree.id, path: worktree.path)
+        }
+    }
+
+    private static func resolvedWorktreeTasks(
+        _ persisted: [WorktreeTask]?,
+        worktrees: [ProjectWorktree]
+    ) -> [WorktreeTask] {
+        let validWorktreeIDs = Set(worktrees.map(\.id))
+        var seenWorktreeIDs = Set<UUID>()
+        return (persisted ?? []).compactMap { task in
+            guard validWorktreeIDs.contains(task.worktreeID),
+                  seenWorktreeIDs.insert(task.worktreeID).inserted else {
+                return nil
+            }
+            var sanitized = task
+            sanitized.title = sanitized.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            sanitized.baseBranch = sanitized.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+            if sanitized.title.isEmpty {
+                sanitized.title = worktrees.first(where: { $0.id == task.worktreeID })?.name ?? String(localized: "worktree.task.untitled", defaultValue: "Untitled Task", bundle: .module)
+            }
+            return sanitized
+        }
+    }
+
+    private static func resolvedSelectedWorktreeID(
+        _ persisted: UUID?,
+        selectedProjectID: UUID?,
+        worktrees: [ProjectWorktree]
+    ) -> UUID? {
+        if let persisted,
+           worktrees.contains(where: { $0.id == persisted }) {
+            return persisted
+        }
+        guard let selectedProjectID else {
+            return nil
+        }
+        return worktrees.first(where: { $0.projectID == selectedProjectID && $0.isDefault })?.id
+            ?? worktrees.first(where: { $0.projectID == selectedProjectID })?.id
+    }
+
     var selectedProject: Project? {
+        selectedWorktreeProject ?? selectedRootProject
+    }
+
+    var selectedRootProject: Project? {
         guard let selectedProjectID else {
             return nil
         }
 
         return projects.first(where: { $0.id == selectedProjectID })
+    }
+
+    var selectedWorktree: ProjectWorktree? {
+        guard let selectedWorktreeID else {
+            return nil
+        }
+        return worktrees.first(where: { $0.id == selectedWorktreeID })
+    }
+
+    var selectedProjectWorktrees: [ProjectWorktree] {
+        guard let selectedProjectID else {
+            return []
+        }
+        return worktrees
+            .filter { $0.projectID == selectedProjectID }
+            .sorted { lhs, rhs in
+                if lhs.isDefault != rhs.isDefault {
+                    return lhs.isDefault
+                }
+                return lhs.updatedAt > rhs.updatedAt
+            }
+    }
+
+    var selectedWorktreeProject: Project? {
+        guard let worktree = selectedWorktree,
+              let rootProject = projects.first(where: { $0.id == worktree.projectID }) else {
+            return nil
+        }
+        return Project(
+            id: worktree.id,
+            name: worktree.isDefault ? rootProject.name : "\(rootProject.name) · \(worktree.name)",
+            path: worktree.path,
+            shell: rootProject.shell,
+            defaultCommand: rootProject.defaultCommand,
+            badgeText: rootProject.badgeText,
+            badgeSymbol: rootProject.badgeSymbol,
+            badgeColorHex: rootProject.badgeColorHex,
+            gitDefaultPushRemoteName: rootProject.gitDefaultPushRemoteName
+        )
     }
 
     func terminalSession(for sessionID: UUID) -> TerminalSession? {
@@ -540,11 +746,11 @@ final class AppModel {
     }
 
     var selectedWorkspace: ProjectWorkspace? {
-        guard let selectedProjectID else {
+        guard let selectedWorktreeID else {
             return nil
         }
 
-        return workspaces.first(where: { $0.projectID == selectedProjectID })
+        return workspaces.first(where: { $0.projectID == selectedWorktreeID })
     }
 
     var selectedSessionID: UUID? {
@@ -806,8 +1012,12 @@ final class AppModel {
     private func persistenceSnapshot() -> AppSnapshot {
         AppSnapshot(
             projects: projects,
+            worktrees: worktrees,
+            worktreeTasks: worktreeTasks,
             workspaces: workspaces,
             selectedProjectID: selectedProjectID,
+            selectedWorktreeID: selectedWorktreeID,
+            workspaceContentStates: workspaceContentStatesSnapshot(),
             appSettings: appSettings,
             taskMemos: taskMemos,
             sshProfiles: sshProfiles
@@ -829,7 +1039,8 @@ final class AppModel {
         pendingActivityRefreshTask = nil
         pendingMemorySessionSnapshotTask?.cancel()
         pendingMemorySessionSnapshotTask = nil
-        cancelCompletionPresentationDismissalTasks()
+        pendingWorktreeGitSummaryRefreshTask?.cancel()
+        pendingWorktreeGitSummaryRefreshTask = nil
         petSpeechCoordinator.stop()
     }
 

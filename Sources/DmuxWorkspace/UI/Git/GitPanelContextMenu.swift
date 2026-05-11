@@ -10,6 +10,12 @@ func buildGitFileContextMenu(model: AppModel, fallbackEntry: GitFileEntry) -> [N
 
     var actions: [NativeContextMenuAction] = []
 
+    if selectedEntries.count == 1, let entry = selectedEntries.first {
+        actions.append(.action(String(localized: "git.files.edit_in_workspace", defaultValue: "Edit in Workspace", bundle: .module)) {
+            model.openGitEntryInWorkspace(entry)
+        })
+    }
+
     actions.append(.action(selectedEntries.count > 1 ? String(localized: "git.files.copy_selected_paths", defaultValue: "Copy Selected Paths", bundle: .module) : String(localized: "git.files.copy_path", defaultValue: "Copy Path", bundle: .module)) {
         model.copyGitPaths(selectedEntries)
     })

@@ -15,9 +15,12 @@
 		F11000000000000000000001 /* ProjectFileModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12000000000000000000001 /* ProjectFileModels.swift */; };
 		F11000000000000000000002 /* ProjectFileBrowserService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12000000000000000000002 /* ProjectFileBrowserService.swift */; };
 		F11000000000000000000003 /* FileBrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12000000000000000000003 /* FileBrowserPanelView.swift */; };
-		F11000000000000000000004 /* FilePreviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12000000000000000000004 /* FilePreviewWindow.swift */; };
-		F11000000000000000000005 /* CodeMirrorTextPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12000000000000000000005 /* CodeMirrorTextPreview.swift */; };
-		F11000000000000000000006 /* CodeMirror in Resources */ = {isa = PBXBuildFile; fileRef = F12000000000000000000006 /* CodeMirror */; };
+			B10000000000000000000064 /* ProjectFileEditorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000066 /* ProjectFileEditorTheme.swift */; };
+			B10000000000000000000063 /* NativeSourceEditorTextPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000065 /* NativeSourceEditorTextPreview.swift */; };
+			B10000000000000000000065 /* WorktreeTaskDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000067 /* WorktreeTaskDialog.swift */; };
+			B10000000000000000000066 /* WorktreeReviewPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000068 /* WorktreeReviewPanelView.swift */; };
+			250000000000000000000201 /* CodeEditSourceEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 250000000000000000000302 /* CodeEditSourceEditor */; };
+		250000000000000000000202 /* CodeEditLanguages in Frameworks */ = {isa = PBXBuildFile; productRef = 250000000000000000000402 /* CodeEditLanguages */; };
 		011BED1E652A34A9642CEDEA /* Package.swift in CopyFiles */ = {isa = PBXBuildFile; fileRef = 8AF9CB866BDB2AF3ECA35178 /* Package.swift */; };
 		0677DA593A0554DAC639D0A3 /* AppReleaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6E2D396499849AD4FC84FC /* AppReleaseService.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* AppUpdaterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5E /* AppUpdaterService.swift */; };
@@ -105,7 +108,6 @@
 		7CCD1507CB75EB49877C6C30 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B57CE529E3ABCD870DDA44AA /* AppModel.swift */; };
 		832966AE5D44C7932DAF4305 /* XcodeBundleModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DFFC0183E1E7E02211891AD /* XcodeBundleModule.swift */; };
 		94E74A9C02052D31600A15A8 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8257AFB3A285E940A6A4A3DD /* UniformTypeIdentifiers.framework */; };
-		94E74A9C02052D31600A15A9 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8257AFB3A285E940A6A4A3DE /* WebKit.framework */; };
 		9893EF570C98097E5D246808 /* AppDialogTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75C0F73DC8B618C9F40F85B /* AppDialogTypes.swift */; };
 		B10000000000000000000001 /* WorkspacePaneLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000001 /* WorkspacePaneLayout.swift */; };
 		B10000000000000000000002 /* WorkspaceTerminalPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000002 /* WorkspaceTerminalPaneView.swift */; };
@@ -165,6 +167,10 @@
 		B10000000000000000000056 /* AppModel+SSH.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000060 /* AppModel+SSH.swift */; };
 		B10000000000000000000057 /* SSHProfileDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000057 /* SSHProfileDialog.swift */; };
 		B10000000000000000000058 /* SSHPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000058 /* SSHPanelView.swift */; };
+		B10000000000000000000059 /* AppModel+WorkspaceFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000061 /* AppModel+WorkspaceFiles.swift */; };
+		B10000000000000000000060 /* AppModel+Worktrees.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000062 /* AppModel+Worktrees.swift */; };
+		B10000000000000000000061 /* WorktreeSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000063 /* WorktreeSidebarView.swift */; };
+		B10000000000000000000062 /* WorkspaceFileEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000064 /* WorkspaceFileEditorView.swift */; };
 		A458177F176213CEE32928D8 /* AIUsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0598FB11F350F43D5A39628A /* AIUsageService.swift */; };
 		A8B33C70370354EC1B39A24A /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6BB59CA2E305DD7DBA2C167 /* main.swift */; };
 		A9D536707C6623508B39B82C /* WorkspacePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E565A0971373275B0012B0 /* WorkspacePaths.swift */; };
@@ -252,7 +258,6 @@
 		7CE3698E3236F68192D0C53C /* GitCredentialDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCredentialDialog.swift; sourceTree = "<group>"; };
 		812A0EDEE4527FA414569297 /* PersistenceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceService.swift; sourceTree = "<group>"; };
 		8257AFB3A285E940A6A4A3DD /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
-		8257AFB3A285E940A6A4A3DE /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		88EA7F3568E80A7CE3A272F8 /* AppDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDebugLog.swift; sourceTree = "<group>"; };
 		8AF9CB866BDB2AF3ECA35178 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Package.swift; sourceTree = "<group>"; };
 		8F6676C32385770B36A6B87D /* AIRuntimeBridgeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRuntimeBridgeService.swift; sourceTree = "<group>"; };
@@ -317,7 +322,13 @@
 		C10000000000000000000060 /* AppModel+SSH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+SSH.swift"; sourceTree = "<group>"; };
 		C10000000000000000000057 /* SSHProfileDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHProfileDialog.swift; sourceTree = "<group>"; };
 		C10000000000000000000058 /* SSHPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPanelView.swift; sourceTree = "<group>"; };
-		8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiRuntimeProbeService.swift; sourceTree = "<group>"; };
+		C10000000000000000000061 /* AppModel+WorkspaceFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+WorkspaceFiles.swift"; sourceTree = "<group>"; };
+		C10000000000000000000062 /* AppModel+Worktrees.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppModel+Worktrees.swift"; sourceTree = "<group>"; };
+		C10000000000000000000063 /* WorktreeSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarView.swift; sourceTree = "<group>"; };
+			C10000000000000000000064 /* WorkspaceFileEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileEditorView.swift; sourceTree = "<group>"; };
+			C10000000000000000000067 /* WorktreeTaskDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeTaskDialog.swift; sourceTree = "<group>"; };
+			C10000000000000000000068 /* WorktreeReviewPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeReviewPanelView.swift; sourceTree = "<group>"; };
+			8B2C3D4E5F60718293A4B5C6 /* GeminiRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiRuntimeProbeService.swift; sourceTree = "<group>"; };
 		9A1B2C3D4E5F60718293A4B5 /* ClaudeRuntimeProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeProbeService.swift; sourceTree = "<group>"; };
 		A2EEF0E8297855B7EA05302D /* GitStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStore.swift; sourceTree = "<group>"; };
 		A6BB59CA2E305DD7DBA2C167 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -363,9 +374,8 @@
 		F12000000000000000000001 /* ProjectFileModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectFileModels.swift; sourceTree = "<group>"; };
 		F12000000000000000000002 /* ProjectFileBrowserService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectFileBrowserService.swift; sourceTree = "<group>"; };
 		F12000000000000000000003 /* FileBrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserPanelView.swift; sourceTree = "<group>"; };
-		F12000000000000000000004 /* FilePreviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewWindow.swift; sourceTree = "<group>"; };
-		F12000000000000000000005 /* CodeMirrorTextPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeMirrorTextPreview.swift; sourceTree = "<group>"; };
-		F12000000000000000000006 /* CodeMirror */ = {isa = PBXFileReference; lastKnownFileType = folder; path = CodeMirror; sourceTree = "<group>"; };
+		C10000000000000000000065 /* NativeSourceEditorTextPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSourceEditorTextPreview.swift; sourceTree = "<group>"; };
+		C10000000000000000000066 /* ProjectFileEditorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectFileEditorTheme.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -380,8 +390,9 @@
 				E1A41C4E3A0A4C0A9D7B42A1 /* Logging in Frameworks */,
 				BEEF00000000000000000001 /* LiveKitWebRTC in Frameworks */,
 				B0C0D0E0F1029384756A0001 /* MarkdownUI in Frameworks */,
+				250000000000000000000201 /* CodeEditSourceEditor in Frameworks */,
+				250000000000000000000202 /* CodeEditLanguages in Frameworks */,
 				94E74A9C02052D31600A15A8 /* UniformTypeIdentifiers.framework in Frameworks */,
-				94E74A9C02052D31600A15A9 /* WebKit.framework in Frameworks */,
 				7CC77BFB4230078241327312 /* Carbon.framework in Frameworks */,
 				41CEA0910EEBD49E51352696 /* IOKit.framework in Frameworks */,
 				41CEA0910EEBD49E51352695 /* libsqlite3.tbd in Frameworks */,
@@ -416,12 +427,13 @@
 				82AE56FA93228B3FAAFCE874 /* Git */,
 				230000000000000000000002 /* Memory */,
 				5F0A9C1D7E2B4A5C8D9E0F14 /* Pet */,
-				B4F7A03CDB8D571391DB7693 /* Settings */,
-				8F61624E724457A42B80201A /* Sidebar */,
-				C10000000000000000000059 /* SSH */,
-				C10000000000000000000056 /* TaskMemos */,
-				E555B0CD53F44C46F9A49A2C /* Workspace */,
-				5980BCE4A13117C99D8051E5 /* AppCommands.swift */,
+					B4F7A03CDB8D571391DB7693 /* Settings */,
+					8F61624E724457A42B80201A /* Sidebar */,
+					C10000000000000000000059 /* SSH */,
+					C10000000000000000000056 /* TaskMemos */,
+					C10000000000000000000069 /* Worktree */,
+					E555B0CD53F44C46F9A49A2C /* Workspace */,
+					5980BCE4A13117C99D8051E5 /* AppCommands.swift */,
 				AA206539AB817E9585D21649 /* DockBadgeView.swift */,
 				C42E01A9B97E740A3EBF3C68 /* FloatingTooltip.swift */,
 				C328274D91C96E2AF3C1CFD4 /* RootView.swift */,
@@ -505,7 +517,6 @@
 				D48B542546FE32FD237D7576 /* IOKit.framework */,
 				D48B542546FE32FD237D7575 /* libsqlite3.tbd */,
 				8257AFB3A285E940A6A4A3DD /* UniformTypeIdentifiers.framework */,
-				8257AFB3A285E940A6A4A3DE /* WebKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -526,16 +537,25 @@
 				C75C0F73DC8B618C9F40F85B /* AppDialogTypes.swift */,
 				6E8CC72376D1D564729685D5 /* ConfirmDialog.swift */,
 				7CE3698E3236F68192D0C53C /* GitCredentialDialog.swift */,
-				2AF5C2FE0B6382F826D0E6D4 /* GitInputDialog.swift */,
-				3D93853CDDE152582C1BFC5E /* ProjectEditorDialog.swift */,
-				C10000000000000000000057 /* SSHProfileDialog.swift */,
-			);
-			path = Dialogs;
-			sourceTree = "<group>";
-		};
-		53630BEDF0D68812E68CC096 /* AI */ = {
-			isa = PBXGroup;
-			children = (
+					2AF5C2FE0B6382F826D0E6D4 /* GitInputDialog.swift */,
+					3D93853CDDE152582C1BFC5E /* ProjectEditorDialog.swift */,
+					C10000000000000000000057 /* SSHProfileDialog.swift */,
+					C10000000000000000000067 /* WorktreeTaskDialog.swift */,
+				);
+				path = Dialogs;
+				sourceTree = "<group>";
+			};
+			C10000000000000000000069 /* Worktree */ = {
+				isa = PBXGroup;
+				children = (
+					C10000000000000000000068 /* WorktreeReviewPanelView.swift */,
+				);
+				path = Worktree;
+				sourceTree = "<group>";
+			};
+			53630BEDF0D68812E68CC096 /* AI */ = {
+				isa = PBXGroup;
+				children = (
 				FFE6C21DB9D84B024B4A9FC4 /* AIStatsPanelView.swift */,
 				C10000000000000000000037 /* AIStatsPanelOverview.swift */,
 				C10000000000000000000038 /* AIStatsPanelCharts.swift */,
@@ -596,7 +616,6 @@
 			children = (
 				CDEB30421E61195A008FD00E /* Localizable.xcstrings */,
 				240000000000000000000003 /* local-llama-models.json */,
-				F12000000000000000000006 /* CodeMirror */,
 				5F0A9C1D7E2B4A5C8D9E0F13 /* Pets */,
 			);
 			path = Resources;
@@ -606,6 +625,7 @@
 			isa = PBXGroup;
 			children = (
 				D218CBB783275650D562D0EA /* SidebarView.swift */,
+				C10000000000000000000063 /* WorktreeSidebarView.swift */,
 			);
 			path = Sidebar;
 			sourceTree = "<group>";
@@ -631,6 +651,8 @@
 				C10000000000000000000015 /* AppModel+Activity.swift */,
 				C10000000000000000000054 /* AppModel+TaskMemos.swift */,
 				C10000000000000000000060 /* AppModel+SSH.swift */,
+				C10000000000000000000061 /* AppModel+WorkspaceFiles.swift */,
+				C10000000000000000000062 /* AppModel+Worktrees.swift */,
 				1E6B5C4D3A2F1E0D9C8B7A6E /* AppPerformanceMonitorStore.swift */,
 				210000000000000000000001 /* AppAISettings.swift */,
 				BBDDBF2B08A1049FDB3CF220 /* AppSettings.swift */,
@@ -735,6 +757,8 @@
 				C10000000000000000000001 /* WorkspacePaneLayout.swift */,
 				C10000000000000000000002 /* WorkspaceTerminalPaneView.swift */,
 				6BB0B4E1F0E64E4B5CB5DA52 /* WorkspaceView.swift */,
+				C10000000000000000000064 /* WorkspaceFileEditorView.swift */,
+				C10000000000000000000065 /* NativeSourceEditorTextPreview.swift */,
 			);
 			path = Workspace;
 			sourceTree = "<group>";
@@ -743,8 +767,7 @@
 			isa = PBXGroup;
 			children = (
 				F12000000000000000000003 /* FileBrowserPanelView.swift */,
-				F12000000000000000000004 /* FilePreviewWindow.swift */,
-				F12000000000000000000005 /* CodeMirrorTextPreview.swift */,
+				C10000000000000000000066 /* ProjectFileEditorTheme.swift */,
 			);
 			path = FileBrowser;
 			sourceTree = "<group>";
@@ -781,6 +804,8 @@
 				E1A41C4E3A0A4C0A9D7B42A2 /* Logging */,
 				BEEF00000000000000000003 /* LiveKitWebRTC */,
 				B0C0D0E0F1029384756A0003 /* MarkdownUI */,
+				250000000000000000000302 /* CodeEditSourceEditor */,
+				250000000000000000000402 /* CodeEditLanguages */,
 				240000000000000000000302 /* llama */,
 			);
 			productName = dmux;
@@ -825,6 +850,8 @@
 				E1A41C4E3A0A4C0A9D7B42A3 /* XCRemoteSwiftPackageReference "swift-log" */,
 				BEEF00000000000000000002 /* XCRemoteSwiftPackageReference "webrtc-xcframework" */,
 				B0C0D0E0F1029384756A0002 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				250000000000000000000401 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */,
+				250000000000000000000301 /* XCLocalSwiftPackageReference "CodeEditSourceEditor" */,
 				240000000000000000000301 /* XCLocalSwiftPackageReference "LlamaBinary" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -844,7 +871,6 @@
 			files = (
 				0D664E0A08F199B7A97D0BA2 /* Localizable.xcstrings in Resources */,
 				240000000000000000000203 /* local-llama-models.json in Resources */,
-				F11000000000000000000006 /* CodeMirror in Resources */,
 				5F0A9C1D7E2B4A5C8D9E0F12 /* Pets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -925,6 +951,8 @@
 				B10000000000000000000015 /* AppModel+Activity.swift in Sources */,
 				B10000000000000000000054 /* AppModel+TaskMemos.swift in Sources */,
 				B10000000000000000000056 /* AppModel+SSH.swift in Sources */,
+				B10000000000000000000059 /* AppModel+WorkspaceFiles.swift in Sources */,
+				B10000000000000000000060 /* AppModel+Worktrees.swift in Sources */,
 				1E6B5C4D3A2F1E0D9C8B7A6F /* AppPerformanceMonitorStore.swift in Sources */,
 				210000000000000000000101 /* AppAISettings.swift in Sources */,
 				CF756E0559A097A4F15FF4E4 /* AppModels.swift in Sources */,
@@ -940,8 +968,9 @@
 				5F0A9C1D7E2B4A5C8D9E0F15 /* PetStore.swift in Sources */,
 				5F0A9C1D7E2B4A5C8D9E0F24 /* PetRefreshCoordinator.swift in Sources */,
 				4634F57FC973786B1BC12CE7 /* CodexHookRuntimeService.swift in Sources */,
-				79E977E589A5DD4D64B73355 /* ConfirmDialog.swift in Sources */,
-				46597B6975112CD732F7D16D /* DmuxWorkspaceApp.swift in Sources */,
+					79E977E589A5DD4D64B73355 /* ConfirmDialog.swift in Sources */,
+					B10000000000000000000065 /* WorktreeTaskDialog.swift in Sources */,
+					46597B6975112CD732F7D16D /* DmuxWorkspaceApp.swift in Sources */,
 				30A9A17741BD679E048B3629 /* DockBadgeView.swift in Sources */,
 				1FAA135C58E6AB5DD9A23ED3 /* FloatingTooltip.swift in Sources */,
 				C5A596EA7316220B5C242695 /* GitCredentialDialog.swift in Sources */,
@@ -976,8 +1005,7 @@
 				D0D0C0DE0000000000000103 /* PetSpeechCoordinator.swift in Sources */,
 				D0D0C0DE0000000000000104 /* PetSpeechLLMService.swift in Sources */,
 				F11000000000000000000003 /* FileBrowserPanelView.swift in Sources */,
-				F11000000000000000000004 /* FilePreviewWindow.swift in Sources */,
-				F11000000000000000000005 /* CodeMirrorTextPreview.swift in Sources */,
+				B10000000000000000000064 /* ProjectFileEditorTheme.swift in Sources */,
 				230000000000000000000101 /* MemoryManagerWindow.swift in Sources */,
 				B10000000000000000000055 /* TaskMemoPanelView.swift in Sources */,
 				B10000000000000000000057 /* SSHProfileDialog.swift in Sources */,
@@ -998,7 +1026,9 @@
 				B10000000000000000000032 /* SettingsShortcutsPane.swift in Sources */,
 				B10000000000000000000033 /* SettingsSupport.swift in Sources */,
 				5369A85B6A7302F464349BC0 /* SidebarView.swift in Sources */,
-				A7B8C9D0E1F2031425364762 /* DmuxTerminalBackend.swift in Sources */,
+					B10000000000000000000061 /* WorktreeSidebarView.swift in Sources */,
+					B10000000000000000000066 /* WorktreeReviewPanelView.swift in Sources */,
+					A7B8C9D0E1F2031425364762 /* DmuxTerminalBackend.swift in Sources */,
 				B10000000000000000000003 /* GhosttyEmbeddedConfig.swift in Sources */,
 				B10000000000000000000004 /* GhosttyPTYProcessBridge.swift in Sources */,
 				B10000000000000000000005 /* GhosttyTerminalHostView.swift in Sources */,
@@ -1010,6 +1040,8 @@
 				B10000000000000000000002 /* WorkspaceTerminalPaneView.swift in Sources */,
 				A9D536707C6623508B39B82C /* WorkspacePaths.swift in Sources */,
 				C8461EAEE2D7232AE6C7E131 /* WorkspaceView.swift in Sources */,
+				B10000000000000000000062 /* WorkspaceFileEditorView.swift in Sources */,
+				B10000000000000000000063 /* NativeSourceEditorTextPreview.swift in Sources */,
 				832966AE5D44C7932DAF4305 /* XcodeBundleModule.swift in Sources */,
 				A8B33C70370354EC1B39A24A /* main.swift in Sources */,
 			);
@@ -1201,6 +1233,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/LlamaBinary;
 		};
+		250000000000000000000301 /* XCLocalSwiftPackageReference "CodeEditSourceEditor" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CodeEditSourceEditor;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -1244,6 +1280,14 @@
 				version = 2.4.1;
 			};
 		};
+		250000000000000000000401 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CodeEditApp/CodeEditLanguages.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.1.20;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1276,6 +1320,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B0C0D0E0F1029384756A0002 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
 			productName = MarkdownUI;
+		};
+		250000000000000000000302 /* CodeEditSourceEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 250000000000000000000301 /* XCLocalSwiftPackageReference "CodeEditSourceEditor" */;
+			productName = CodeEditSourceEditor;
+		};
+		250000000000000000000402 /* CodeEditLanguages */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 250000000000000000000401 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */;
+			productName = CodeEditLanguages;
 		};
 		240000000000000000000302 /* llama */ = {
 			isa = XCSwiftPackageProductDependency;

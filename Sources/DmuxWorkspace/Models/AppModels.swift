@@ -77,6 +77,223 @@ struct Project: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+enum ProjectWorktreeTaskStatus: String, CaseIterable, Codable, Hashable, Sendable {
+    case todo
+    case planning
+    case ready
+    case running
+    case waiting
+    case review
+    case blocked
+    case done
+    case merged
+    case archived
+
+    var visibleStatus: ProjectWorktreeTaskStatus {
+        switch self {
+        case .planning:
+            return .running
+        case .todo, .ready, .running, .waiting, .review, .blocked, .done, .merged, .archived:
+            return self
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .todo:
+            return String(localized: "worktree.status.todo", defaultValue: "Todo", bundle: .module)
+        case .planning:
+            return String(localized: "worktree.status.planning", defaultValue: "Planning", bundle: .module)
+        case .ready:
+            return String(localized: "worktree.status.ready", defaultValue: "Ready", bundle: .module)
+        case .running:
+            return String(localized: "worktree.status.running", defaultValue: "Running", bundle: .module)
+        case .waiting:
+            return String(localized: "worktree.status.waiting", defaultValue: "Waiting", bundle: .module)
+        case .review:
+            return String(localized: "worktree.status.review", defaultValue: "Review", bundle: .module)
+        case .blocked:
+            return String(localized: "worktree.status.blocked", defaultValue: "Blocked", bundle: .module)
+        case .done:
+            return String(localized: "worktree.status.done", defaultValue: "Pending Review", bundle: .module)
+        case .merged:
+            return String(localized: "worktree.status.merged", defaultValue: "Merged", bundle: .module)
+        case .archived:
+            return String(localized: "worktree.status.archived", defaultValue: "Archived", bundle: .module)
+        }
+    }
+}
+
+struct ProjectWorktree: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID
+    var projectID: UUID
+    var name: String
+    var branch: String
+    var path: String
+    var status: ProjectWorktreeTaskStatus
+    var isDefault: Bool
+    var createdAt: Date
+    var updatedAt: Date
+
+    static func defaultWorktree(for project: Project) -> ProjectWorktree {
+        ProjectWorktree(
+            id: project.id,
+            projectID: project.id,
+            name: String(localized: "worktree.default.name", defaultValue: "Default", bundle: .module),
+            branch: "",
+            path: project.path,
+            status: .todo,
+            isDefault: true,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+    }
+}
+
+struct ProjectWorktreeGitSummary: Equatable, Hashable, Sendable {
+    var changes: Int = 0
+    var incoming: Int = 0
+    var outgoing: Int = 0
+
+    static let empty = ProjectWorktreeGitSummary()
+}
+
+struct WorktreeTask: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID { worktreeID }
+    var worktreeID: UUID
+    var title: String
+    var baseBranch: String
+    var baseCommit: String?
+    var status: ProjectWorktreeTaskStatus
+    var createdAt: Date
+    var updatedAt: Date
+    var startedAt: Date?
+    var completedAt: Date?
+}
+
+enum WorktreeReviewFileStatus: String, Codable, Hashable, Sendable {
+    case added
+    case modified
+    case deleted
+    case renamed
+    case copied
+    case typeChanged
+    case unknown
+
+    var displayName: String {
+        switch self {
+        case .added:
+            return String(localized: "worktree.review.file.added", defaultValue: "Added", bundle: .module)
+        case .modified:
+            return String(localized: "worktree.review.file.modified", defaultValue: "Modified", bundle: .module)
+        case .deleted:
+            return String(localized: "worktree.review.file.deleted", defaultValue: "Deleted", bundle: .module)
+        case .renamed:
+            return String(localized: "worktree.review.file.renamed", defaultValue: "Renamed", bundle: .module)
+        case .copied:
+            return String(localized: "worktree.review.file.copied", defaultValue: "Copied", bundle: .module)
+        case .typeChanged:
+            return String(localized: "worktree.review.file.type_changed", defaultValue: "Type", bundle: .module)
+        case .unknown:
+            return String(localized: "worktree.review.file.unknown", defaultValue: "Changed", bundle: .module)
+        }
+    }
+}
+
+struct WorktreeReviewFileChange: Identifiable, Codable, Hashable, Sendable {
+    var id: String { path }
+    var path: String
+    var oldPath: String?
+    var status: WorktreeReviewFileStatus
+    var additions: Int?
+    var deletions: Int?
+}
+
+enum WorktreeReviewCheckSeverity: String, Codable, Hashable, Sendable {
+    case ok
+    case warning
+    case blocking
+}
+
+struct WorktreeReviewCheck: Identifiable, Codable, Hashable, Sendable {
+    var id: String
+    var title: String
+    var detail: String
+    var severity: WorktreeReviewCheckSeverity
+}
+
+struct WorktreeReviewFileComparison: Equatable, Sendable {
+    var file: WorktreeReviewFileChange
+    var baseTitle: String
+    var worktreeTitle: String
+    var resultTitle: String
+    var baseText: String
+    var worktreeText: String
+    var resultText: String
+    var baseDeletesFile: Bool
+    var worktreeDeletesFile: Bool
+    var resultDeletesFile: Bool
+    var message: String?
+}
+
+enum WorktreeReviewMode: String, Hashable, Sendable {
+    case taskBranch
+    case workingTreeAudit
+}
+
+struct WorktreeReviewSnapshot: Equatable, Sendable {
+    var worktreeID: UUID
+    var mode: WorktreeReviewMode
+    var title: String
+    var diffStat: String
+    var diff: String
+    var files: [WorktreeReviewFileChange]
+    var selectedFileID: String?
+    var selectedFileComparison: WorktreeReviewFileComparison?
+    var checks: [WorktreeReviewCheck]
+    var refreshedAt: Date
+
+    static func empty(worktreeID: UUID, title: String, mode: WorktreeReviewMode = .taskBranch) -> WorktreeReviewSnapshot {
+        WorktreeReviewSnapshot(
+            worktreeID: worktreeID,
+            mode: mode,
+            title: title,
+            diffStat: "",
+            diff: "",
+            files: [],
+            selectedFileID: nil,
+            selectedFileComparison: nil,
+            checks: [],
+            refreshedAt: Date()
+        )
+    }
+}
+
+struct WorkspaceFileTab: Identifiable, Hashable, Codable, Sendable {
+    var id: String { fileURL.standardizedFileURL.path }
+    var fileURL: URL
+    var rootURL: URL
+    var title: String
+}
+
+enum WorkspaceContentSelection: Hashable {
+    case terminal
+    case file(String)
+}
+
+enum WorkspacePrimaryViewMode: String, Codable, Hashable, Sendable {
+    case terminal
+    case files
+    case review
+}
+
+struct WorkspaceContentState: Codable, Hashable, Sendable {
+    var worktreeID: UUID
+    var primaryViewMode: WorkspacePrimaryViewMode
+    var selectedFileTabID: String?
+    var fileTabs: [WorkspaceFileTab]
+}
+
 struct TerminalSession: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var projectID: UUID
@@ -329,7 +546,9 @@ struct ProjectWorkspace: Identifiable, Codable, Hashable {
     var sessions: [TerminalSession]
 
     static let maxTopPanes = 6
+    static let minimumTopPaneHeight: CGFloat = 220
     static let minimumBottomPaneHeight: CGFloat = 160
+    static let defaultBottomPaneHeight: CGFloat = 240
 
     var hasBottomTabs: Bool {
         !bottomTabSessionIDs.isEmpty
@@ -576,7 +795,7 @@ struct ProjectWorkspace: Identifiable, Codable, Hashable {
         topSessionIDs: [UUID],
         topPaneRatios: [CGFloat] = [],
         bottomTabSessionIDs: [UUID],
-        bottomPaneHeight: CGFloat = 240,
+        bottomPaneHeight: CGFloat = Self.defaultBottomPaneHeight,
         selectedSessionID: UUID,
         selectedBottomTabSessionID: UUID?,
         sessions: [TerminalSession]
@@ -610,7 +829,7 @@ struct ProjectWorkspace: Identifiable, Codable, Hashable {
             topSessionIDs: [session.id],
             topPaneRatios: [1],
             bottomTabSessionIDs: [],
-            bottomPaneHeight: 240,
+            bottomPaneHeight: Self.defaultBottomPaneHeight,
             selectedSessionID: session.id,
             selectedBottomTabSessionID: nil,
             sessions: [session]
@@ -632,9 +851,11 @@ struct ProjectWorkspace: Identifiable, Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projectID = try container.decode(UUID.self, forKey: .projectID)
         topSessionIDs = try container.decode([UUID].self, forKey: .topSessionIDs)
-        topPaneRatios = try container.decodeIfPresent([CGFloat].self, forKey: .topPaneRatios) ?? []
+        _ = try container.decodeIfPresent([CGFloat].self, forKey: .topPaneRatios)
+        topPaneRatios = []
         bottomTabSessionIDs = try container.decode([UUID].self, forKey: .bottomTabSessionIDs)
-        bottomPaneHeight = try container.decodeIfPresent(CGFloat.self, forKey: .bottomPaneHeight) ?? 240
+        _ = try container.decodeIfPresent(CGFloat.self, forKey: .bottomPaneHeight)
+        bottomPaneHeight = Self.defaultBottomPaneHeight
         selectedSessionID = try container.decode(UUID.self, forKey: .selectedSessionID)
         selectedBottomTabSessionID = try container.decodeIfPresent(UUID.self, forKey: .selectedBottomTabSessionID)
         sessions = try container.decode([TerminalSession].self, forKey: .sessions)
@@ -645,9 +866,12 @@ struct ProjectWorkspace: Identifiable, Codable, Hashable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(projectID, forKey: .projectID)
         try container.encode(topSessionIDs, forKey: .topSessionIDs)
-        try container.encode(resolvedTopPaneRatios(), forKey: .topPaneRatios)
+        let equalTopPaneRatios = topSessionIDs.isEmpty
+            ? []
+            : Array(repeating: 1 / CGFloat(topSessionIDs.count), count: topSessionIDs.count)
+        try container.encode(equalTopPaneRatios, forKey: .topPaneRatios)
         try container.encode(bottomTabSessionIDs, forKey: .bottomTabSessionIDs)
-        try container.encode(bottomPaneHeight, forKey: .bottomPaneHeight)
+        try container.encode(Self.defaultBottomPaneHeight, forKey: .bottomPaneHeight)
         try container.encode(selectedSessionID, forKey: .selectedSessionID)
         try container.encodeIfPresent(selectedBottomTabSessionID, forKey: .selectedBottomTabSessionID)
         try container.encode(sessions, forKey: .sessions)
@@ -656,8 +880,12 @@ struct ProjectWorkspace: Identifiable, Codable, Hashable {
 
 struct AppSnapshot: Codable {
     var projects: [Project]
+    var worktrees: [ProjectWorktree]?
+    var worktreeTasks: [WorktreeTask]? = nil
     var workspaces: [ProjectWorkspace]
     var selectedProjectID: UUID?
+    var selectedWorktreeID: UUID?
+    var workspaceContentStates: [WorkspaceContentState]? = nil
     var appSettings: AppSettings?
     var taskMemos: [TaskMemoItem]?
     var sshProfiles: [SSHConnectionProfile]?

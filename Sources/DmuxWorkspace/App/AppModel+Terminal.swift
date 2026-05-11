@@ -6,6 +6,10 @@ extension AppModel {
         isSidebarExpanded.toggle()
     }
 
+    func toggleWorktreeSidebarExpansion() {
+        isWorktreeSidebarExpanded.toggle()
+    }
+
     func updateRightPanelWidth(_ width: CGFloat) {
         let clamped = min(max(width, 280), 560)
         guard abs(rightPanelWidth - clamped) > 0.5 else {
@@ -15,7 +19,7 @@ extension AppModel {
     }
 
     func updateBottomPaneHeight(_ height: CGFloat, for projectID: UUID, availableHeight: CGFloat) {
-        let maxHeight = max(ProjectWorkspace.minimumBottomPaneHeight, availableHeight - 180)
+        let maxHeight = max(ProjectWorkspace.minimumBottomPaneHeight, availableHeight - ProjectWorkspace.minimumTopPaneHeight)
         let clamped = min(max(height, ProjectWorkspace.minimumBottomPaneHeight), maxHeight)
 
         guard let index = workspaces.firstIndex(where: { $0.projectID == projectID }) else {
@@ -26,7 +30,6 @@ extension AppModel {
             return
         }
         workspaces[index].bottomPaneHeight = clamped
-        persist()
     }
 
     func createNewTerminal() {
@@ -38,10 +41,12 @@ extension AppModel {
 
             if workspace.addTopSession(session.id) {
                 terminalFocusRequestID = session.id
+                FileBrowserKeyboardFocusState.activateTerminal()
                 statusMessage = String(localized: "workspace.top_pane.created", defaultValue: "Created a new terminal pane.", bundle: .module)
             } else {
                 workspace.addBottomTab(session.id)
                 terminalFocusRequestID = session.id
+                FileBrowserKeyboardFocusState.activateTerminal()
                 statusMessage = String(localized: "workspace.top_pane.full_added_bottom_tab", defaultValue: "Top row is full, added a bottom tab instead.", bundle: .module)
             }
         }
@@ -58,6 +63,7 @@ extension AppModel {
             workspace.sessions.append(session)
             workspace.addBottomTab(session.id)
             terminalFocusRequestID = session.id
+            FileBrowserKeyboardFocusState.activateTerminal()
             statusMessage = workspace.bottomTabSessionIDs.count == 1
                 ? String(localized: "workspace.bottom_split.created", defaultValue: "Created the bottom split area.", bundle: .module)
                 : String(localized: "workspace.bottom_tab.created", defaultValue: "Added a new bottom tab.", bundle: .module)
@@ -78,6 +84,7 @@ extension AppModel {
             case .horizontal:
                 if workspace.addTopSession(session.id) {
                     terminalFocusRequestID = session.id
+                    FileBrowserKeyboardFocusState.activateTerminal()
                     statusMessage = String(localized: "workspace.top_pane.horizontal_created", defaultValue: "Added a horizontal pane.", bundle: .module)
                 } else {
                     workspace.sessions.removeAll(where: { $0.id == session.id })
@@ -90,6 +97,7 @@ extension AppModel {
             case .vertical:
                 workspace.addBottomTab(session.id)
                 terminalFocusRequestID = session.id
+                FileBrowserKeyboardFocusState.activateTerminal()
                 statusMessage = workspace.bottomTabSessionIDs.count == 1
                     ? String(localized: "workspace.bottom_split.created", defaultValue: "Created the bottom split area.", bundle: .module)
                     : String(localized: "workspace.bottom_tab.additional", defaultValue: "Added a tab to the bottom split area.", bundle: .module)
@@ -116,7 +124,7 @@ extension AppModel {
         detachedTerminalPlacementBySessionID[sessionID] = placement
         let projectID = workspaces[workspaceIndex].projectID
         persist()
-        if selectedProjectID == projectID {
+        if selectedWorktreeID == projectID {
             terminalFocusRequestID = workspaces[workspaceIndex].selectedSessionID
         }
         refreshAIStatsIfNeeded()
@@ -135,7 +143,7 @@ extension AppModel {
 
         workspaces[workspaceIndex].restoreDetachedSession(sessionID, placement: placement)
         persist()
-        if shouldFocus && selectedProjectID == placement.projectID {
+        if shouldFocus && selectedWorktreeID == placement.projectID {
             terminalFocusRequestID = sessionID
             terminalFocusRenderVersion &+= 1
         }
@@ -154,10 +162,12 @@ extension AppModel {
         mutateSelectedWorkspace { workspace, _ in
             workspace.selectedSessionID = sessionID
             terminalFocusRequestID = sessionID
+            FileBrowserKeyboardFocusState.activateTerminal()
         }
     }
 
     func requestTerminalFocus(_ sessionID: UUID) {
+        FileBrowserKeyboardFocusState.activateTerminal()
         terminalFocusRequestID = sessionID
         terminalFocusRenderVersion &+= 1
         _ = DmuxTerminalBackend.shared.registry.focus(sessionID: sessionID)
@@ -179,6 +189,7 @@ extension AppModel {
             workspace.selectedBottomTabSessionID = sessionID
             workspace.selectedSessionID = sessionID
             terminalFocusRequestID = sessionID
+            FileBrowserKeyboardFocusState.activateTerminal()
         }
     }
 
@@ -218,8 +229,8 @@ extension AppModel {
     }
 
     func updateBottomTabTitle(_ sessionID: UUID, title: String) {
-        guard let selectedProjectID,
-              let index = workspaces.firstIndex(where: { $0.projectID == selectedProjectID }) else {
+        guard let selectedWorktreeID,
+              let index = workspaces.firstIndex(where: { $0.projectID == selectedWorktreeID }) else {
             return
         }
 
@@ -236,8 +247,8 @@ extension AppModel {
     }
 
     func moveBottomTabSession(_ sessionID: UUID, to targetSessionID: UUID, persists: Bool = true) {
-        guard let selectedProjectID,
-              let index = workspaces.firstIndex(where: { $0.projectID == selectedProjectID }) else {
+        guard let selectedWorktreeID,
+              let index = workspaces.firstIndex(where: { $0.projectID == selectedWorktreeID }) else {
             return
         }
 
@@ -256,8 +267,8 @@ extension AppModel {
     }
 
     func updateTopPaneRatios(_ ratios: [CGFloat]) {
-        guard let selectedProjectID,
-              let index = workspaces.firstIndex(where: { $0.projectID == selectedProjectID }) else {
+        guard let selectedWorktreeID,
+              let index = workspaces.firstIndex(where: { $0.projectID == selectedWorktreeID }) else {
             return
         }
         guard let normalizedRatios = Self.normalizedTopPaneRatios(
@@ -276,7 +287,6 @@ extension AppModel {
         var updatedWorkspaces = workspaces
         updatedWorkspaces[index].topPaneRatios = normalizedRatios
         workspaces = updatedWorkspaces
-        persist()
     }
 
     func consumeTerminalFocusRequest(_ sessionID: UUID) {
@@ -434,27 +444,30 @@ extension AppModel {
         }
         let isLastTerminal = workspace.visibleSessionCount <= 1
 
-        let dialog = ConfirmDialogState(
-            title: isLastTerminal
-                ? String(localized: "workspace.restart_current_terminal.title", defaultValue: "Restart Current Terminal", bundle: .module)
-                : String(localized: "workspace.close_current_split.title", defaultValue: "Close Current Split", bundle: .module),
-            message: isLastTerminal
-                ? String(localized: "workspace.restart_current_terminal.message", defaultValue: "This is the last terminal for the project. Close it and start a fresh terminal?", bundle: .module)
-                : String(localized: "workspace.close_current_split.message", defaultValue: "Are you sure you want to close the current split or tab?", bundle: .module),
-            icon: isLastTerminal ? "arrow.clockwise" : "xmark.rectangle.portrait",
-            iconColor: AppTheme.warning,
-            primaryTitle: isLastTerminal
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = isLastTerminal
+            ? String(localized: "workspace.restart_current_terminal.title", defaultValue: "Restart Current Terminal", bundle: .module)
+            : String(localized: "workspace.close_current_split.title", defaultValue: "Close Current Split", bundle: .module)
+        alert.informativeText = isLastTerminal
+            ? String(localized: "workspace.restart_current_terminal.message", defaultValue: "This is the last terminal for the project. Close it and start a fresh terminal?", bundle: .module)
+            : String(localized: "workspace.close_current_split.message", defaultValue: "Are you sure you want to close the current split or tab?", bundle: .module)
+        alert.addButton(
+            withTitle: isLastTerminal
                 ? String(localized: "common.restart_now", defaultValue: "Restart Now", bundle: .module)
-                : String(localized: "common.close", defaultValue: "Close", bundle: .module),
-            primaryTint: AppTheme.warning,
-            cancelTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module)
+                : String(localized: "common.close", defaultValue: "Close", bundle: .module)
         )
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module))
 
-        ConfirmDialogPresenter.present(dialog: dialog, parentWindow: parentWindow) { [weak self] result in
-            guard let self, result == .primary else {
+        alert.buttons.first?.keyEquivalent = "\r"
+        alert.buttons.dropFirst().first?.keyEquivalent = "\u{1b}"
+        alert.beginSheetModal(for: parentWindow) { [weak self] response in
+            guard response == .alertFirstButtonReturn else {
                 return
             }
-            self.closeSession(sessionID)
+            Task { @MainActor [weak self] in
+                self?.closeSession(sessionID)
+            }
         }
     }
 
@@ -471,9 +484,9 @@ extension AppModel {
     }
 
     private func mutateSelectedWorkspace(_ transform: (inout ProjectWorkspace, Project) -> Void) {
-        guard let selectedProjectID,
-              let project = projects.first(where: { $0.id == selectedProjectID }),
-              let index = workspaces.firstIndex(where: { $0.projectID == selectedProjectID }) else {
+        guard let selectedWorktreeID,
+              let project = selectedProject,
+              let index = workspaces.firstIndex(where: { $0.projectID == selectedWorktreeID }) else {
             return
         }
 
@@ -529,9 +542,9 @@ extension AppModel {
     }
 
     private func createSplitTerminal(command: String, axis: PaneAxis, runCommandInsideShell: Bool, logCommand: String? = nil) -> UUID? {
-        guard let selectedProjectID,
-              let project = projects.first(where: { $0.id == selectedProjectID }),
-              let index = workspaces.firstIndex(where: { $0.projectID == selectedProjectID }) else {
+        guard let selectedWorktreeID,
+              let project = selectedProject,
+              let index = workspaces.firstIndex(where: { $0.projectID == selectedWorktreeID }) else {
             debugLog.log(
                 "terminal-command",
                 "split-failed axis=\(axis == .horizontal ? "horizontal" : "vertical") reason=missing-selected-project command=\(logCommand ?? command)"

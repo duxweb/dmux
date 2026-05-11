@@ -5,11 +5,109 @@ import UserNotifications
 
 @MainActor
 enum FileBrowserKeyboardFocusState {
-    static var isActive = false
+    enum Context: Equatable {
+        case none
+        case terminal
+        case fileBrowser
+        case workspaceFileEditor(tabID: String?)
+    }
+
+    private(set) static var context: Context = .none
     static var isInlineRenaming = false
 
+    static var isActive: Bool {
+        get {
+            context == .fileBrowser
+        }
+        set {
+            if newValue {
+                activateFileBrowser(isInlineRenaming: isInlineRenaming)
+            } else {
+                clearFileBrowserIfNeeded()
+            }
+        }
+    }
+
+    static var isWorkspaceFileEditorActive: Bool {
+        if case .workspaceFileEditor = context {
+            return true
+        }
+        return false
+    }
+
+    static var activeWorkspaceFileEditorTabID: String? {
+        if case .workspaceFileEditor(let tabID) = context {
+            return tabID
+        }
+        return nil
+    }
+
     static var shouldSuppressTerminalRouting: Bool {
-        isActive && isInlineRenaming == false
+        switch context {
+        case .fileBrowser:
+            return isInlineRenaming == false
+        case .workspaceFileEditor:
+            return true
+        case .none, .terminal:
+            return false
+        }
+    }
+
+    static func activateFileBrowser(isInlineRenaming: Bool) {
+        context = .fileBrowser
+        self.isInlineRenaming = isInlineRenaming
+        DmuxTerminalBackend.shared.registry.clearFocusedSession()
+    }
+
+    static func activateWorkspaceFileEditor(tabID: String?) {
+        context = .workspaceFileEditor(tabID: tabID)
+        isInlineRenaming = false
+        DmuxTerminalBackend.shared.registry.clearFocusedSession()
+    }
+
+    static func activateTerminal() {
+        context = .terminal
+        isInlineRenaming = false
+    }
+
+    static func clearWorkspaceFileEditor(tabID: String?) {
+        guard case .workspaceFileEditor(let currentTabID) = context,
+              currentTabID == tabID || tabID == nil else {
+            return
+        }
+        context = .none
+        isInlineRenaming = false
+    }
+
+    static func clearFileBrowserIfNeeded() {
+        guard context == .fileBrowser else {
+            return
+        }
+        context = .none
+        isInlineRenaming = false
+    }
+
+    static func updateFileBrowserInlineRenaming(_ isInlineRenaming: Bool) {
+        guard context == .fileBrowser else {
+            return
+        }
+        self.isInlineRenaming = isInlineRenaming
+    }
+
+    static func shouldHandleFileBrowserShortcut(
+        context: Context,
+        isActive: Bool,
+        isInlineRenaming: Bool,
+        hasWindow: Bool,
+        eventWindowMatches: Bool,
+        isTerminalResponder: Bool
+    ) -> Bool {
+        context == .fileBrowser
+            && isActive
+            && isInlineRenaming == false
+            && hasWindow
+            && eventWindowMatches
+            && isTerminalResponder == false
     }
 
     static func shouldHandleFileBrowserShortcut(
@@ -19,20 +117,156 @@ enum FileBrowserKeyboardFocusState {
         eventWindowMatches: Bool,
         isTerminalResponder: Bool
     ) -> Bool {
-        isActive
-            && isInlineRenaming == false
-            && hasWindow
-            && eventWindowMatches
-            && isTerminalResponder == false
+        shouldHandleFileBrowserShortcut(
+            context: isActive ? .fileBrowser : .none,
+            isActive: isActive,
+            isInlineRenaming: isInlineRenaming,
+            hasWindow: hasWindow,
+            eventWindowMatches: eventWindowMatches,
+            isTerminalResponder: isTerminalResponder
+        )
     }
 }
 
 enum TerminalKeyRoutingPolicy {
     static func shouldRouteToTerminal(
         isMainMenuShortcut: Bool,
-        isReservedApplicationShortcut: Bool
+        isReservedApplicationShortcut: Bool,
+        isWorkspaceEditorFocused: Bool = false
     ) -> Bool {
-        !isMainMenuShortcut && !isReservedApplicationShortcut
+        !isMainMenuShortcut && !isReservedApplicationShortcut && !isWorkspaceEditorFocused
+    }
+}
+
+enum WorkspaceKeyboardFocusScope: String {
+    case workspace
+    case workspaceReview
+    case fileBrowser
+    case fileEditor
+    case workspaceFiles
+    case terminal
+}
+
+enum WorkspaceKeyboardCommandAction: Equatable {
+    case closeFileTab
+    case saveFileTab
+    case closeTerminalSplit
+    case passThrough
+}
+
+enum WorkspaceKeyboardRouter {
+    static func focusScope(
+        focusContext: FileBrowserKeyboardFocusState.Context,
+        isSelectedWorkspaceFilesModeActive: Bool,
+        isSelectedWorkspaceReviewModeActive: Bool,
+        isWorkspaceFileCommandActive: Bool,
+        isTerminalResponder: Bool,
+        isSystemTextResponder: Bool,
+        responderClassName: String?
+    ) -> WorkspaceKeyboardFocusScope {
+        if focusContext == .fileBrowser, isSystemTextResponder == false {
+            return .fileBrowser
+        }
+        if isSelectedWorkspaceReviewModeActive {
+            return .workspaceReview
+        }
+        if isTerminalResponder {
+            return .terminal
+        }
+        if isSourceEditorResponder(className: responderClassName) {
+            return .fileEditor
+        }
+        if case .workspaceFileEditor = focusContext {
+            return .fileEditor
+        }
+        if isWorkspaceFileCommandActive {
+            return .fileEditor
+        }
+        if isSelectedWorkspaceFilesModeActive {
+            return .workspaceFiles
+        }
+        return .workspace
+    }
+
+    static func commandAction(
+        key: String?,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        scope: WorkspaceKeyboardFocusScope
+    ) -> WorkspaceKeyboardCommandAction {
+        guard modifiers == [.command] else {
+            return .passThrough
+        }
+        switch normalizedKey(key: key, keyCode: keyCode) {
+        case "w":
+            switch scope {
+            case .fileBrowser, .fileEditor, .workspaceFiles:
+                return .closeFileTab
+            case .terminal:
+                return .closeTerminalSplit
+            case .workspace, .workspaceReview:
+                return .passThrough
+            }
+        case "s":
+            switch scope {
+            case .fileEditor, .workspaceFiles:
+                return .saveFileTab
+            default:
+                return .passThrough
+            }
+        default:
+            return .passThrough
+        }
+    }
+
+    static func shouldPreferFileBrowserShortcut(
+        key: String?,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        scope: WorkspaceKeyboardFocusScope
+    ) -> Bool {
+        guard scope == .fileBrowser else {
+            return false
+        }
+        if modifiers == [.command] {
+            switch normalizedKey(key: key, keyCode: keyCode) {
+            case "c", "x", "v":
+                return true
+            default:
+                return false
+            }
+        }
+        return keyCode == 36 || keyCode == 76 || keyCode == 51 || keyCode == 117
+    }
+
+    static func normalizedKey(key: String?, keyCode: UInt16) -> String? {
+        if let key, !key.isEmpty {
+            return key.lowercased()
+        }
+        switch keyCode {
+        case 0:
+            return "a"
+        case 1:
+            return "s"
+        case 8:
+            return "c"
+        case 9:
+            return "v"
+        case 7:
+            return "x"
+        case 13:
+            return "w"
+        default:
+            return nil
+        }
+    }
+
+    private static func isSourceEditorResponder(className: String?) -> Bool {
+        guard let className else {
+            return false
+        }
+        return className.contains("SourceEditorTextView")
+            || className.contains("CodeEditTextView.TextView")
     }
 }
 
@@ -44,7 +278,6 @@ enum AppWindowIdentifier {
     static let petDex = NSUserInterfaceItemIdentifier("dmux.petDex")
     static let desktopPet = NSUserInterfaceItemIdentifier("dmux.desktopPet")
     static let memoryManager = NSUserInterfaceItemIdentifier("dmux.memoryManager")
-    static let filePreview = NSUserInterfaceItemIdentifier("dmux.filePreview")
     static let gitDiff = NSUserInterfaceItemIdentifier("dmux.gitDiff")
     static let detachedTerminalPrefix = "dmux.detached-terminal."
 
@@ -95,11 +328,6 @@ func isStandardChromeWindow(_ window: NSWindow) -> Bool {
 }
 
 @MainActor
-func isFilePreviewWindow(_ window: NSWindow) -> Bool {
-    window.identifier == AppWindowIdentifier.filePreview
-}
-
-@MainActor
 func isMainWorkspaceWindow(_ window: NSWindow) -> Bool {
     window.identifier == AppWindowIdentifier.main
 }
@@ -126,20 +354,7 @@ func applyMainWorkspaceWindowChrome(_ window: NSWindow) {
 }
 
 @MainActor
-func applyFilePreviewWindowChrome(_ window: NSWindow) {
-    applyImmersiveWindowChrome(window)
-    window.titlebarSeparatorStyle = .none
-    window.isMovableByWindowBackground = true
-    repositionFilePreviewTrafficLights(in: window)
-}
-
-@MainActor
 func repositionMainWorkspaceTrafficLights(in window: NSWindow) {
-    repositionTrafficLights(in: window, centerYFromTop: 22)
-}
-
-@MainActor
-func repositionFilePreviewTrafficLights(in window: NSWindow) {
     repositionTrafficLights(in: window, centerYFromTop: 22)
 }
 
@@ -330,6 +545,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @MainActor
     private func handleLocalKeyDown(_ event: NSEvent) -> NSEvent? {
         let modifiers = normalizedShortcutModifiers(for: event)
+        let scope = workspaceKeyboardFocusScope(for: event)
+        if handleFocusedWorkspaceShortcutIfNeeded(event, modifiers: modifiers, scope: scope) {
+            return nil
+        }
+        if WorkspaceKeyboardRouter.shouldPreferFileBrowserShortcut(
+            key: event.charactersIgnoringModifiers,
+            keyCode: event.keyCode,
+            modifiers: modifiers,
+            scope: scope
+        ) {
+            return event
+        }
+
         let mainMenuHandled = handleMainMenuShortcutIfNeeded(event, modifiers: modifiers)
         if mainMenuHandled {
             return nil
@@ -357,9 +585,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return event
         }
 
-        if isStandardChromeWindow(window) || isFilePreviewWindow(window) || isDetachedTerminalWindow(window) {
+        if isStandardChromeWindow(window) || isDetachedTerminalWindow(window) {
             window.performClose(nil)
             return nil
+        }
+
+        switch scope {
+        case .fileBrowser, .fileEditor, .workspaceFiles:
+            let didClose = model?.closeWorkspaceFileCommandTab() ?? false
+            logKeyboardRoute(event: event, scope: scope, action: .closeFileTab, didHandle: true, result: didClose)
+            return nil
+        case .workspaceReview:
+            return event
+        case .terminal, .workspace:
+            break
         }
 
         guard let model, model.selectedSessionID != nil else {
@@ -368,6 +607,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         model.confirmCloseSelectedSession()
         return nil
+    }
+
+    @MainActor
+    private func handleFocusedWorkspaceShortcutIfNeeded(
+        _ event: NSEvent,
+        modifiers: NSEvent.ModifierFlags,
+        scope: WorkspaceKeyboardFocusScope
+    ) -> Bool {
+        guard let model,
+              workspaceWindow(for: event) != nil else {
+            return false
+        }
+        let action = WorkspaceKeyboardRouter.commandAction(
+            key: event.charactersIgnoringModifiers,
+            keyCode: event.keyCode,
+            modifiers: modifiers,
+            scope: scope
+        )
+        switch action {
+        case .closeFileTab:
+            let didClose = model.closeWorkspaceFileCommandTab()
+            logKeyboardRoute(event: event, scope: scope, action: action, didHandle: true, result: didClose)
+            return true
+        case .saveFileTab:
+            let didSave = model.requestSaveWorkspaceFileCommandTab()
+            logKeyboardRoute(event: event, scope: scope, action: action, didHandle: true, result: didSave)
+            return true
+        case .closeTerminalSplit:
+            guard let window = workspaceWindow(for: event),
+                  !isStandardChromeWindow(window),
+                  !isDetachedTerminalWindow(window),
+                  model.selectedSessionID != nil else {
+                return false
+            }
+            model.confirmCloseSelectedSession()
+            logKeyboardRoute(event: event, scope: scope, action: action, didHandle: true, result: true)
+            return true
+        case .passThrough:
+            return false
+        }
+    }
+
+    @MainActor
+    private func workspaceKeyboardFocusScope(for event: NSEvent) -> WorkspaceKeyboardFocusScope {
+        let window = workspaceWindow(for: event)
+        let responder = window?.firstResponder
+        let isTerminalResponder = responder.map {
+            DmuxTerminalBackend.shared.registry.ownsResponder($0)
+        } ?? false
+        let isSystemTextResponder = responder is NSTextView
+        let responderClassName = responder.map { NSStringFromClass(type(of: $0)) }
+        return WorkspaceKeyboardRouter.focusScope(
+            focusContext: FileBrowserKeyboardFocusState.context,
+            isSelectedWorkspaceFilesModeActive: model?.isSelectedWorkspaceFilesModeActive() == true,
+            isSelectedWorkspaceReviewModeActive: model?.isSelectedWorkspaceReviewModeActive() == true,
+            isWorkspaceFileCommandActive: model?.isWorkspaceFileCommandActive() == true,
+            isTerminalResponder: isTerminalResponder,
+            isSystemTextResponder: isSystemTextResponder,
+            responderClassName: responderClassName
+        )
+    }
+
+    @MainActor
+    private func workspaceWindow(for event: NSEvent) -> NSWindow? {
+        if let window = event.window, isMainWorkspaceWindow(window) {
+            return window
+        }
+        if let window = NSApp.keyWindow, isMainWorkspaceWindow(window) {
+            return window
+        }
+        if let window = NSApp.mainWindow, isMainWorkspaceWindow(window) {
+            return window
+        }
+        return nil
+    }
+
+    private func logKeyboardRoute(
+        event: NSEvent,
+        scope: WorkspaceKeyboardFocusScope,
+        action: WorkspaceKeyboardCommandAction,
+        didHandle: Bool,
+        result: Bool
+    ) {
+        AppDebugLog.shared.log(
+            "keyboard-routing",
+            "key=\(WorkspaceKeyboardRouter.normalizedKey(key: event.charactersIgnoringModifiers, keyCode: event.keyCode) ?? "nil") code=\(event.keyCode) scope=\(scope.rawValue) action=\(action) handled=\(didHandle) result=\(result)"
+        )
     }
 
     @MainActor
@@ -386,6 +712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         modifiers.remove(.numericPad)
         modifiers.remove(.function)
+        modifiers.remove(.capsLock)
         return modifiers
     }
 
@@ -398,14 +725,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         guard TerminalKeyRoutingPolicy.shouldRouteToTerminal(
             isMainMenuShortcut: isMainMenuShortcut,
-            isReservedApplicationShortcut: isReservedApplicationShortcut
+            isReservedApplicationShortcut: isReservedApplicationShortcut,
+            isWorkspaceEditorFocused: FileBrowserKeyboardFocusState.isWorkspaceFileEditorActive || model?.isWorkspaceFileCommandActive() == true || model?.isSelectedWorkspaceFilesModeActive() == true || model?.isSelectedWorkspaceReviewModeActive() == true
         ) else {
             return false
         }
 
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              !isStandardChromeWindow(window),
-              !isFilePreviewWindow(window) else {
+              !isStandardChromeWindow(window) else {
             return false
         }
 
@@ -454,7 +781,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard !isStandardChromeWindow(window),
-              !isFilePreviewWindow(window),
               !isDetachedTerminalWindow(window) else {
             return
         }
@@ -509,8 +835,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func restoreTerminalFocusIfNeeded(for window: NSWindow) {
         guard !(window is NSPanel),
               !isStandardChromeWindow(window),
-              !isFilePreviewWindow(window),
               !isDetachedTerminalWindow(window) else {
+            return
+        }
+        guard model?.isWorkspaceFileCommandActive() != true,
+              model?.isSelectedWorkspaceFilesModeActive() != true else {
             return
         }
         model?.restoreSelectedTerminalFocusIfNeeded()

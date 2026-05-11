@@ -151,14 +151,6 @@ final class ProjectFileBrowserServiceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.path))
     }
 
-    func testMarkdownPreviewUsesSplitLayoutForMarkdownExtensions() {
-        XCTAssertTrue(ProjectFilePreviewLayoutPolicy.usesMarkdownSplitPreview(fileExtension: "md"))
-        XCTAssertTrue(ProjectFilePreviewLayoutPolicy.usesMarkdownSplitPreview(fileExtension: "markdown"))
-        XCTAssertTrue(ProjectFilePreviewLayoutPolicy.usesMarkdownSplitPreview(fileExtension: "MD"))
-        XCTAssertFalse(ProjectFilePreviewLayoutPolicy.usesMarkdownSplitPreview(fileExtension: "swift"))
-        XCTAssertFalse(ProjectFilePreviewLayoutPolicy.usesMarkdownSplitPreview(fileExtension: "txt"))
-    }
-
     @MainActor
     func testDeleteSelectedItemMarksPendingDeleteBeforeConfirmation() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

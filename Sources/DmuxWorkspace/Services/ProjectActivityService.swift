@@ -19,6 +19,15 @@ enum ProjectActivityPhase: Equatable {
         }
     }
 
+    var isActiveAIActivity: Bool {
+        switch self {
+        case .loading, .running, .waitingInput:
+            return true
+        case .idle, .completed:
+            return false
+        }
+    }
+
     var petActivityStatusPriority: Int {
         switch self {
         case .waitingInput:

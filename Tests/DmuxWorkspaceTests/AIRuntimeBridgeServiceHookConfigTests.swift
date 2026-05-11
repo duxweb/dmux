@@ -224,7 +224,7 @@ final class AIRuntimeBridgeServiceHookConfigTests: XCTestCase {
         )
     }
 
-    func testUpdatedCodexConfigTextMigratesLegacyCodexHooksFeatureFlag() {
+    func testUpdatedCodexConfigTextPreservesLegacyCodexHooksFeatureFlag() {
         let service = AIRuntimeBridgeService()
         let existing = """
         model = "gpt-5.5"
@@ -242,12 +242,12 @@ final class AIRuntimeBridgeServiceHookConfigTests: XCTestCase {
                 """
                 [features]
                 multi_agent = true
-                hooks = true
+                codex_hooks = true
                 memories = true
                 """
             )
         )
-        XCTAssertFalse(updated.contains("codex_hooks"))
+        XCTAssertFalse(updated.split(separator: "\n").contains("hooks = true"))
     }
 
     func testUpdatedCodexConfigTextEnablesExistingHooksFeatureFlag() {

@@ -50,6 +50,7 @@ protocol DmuxTerminalBackendRegistry: AnyObject {
     func forwardKeyDown(_ event: NSEvent, responder: NSResponder?) -> Bool
     func forwardScrollWheel(_ event: NSEvent, responder: NSResponder?) -> Bool
     func focusedSessionID() -> UUID?
+    func clearFocusedSession()
     func clearFocusedSessionIfOutside(_ sessionIDs: Set<UUID>, in window: NSWindow?)
     func ownsResponder(_ responder: NSResponder?) -> Bool
 }

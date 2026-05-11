@@ -30,17 +30,32 @@ extension AppModel {
 
   func remoteCreateTerminal(projectID: String?, command: String) -> TerminalSession? {
     let resolvedProject: Project?
+    let resolvedWorktreeID: UUID?
     if let projectID, let uuid = UUID(uuidString: projectID) {
-      resolvedProject = projects.first { $0.id == uuid }
-    } else if let selectedProjectID {
-      resolvedProject = projects.first { $0.id == selectedProjectID }
+      if let worktree = worktrees.first(where: { $0.id == uuid }) {
+        resolvedWorktreeID = worktree.id
+        resolvedProject = projectForWorktree(worktree)
+      } else if let worktree = worktrees.first(where: { $0.projectID == uuid && $0.isDefault }) {
+        resolvedWorktreeID = worktree.id
+        resolvedProject = projectForWorktree(worktree)
+      } else {
+        resolvedWorktreeID = nil
+        resolvedProject = projects.first { $0.id == uuid }
+      }
+    } else if selectedProjectID != nil {
+      resolvedWorktreeID = selectedWorktreeID
+      resolvedProject = selectedProject
     } else {
-      resolvedProject = projects.first
+      let worktree = worktrees.first
+      resolvedWorktreeID = worktree?.id
+      resolvedProject = worktree.flatMap { projectForWorktree($0) } ?? projects.first
     }
-    guard let project = resolvedProject else {
+    guard let project = resolvedProject,
+      let workspaceID = resolvedWorktreeID ?? worktrees.first(where: { $0.projectID == project.id && $0.isDefault })?.id ?? Optional(project.id)
+    else {
       return nil
     }
-    guard let workspaceIndex = workspaces.firstIndex(where: { $0.projectID == project.id }) else {
+    guard let workspaceIndex = workspaces.firstIndex(where: { $0.projectID == workspaceID }) else {
       return nil
     }
 
@@ -52,7 +67,7 @@ extension AppModel {
       updatedWorkspaces[workspaceIndex].addBottomTab(session.id)
     }
     workspaces = updatedWorkspaces
-    if selectedProjectID == project.id {
+    if selectedWorktreeID == workspaceID {
       terminalFocusRequestID = session.id
       terminalFocusRenderVersion &+= 1
     }
@@ -67,6 +82,7 @@ extension AppModel {
       URL(fileURLWithPath: $0.path).standardizedFileURL.path == normalizedPath
     }) {
       updateSelectedProjectID(existing.id, source: "remoteAddProject.existing")
+      selectPreferredWorktree(for: existing.id)
       return existing
     }
     let project = Project(
@@ -81,8 +97,11 @@ extension AppModel {
       gitDefaultPushRemoteName: nil
     )
     projects.append(project)
+    let defaultWorktree = ProjectWorktree.defaultWorktree(for: project)
+    worktrees.append(defaultWorktree)
     workspaces.append(ProjectWorkspace.sample(projectID: project.id, path: project.path))
     updateSelectedProjectID(project.id, source: "remoteAddProject.created")
+    selectedWorktreeID = defaultWorktree.id
     persist()
     refreshGitState()
     updateGitRemoteSyncPolling()
@@ -108,10 +127,19 @@ extension AppModel {
       gitDefaultPushRemoteName: current.gitDefaultPushRemoteName
     )
     projects[index] = updated
-    if let workspaceIndex = workspaces.firstIndex(where: { $0.projectID == uuid }) {
+    if let worktreeIndex = worktrees.firstIndex(where: { $0.projectID == uuid && $0.isDefault }) {
+      worktrees[worktreeIndex].path = normalizedPath
+      worktrees[worktreeIndex].updatedAt = Date()
+    }
+    for workspaceIndex in workspaces.indices {
+      guard let worktree = worktrees.first(where: { $0.id == workspaces[workspaceIndex].projectID && $0.projectID == uuid }) else {
+        continue
+      }
+      let effectiveName = worktree.isDefault ? updated.name : "\(updated.name) · \(worktree.name)"
       for sessionIndex in workspaces[workspaceIndex].sessions.indices {
-        workspaces[workspaceIndex].sessions[sessionIndex].projectName = updated.name
-        workspaces[workspaceIndex].sessions[sessionIndex].cwd = updated.path
+        workspaces[workspaceIndex].sessions[sessionIndex].projectName = effectiveName
+        workspaces[workspaceIndex].sessions[sessionIndex].cwd = worktree.path
+        workspaces[workspaceIndex].sessions[sessionIndex].shell = updated.shell
       }
     }
     updateSelectedProjectID(updated.id, source: "remoteEditProject")
@@ -128,9 +156,20 @@ extension AppModel {
     else { return false }
     petStore.forgetProjectBaseline(uuid)
     projects.removeAll { $0.id == uuid }
-    workspaces.removeAll { $0.projectID == uuid }
+    let removedWorktreeIDs = Set(worktrees.filter { $0.projectID == uuid }.map(\.id))
+    worktrees.removeAll { $0.projectID == uuid }
+    workspaces.removeAll { removedWorktreeIDs.contains($0.projectID) }
+    workspaceFileTabsByWorktreeID = workspaceFileTabsByWorktreeID.filter { !removedWorktreeIDs.contains($0.key) }
+    selectedWorkspaceContentByWorktreeID = selectedWorkspaceContentByWorktreeID.filter { !removedWorktreeIDs.contains($0.key) }
+    workspacePrimaryViewModeByWorktreeID = workspacePrimaryViewModeByWorktreeID.filter { !removedWorktreeIDs.contains($0.key) }
+    worktreeTasks.removeAll { removedWorktreeIDs.contains($0.worktreeID) }
     if selectedProjectID == uuid {
       updateSelectedProjectID(projects.first?.id, source: "remoteRemoveProject")
+      if let selectedProjectID {
+        selectPreferredWorktree(for: selectedProjectID)
+      } else {
+        selectedWorktreeID = nil
+      }
     }
     persist()
     refreshGitState()
@@ -255,7 +294,7 @@ extension AppModel {
     }
     noteTerminalLoadingState(sessionID, isLoading: false)
     let projectID = workspaces[workspaceIndex].projectID
-    let project = projects.first(where: { $0.id == projectID })
+    let project = worktrees.first(where: { $0.id == projectID }).flatMap { projectForWorktree($0) }
     let shouldRebuildLastTerminal = workspaces[workspaceIndex].visibleSessionCount <= 1
     let replacementSession = shouldRebuildLastTerminal
       ? project.map { TerminalSession.make(project: $0, command: $0.defaultCommand) }
@@ -265,10 +304,10 @@ extension AppModel {
     if let replacementSession {
       updatedWorkspaces[workspaceIndex].sessions.append(replacementSession)
       _ = updatedWorkspaces[workspaceIndex].addTopSession(replacementSession.id)
-      if selectedProjectID == projectID {
+      if selectedWorktreeID == projectID {
         terminalFocusRequestID = replacementSession.id
       }
-    } else if selectedProjectID == projectID {
+    } else if selectedWorktreeID == projectID {
       terminalFocusRequestID = updatedWorkspaces[workspaceIndex].selectedSessionID
     }
     workspaces = updatedWorkspaces
@@ -285,5 +324,22 @@ extension AppModel {
     refreshAIStatsIfNeeded()
     terminalFocusRenderVersion &+= 1
     return true
+  }
+
+  private func projectForWorktree(_ worktree: ProjectWorktree) -> Project? {
+    guard let rootProject = projects.first(where: { $0.id == worktree.projectID }) else {
+      return nil
+    }
+    return Project(
+      id: worktree.id,
+      name: worktree.isDefault ? rootProject.name : "\(rootProject.name) · \(worktree.name)",
+      path: worktree.path,
+      shell: rootProject.shell,
+      defaultCommand: rootProject.defaultCommand,
+      badgeText: rootProject.badgeText,
+      badgeSymbol: rootProject.badgeSymbol,
+      badgeColorHex: rootProject.badgeColorHex,
+      gitDefaultPushRemoteName: rootProject.gitDefaultPushRemoteName
+    )
   }
 }

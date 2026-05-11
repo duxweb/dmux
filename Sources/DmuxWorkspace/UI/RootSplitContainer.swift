@@ -1,6 +1,56 @@
 import AppKit
 import SwiftUI
 
+@MainActor
+struct CoduxSplitDividerHitRegion {
+    let rect: NSRect
+    let cursor: NSCursor
+    let targetView: NSView
+}
+
+@MainActor
+protocol CoduxSplitDividerHitRegionProviding: AnyObject {
+    func coduxSplitDividerHitRegions() -> [CoduxSplitDividerHitRegion]
+}
+
+extension NSSplitView {
+    func coduxExpandedDividerRect(at dividerIndex: Int, outset: CGFloat = 12) -> NSRect {
+        guard dividerIndex >= 0,
+              dividerIndex < max(0, arrangedSubviews.count - 1) else {
+            return .zero
+        }
+
+        let previousFrame = arrangedSubviews[dividerIndex].frame
+        let nextFrame = arrangedSubviews[dividerIndex + 1].frame
+
+        if isVertical {
+            let forwardGap = abs(previousFrame.maxX - nextFrame.minX)
+            let reverseGap = abs(nextFrame.maxX - previousFrame.minX)
+            let dividerX = forwardGap <= reverseGap
+                ? (previousFrame.maxX + nextFrame.minX) / 2
+                : (nextFrame.maxX + previousFrame.minX) / 2
+            return NSRect(
+                x: dividerX - outset,
+                y: bounds.minY,
+                width: outset * 2,
+                height: bounds.height
+            )
+        }
+
+        let forwardGap = abs(previousFrame.maxY - nextFrame.minY)
+        let reverseGap = abs(nextFrame.maxY - previousFrame.minY)
+        let dividerY = forwardGap <= reverseGap
+            ? (previousFrame.maxY + nextFrame.minY) / 2
+            : (nextFrame.maxY + previousFrame.minY) / 2
+        return NSRect(
+            x: bounds.minX,
+            y: dividerY - outset,
+            width: bounds.width,
+            height: outset * 2
+        )
+    }
+}
+
 struct RightPanelContainerView: View {
     let model: AppModel
 
@@ -45,9 +95,16 @@ struct TerminalHorizontalSplitContainer: NSViewControllerRepresentable {
 }
 
 final class TerminalHorizontalSplitController: NSViewController, NSSplitViewDelegate {
+    private struct AppliedLayoutSignature: Equatable {
+        var totalWidth: Int
+        var rightPanel: RightPanelKind?
+        var targetRightWidth: Int
+        var targetDividerPosition: Int
+    }
+
     private let model: AppModel
     private let splitView = DividerStyledHorizontalSplitView()
-    private let workspaceHosting: NSHostingController<WorkspaceView>
+    private let workspaceHosting: NSHostingController<WorkspaceShellView>
     private let rightPanelHosting: NSHostingController<RightPanelContainerView>
     private let workspaceChromeContainer = NSView()
     private let workspaceContainer = NSView()
@@ -57,18 +114,21 @@ final class TerminalHorizontalSplitController: NSViewController, NSSplitViewDele
     private let rightPanelLeftBorder = BorderLineView()
     private var rightPanelWidthConstraint: NSLayoutConstraint?
     private var isApplyingLayout = false
+    private var lastAppliedLayoutSignature: AppliedLayoutSignature?
     private var collapsedRightPanelSize = NSSize(width: 0, height: 0)
     private let workspaceCornerRadius: CGFloat = 22
 
     init(model: AppModel) {
         self.model = model
-        self.workspaceHosting = NSHostingController(rootView: WorkspaceView(model: model))
+        self.workspaceHosting = NSHostingController(rootView: WorkspaceShellView(model: model))
         self.rightPanelHosting = NSHostingController(rootView: RightPanelContainerView(model: model))
         super.init(nibName: nil, bundle: nil)
         splitView.dividerStyle = .thin
         splitView.isVertical = true
         splitView.delegate = self
         splitView.customDividerColor = .clear
+        splitView.dividerCursor = .resizeLeftRight
+        splitView.isDividerInteractive = false
     }
 
     @available(*, unavailable)
@@ -212,25 +272,55 @@ final class TerminalHorizontalSplitController: NSViewController, NSSplitViewDele
         let isPanelVisible = rightPanel != nil
         splitView.customDividerColor = isPanelVisible ? .separatorColor : .clear
         splitView.showsCustomDivider = isPanelVisible
+        splitView.isDividerInteractive = isPanelVisible
         rightPanelHosting.view.alphaValue = isPanelVisible ? 1 : 0
         rightPanelTopBorder.isHidden = !isPanelVisible
         rightPanelLeftBorder.isHidden = true
 
+        let totalWidth = splitView.bounds.width
+        let targetRightWidth: CGFloat
+        let targetPosition: CGFloat
         if isPanelVisible {
-            let clampedWidth = min(max(rightPanelWidth, 280), 560)
-            rightPanelWidthConstraint?.constant = clampedWidth
-            let totalWidth = splitView.bounds.width
-            let position = max(max(520, totalWidth - 560), min(totalWidth - 280, totalWidth - clampedWidth))
-            splitView.setPosition(position, ofDividerAt: 0)
+            let minWorkspaceWidth: CGFloat = 520
+            let preferredMinRightWidth: CGFloat = 280
+            let absoluteMaxRightWidth: CGFloat = 560
+            let availableMaxRightWidth = max(280, min(absoluteMaxRightWidth, totalWidth - minWorkspaceWidth))
+            let minRightWidth = min(preferredMinRightWidth, availableMaxRightWidth)
+            let clampedWidth = min(max(rightPanelWidth, minRightWidth), availableMaxRightWidth)
+            targetRightWidth = clampedWidth
+            targetPosition = totalWidth - clampedWidth
         } else {
-            rightPanelWidthConstraint?.constant = 0
-            splitView.setPosition(splitView.bounds.width, ofDividerAt: 0)
+            targetRightWidth = 0
+            targetPosition = totalWidth
+        }
+
+        let signature = AppliedLayoutSignature(
+            totalWidth: Int(totalWidth.rounded()),
+            rightPanel: rightPanel,
+            targetRightWidth: Int(targetRightWidth.rounded()),
+            targetDividerPosition: Int(targetPosition.rounded())
+        )
+        let currentDividerPosition = workspaceChromeContainer.frame.maxX
+        let shouldApplyFrames = lastAppliedLayoutSignature != signature ||
+            abs((rightPanelWidthConstraint?.constant ?? 0) - targetRightWidth) > 0.5 ||
+            abs(currentDividerPosition - targetPosition) > 0.5
+
+        guard shouldApplyFrames else {
+            splitView.needsDisplay = true
+            return
+        }
+
+        rightPanelWidthConstraint?.constant = targetRightWidth
+        splitView.setPosition(targetPosition, ofDividerAt: 0)
+
+        if !isPanelVisible {
             collapsedRightPanelSize.height = splitView.bounds.height
             rightPanelContainer.setFrameSize(collapsedRightPanelSize)
         }
 
         splitView.adjustSubviews()
         splitView.needsDisplay = true
+        lastAppliedLayoutSignature = signature
     }
 
     private func refreshGhosttyPortalHostRegistration() {
@@ -244,6 +334,7 @@ final class TerminalHorizontalSplitController: NSViewController, NSSplitViewDele
         guard model.rightPanel != nil, !isApplyingLayout else { return }
         let width = rightPanelContainer.frame.width
         rightPanelWidthConstraint?.constant = width
+        lastAppliedLayoutSignature = nil
         model.updateRightPanelWidth(width)
     }
 
@@ -258,6 +349,28 @@ final class TerminalHorizontalSplitController: NSViewController, NSSplitViewDele
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         splitView.bounds.width - 280
+    }
+
+    func splitView(_ splitView: NSSplitView, additionalEffectiveRectOfDividerAt dividerIndex: Int) -> NSRect {
+        splitView.coduxExpandedDividerRect(at: dividerIndex)
+    }
+}
+
+private struct WorkspaceShellView: View {
+    let model: AppModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if model.selectedProjectID != nil && model.isWorktreeSidebarExpanded {
+                WorktreeSidebarView(model: model)
+                    .frame(minWidth: 216, idealWidth: 216, maxWidth: 216)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            WorkspaceView(model: model)
+                .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(model.terminalChromeColor)
     }
 }
 
@@ -346,9 +459,41 @@ private final class WorkspaceTopLeftBorderView: NSView {
     }
 }
 
-final class DividerStyledHorizontalSplitView: NSSplitView {
-    var customDividerColor: NSColor = .separatorColor
-    var showsCustomDivider = true
+final class DividerStyledHorizontalSplitView: NSSplitView, CoduxSplitDividerHitRegionProviding {
+    private(set) var isTrackingDividerDrag = false
+
+    var customDividerColor: NSColor = .separatorColor {
+        didSet {
+            guard oldValue.isEqual(customDividerColor) == false else {
+                return
+            }
+            needsDisplay = true
+        }
+    }
+    var showsCustomDivider = true {
+        didSet {
+            guard oldValue != showsCustomDivider else {
+                return
+            }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+    var dividerCursor: NSCursor = .resizeLeftRight {
+        didSet {
+            guard oldValue !== dividerCursor else {
+                return
+            }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+    var isDividerInteractive = true {
+        didSet {
+            guard oldValue != isDividerInteractive else {
+                return
+            }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
 
     override var dividerColor: NSColor {
         customDividerColor
@@ -362,5 +507,71 @@ final class DividerStyledHorizontalSplitView: NSSplitView {
         guard showsCustomDivider else { return }
         customDividerColor.setFill()
         rect.fill()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if isDividerInteractive, pointIsInsideExpandedDivider(point) {
+            return self
+        }
+        return super.hitTest(point)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard isDividerInteractive, pointIsInsideExpandedDivider(point) else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        isTrackingDividerDrag = true
+        defer { isTrackingDividerDrag = false }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if isDividerInteractive, pointIsInsideExpandedDivider(point) {
+            dividerCursor.set()
+            return
+        }
+        super.mouseMoved(with: event)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if isDividerInteractive, pointIsInsideExpandedDivider(point) {
+            dividerCursor.set()
+            return
+        }
+        super.cursorUpdate(with: event)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        for region in coduxSplitDividerHitRegions() {
+            addCursorRect(region.rect, cursor: region.cursor)
+        }
+    }
+
+    func coduxSplitDividerHitRegions() -> [CoduxSplitDividerHitRegion] {
+        guard isDividerInteractive, dividerThickness > 0 else {
+            return []
+        }
+        return expandedDividerRects().map { rect in
+            CoduxSplitDividerHitRegion(rect: rect, cursor: dividerCursor, targetView: self)
+        }
+    }
+
+    private func pointIsInsideExpandedDivider(_ point: NSPoint) -> Bool {
+        coduxSplitDividerHitRegions().contains { $0.rect.contains(point) }
+    }
+
+    private func expandedDividerRects() -> [NSRect] {
+        guard arrangedSubviews.count > 1 else {
+            return []
+        }
+        return (0 ..< (arrangedSubviews.count - 1)).map { dividerIndex in
+            coduxExpandedDividerRect(at: dividerIndex)
+        }
     }
 }

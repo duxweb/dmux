@@ -17,6 +17,10 @@ struct TitlebarOverlayView: View {
                         model.toggleSidebarExpansion()
                     }
 
+                    TitlebarGlyphButton(symbol: "list.bullet.rectangle", help: String(localized: "worktree.sidebar.title", defaultValue: "Tasks", bundle: .module)) {
+                        model.toggleWorktreeSidebarExpansion()
+                    }
+
                     TitlebarGlyphButton(symbol: "rectangle.split.2x1", help: String(localized: "titlebar.split", defaultValue: "Split", bundle: .module)) {
                         model.splitSelectedPane(axis: .horizontal)
                     }
@@ -95,7 +99,7 @@ struct TitlebarOverlayView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
-            ProjectTitleView(project: model.selectedProject)
+            TitlebarWorkspaceModeSwitcher(model: model)
                 .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
@@ -1128,5 +1132,109 @@ private struct ProjectTitleView: View {
             .lineLimit(1)
             .frame(maxWidth: 260)
             .frame(height: TitlebarControlMetrics.rowHeight, alignment: .center)
+    }
+}
+
+private struct TitlebarWorkspaceModeSwitcher: View {
+    let model: AppModel
+
+    private var selectedMode: WorkspacePrimaryViewMode {
+        guard let workspace = model.selectedWorkspace else {
+            return .terminal
+        }
+        return model.workspacePrimaryViewMode(for: workspace.projectID)
+    }
+
+    var body: some View {
+        Group {
+            if model.selectedWorkspace != nil {
+                HStack(spacing: 3) {
+                    TitlebarWorkspaceModeSegment(
+                        title: String(localized: "workspace.tab.terminal", defaultValue: "Terminal", bundle: .module),
+                        symbol: "terminal",
+                        isSelected: selectedMode == .terminal,
+                        action: model.selectWorkspaceTerminal
+                    )
+
+                    TitlebarWorkspaceModeSegment(
+                        title: String(localized: "titlebar.files", defaultValue: "Files", bundle: .module),
+                        symbol: "doc.text",
+                        isSelected: selectedMode == .files,
+                        action: model.selectWorkspaceFiles
+                    )
+
+                    TitlebarWorkspaceModeSegment(
+                        title: String(localized: "titlebar.review", defaultValue: "Review", bundle: .module),
+                        symbol: "checklist",
+                        isSelected: selectedMode == .review,
+                        action: model.selectWorkspaceReview
+                    )
+                }
+                .padding(3)
+                .frame(height: 30)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(AppTheme.emphasizedControlFill)
+                )
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(AppTheme.titlebarControlBorder, lineWidth: 0.5)
+                }
+                .frame(maxWidth: 330)
+            } else {
+                ProjectTitleView(project: nil)
+            }
+        }
+    }
+}
+
+private struct TitlebarWorkspaceModeSegment: View {
+    let title: String
+    let symbol: String
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 12)
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, 10)
+            .frame(minWidth: 78, minHeight: 24)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(backgroundColor)
+            )
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .floatingTooltip(title, placement: .below)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+
+    private var foregroundColor: Color {
+        if isSelected {
+            return AppTheme.textPrimary
+        }
+        return isHovered ? AppTheme.textPrimary : AppTheme.textSecondary
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return AppTheme.focus.opacity(0.18)
+        }
+        if isHovered {
+            return AppTheme.titlebarControlHoverFill
+        }
+        return Color.clear
     }
 }

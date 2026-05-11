@@ -138,6 +138,18 @@ generate_app_icons() {
 sign_and_launch() {
   codesign --force --deep --sign - --timestamp=none "${app_dir}" >/dev/null
   open -n "${app_dir}"
+
+  local pid=""
+  for _ in {1..40}; do
+    pid="$(pgrep -f "${app_dir}/Contents/MacOS/Codux" 2>/dev/null | head -n 1 || true)"
+    if [[ -n "${pid}" ]]; then
+      print -- "[dev] launched Codux-dev pid=${pid}"
+      return
+    fi
+    sleep 0.25
+  done
+
+  print -u2 -- "[dev] warning: Codux-dev launch was requested but no running process was observed"
 }
 
 require_command xcodebuild

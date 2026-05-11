@@ -127,30 +127,21 @@ final class ProjectFileBrowserStore {
         pendingDeletePaths.count
     }
 
-    func openPreview(_ item: ProjectFileItem, editorTheme: ProjectFileEditorTheme) {
+    func openPreview(_ item: ProjectFileItem, editorTheme: ProjectFileEditorTheme, openInWorkspace: (URL, URL) -> Void) {
         guard item.isDirectory == false else { return }
         selectedPath = item.id
         switch service.openMode(for: item.url) {
         case .codePreview:
-            ProjectFilePreviewWindowPresenter.show(
-                fileURL: item.url,
-                rootURL: rootURL ?? item.url.deletingLastPathComponent(),
-                editorTheme: editorTheme
-            )
+            openInWorkspace(item.url, rootURL ?? item.url.deletingLastPathComponent())
         case .systemApplication:
             NSWorkspace.shared.open(item.url)
         }
     }
 
-    func edit(_ item: ProjectFileItem, editorTheme: ProjectFileEditorTheme) {
+    func edit(_ item: ProjectFileItem, editorTheme: ProjectFileEditorTheme, openInWorkspace: (URL, URL) -> Void) {
         guard item.isDirectory == false else { return }
         selectedPath = item.id
-        ProjectFilePreviewWindowPresenter.show(
-            fileURL: item.url,
-            rootURL: rootURL ?? item.url.deletingLastPathComponent(),
-            startsEditing: true,
-            editorTheme: editorTheme
-        )
+        openInWorkspace(item.url, rootURL ?? item.url.deletingLastPathComponent())
     }
 
     func copyPath(_ item: ProjectFileItem) {
@@ -549,6 +540,9 @@ struct FileBrowserPanelView: View {
         .onChange(of: model.selectedProjectID) { _, _ in
             store.load(project: model.selectedProject)
         }
+        .onChange(of: model.selectedWorktreeID) { _, _ in
+            store.load(project: model.selectedProject)
+        }
     }
 
     private var header: some View {
@@ -616,8 +610,16 @@ struct FileBrowserPanelView: View {
                             focus: { activateFileBrowserKeyboard() },
                             select: { store.select(row.item) },
                             toggle: { store.toggle(row.item) },
-                            openPreview: { store.openPreview(row.item, editorTheme: currentEditorTheme) },
-                            edit: { store.edit(row.item, editorTheme: currentEditorTheme) },
+                            openPreview: {
+                                store.openPreview(row.item, editorTheme: currentEditorTheme) { fileURL, rootURL in
+                                    model.openFileInWorkspace(fileURL, rootURL: rootURL)
+                                }
+                            },
+                            edit: {
+                                store.edit(row.item, editorTheme: currentEditorTheme) { fileURL, rootURL in
+                                    model.openFileInWorkspace(fileURL, rootURL: rootURL)
+                                }
+                            },
                             insertPathIntoTerminal: { model.insertPathIntoCurrentTerminal(row.item.url) },
                             copyPath: { store.copyPath(row.item) },
                             copyFile: { store.copyFile(row.item) },
@@ -651,8 +653,7 @@ struct FileBrowserPanelView: View {
     private func activateFileBrowserKeyboard() {
         isKeyboardActive = true
         keyboardFocusToken &+= 1
-        FileBrowserKeyboardFocusState.isActive = true
-        FileBrowserKeyboardFocusState.isInlineRenaming = store.renamingPath != nil
+        FileBrowserKeyboardFocusState.activateFileBrowser(isInlineRenaming: store.renamingPath != nil)
     }
 
     private func handleDrop(providers: [NSItemProvider], target: ProjectFileItem?) -> Bool {
@@ -1081,8 +1082,11 @@ private struct FileBrowserKeyboardHandler: NSViewRepresentable {
     func updateNSView(_ view: KeyView, context: Context) {
         view.isActive = isActive
         view.isInlineRenaming = isInlineRenaming
-        FileBrowserKeyboardFocusState.isActive = isActive
-        FileBrowserKeyboardFocusState.isInlineRenaming = isInlineRenaming
+        if isActive {
+            FileBrowserKeyboardFocusState.updateFileBrowserInlineRenaming(isInlineRenaming)
+        } else {
+            FileBrowserKeyboardFocusState.clearFileBrowserIfNeeded()
+        }
         view.requestFocusIfNeeded(focusToken: focusToken)
         view.onDeactivate = {
             isActive = false
@@ -1118,14 +1122,14 @@ private struct FileBrowserKeyboardHandler: NSViewRepresentable {
 
         override func becomeFirstResponder() -> Bool {
             isActive = true
-            FileBrowserKeyboardFocusState.isActive = true
-            FileBrowserKeyboardFocusState.isInlineRenaming = isInlineRenaming
+            FileBrowserKeyboardFocusState.activateFileBrowser(isInlineRenaming: isInlineRenaming)
             return true
         }
 
         override func resignFirstResponder() -> Bool {
-            FileBrowserKeyboardFocusState.isActive = false
-            FileBrowserKeyboardFocusState.isInlineRenaming = false
+            isActive = false
+            FileBrowserKeyboardFocusState.clearFileBrowserIfNeeded()
+            onDeactivate?()
             return true
         }
 
@@ -1182,8 +1186,7 @@ private struct FileBrowserKeyboardHandler: NSViewRepresentable {
                 Task { @MainActor [weak self] in
                     guard hasFocusedTerminal else { return }
                     self?.isActive = false
-                    FileBrowserKeyboardFocusState.isActive = false
-                    FileBrowserKeyboardFocusState.isInlineRenaming = false
+                    FileBrowserKeyboardFocusState.clearFileBrowserIfNeeded()
                     self?.onDeactivate?()
                 }
             }
@@ -1195,8 +1198,8 @@ private struct FileBrowserKeyboardHandler: NSViewRepresentable {
             let isTerminalResponder = currentWindow?.firstResponder.map {
                 DmuxTerminalBackend.shared.registry.ownsResponder($0)
             } ?? false
-
             return FileBrowserKeyboardFocusState.shouldHandleFileBrowserShortcut(
+                context: FileBrowserKeyboardFocusState.context,
                 isActive: isActive,
                 isInlineRenaming: isInlineRenaming,
                 hasWindow: currentWindow != nil,

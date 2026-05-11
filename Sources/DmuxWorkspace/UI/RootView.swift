@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct RootView: View {
     let model: AppModel
@@ -30,6 +31,12 @@ struct RootView: View {
         }
         .background(Color.clear)
         .background(MainWorkspaceWindowConfigurator())
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { providers in
+            ProjectDirectoryDropPayload.loadURLs(from: providers) { urls in
+                model.importDroppedProjectDirectories(urls)
+            }
+            return true
+        }
         .ignoresSafeArea(.container, edges: .top)
         .onAppear {
             model.noteRootViewAppeared()

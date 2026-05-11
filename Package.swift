@@ -20,6 +20,8 @@ let package = Package(
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", exact: "2.4.1"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.1"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
+        .package(url: "https://github.com/CodeEditApp/CodeEditLanguages.git", exact: "0.1.20"),
+        .package(path: "Packages/CodeEditSourceEditor"),
         .package(path: "Packages/LlamaBinary"),
     ],
     targets: [
@@ -32,6 +34,8 @@ let package = Package(
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "CodeEditSourceEditor", package: "CodeEditSourceEditor"),
+                .product(name: "CodeEditLanguages", package: "CodeEditLanguages"),
                 .product(name: "llama", package: "LlamaBinary"),
             ],
             path: "Sources/DmuxWorkspace",
@@ -40,7 +44,6 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("UniformTypeIdentifiers"),
-                .linkedFramework("WebKit"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("IOKit"),
                 .linkedLibrary("sqlite3"),

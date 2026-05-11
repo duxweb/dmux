@@ -38,6 +38,14 @@ struct GitRemoteSyncState: Hashable {
     static let empty = GitRemoteSyncState(incomingCount: 0, outgoingCount: 0, hasUpstream: false)
 }
 
+struct GitWorktreeEntry: Hashable {
+    var path: String
+    var branch: String
+    var head: String
+    var isBare: Bool
+    var isDetached: Bool
+}
+
 enum GitFileKind: String, Hashable {
     case staged
     case changed
@@ -98,6 +106,96 @@ struct GitService {
 
     func initializeRepository(at path: String) throws {
         _ = try runGit(["init"], at: path)
+    }
+
+    func repositoryRoot(at path: String) throws -> String? {
+        let output = try runGit(["rev-parse", "--show-toplevel"], at: path, allowFailure: true, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !output.isEmpty, !output.contains("fatal:") else {
+            return nil
+        }
+        return URL(fileURLWithPath: output, isDirectory: true).standardizedFileURL.path
+    }
+
+    func branchName(at path: String) throws -> String {
+        try currentBranch(at: path)
+    }
+
+    func hasUncommittedChanges(at path: String) throws -> Bool {
+        let output = try runGit(["status", "--porcelain=v1"], at: path, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !output.isEmpty
+    }
+
+    func worktrees(at path: String) throws -> [GitWorktreeEntry] {
+        guard try isGitRepository(at: path) else {
+            return []
+        }
+
+        let output = try runGit(["worktree", "list", "--porcelain"], at: path, allowEmptyOutput: true)
+        var entries: [GitWorktreeEntry] = []
+        var currentPath: String?
+        var currentBranch = ""
+        var currentHead = ""
+        var isBare = false
+        var isDetached = false
+
+        func flush() {
+            guard let currentPath else { return }
+            entries.append(
+                GitWorktreeEntry(
+                    path: URL(fileURLWithPath: currentPath, isDirectory: true).standardizedFileURL.path,
+                    branch: currentBranch,
+                    head: currentHead,
+                    isBare: isBare,
+                    isDetached: isDetached
+                )
+            )
+        }
+
+        for rawLine in output.split(whereSeparator: \.isNewline).map(String.init) + [""] {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.isEmpty {
+                flush()
+                currentPath = nil
+                currentBranch = ""
+                currentHead = ""
+                isBare = false
+                isDetached = false
+                continue
+            }
+            if line.hasPrefix("worktree ") {
+                currentPath = String(line.dropFirst("worktree ".count))
+            } else if line.hasPrefix("HEAD ") {
+                currentHead = String(line.dropFirst("HEAD ".count))
+            } else if line.hasPrefix("branch ") {
+                let ref = String(line.dropFirst("branch ".count))
+                currentBranch = ref.hasPrefix("refs/heads/") ? String(ref.dropFirst("refs/heads/".count)) : ref
+            } else if line == "bare" {
+                isBare = true
+            } else if line == "detached" {
+                isDetached = true
+            }
+        }
+
+        return entries
+    }
+
+    func createWorktree(branch: String, destinationPath: String, at repositoryPath: String) throws {
+        _ = try runGit(["worktree", "add", "-b", branch, destinationPath], at: repositoryPath)
+    }
+
+    func createWorktree(branch: String, destinationPath: String, baseRef: String, at repositoryPath: String) throws {
+        let trimmedBaseRef = baseRef.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedBaseRef.isEmpty {
+            try createWorktree(branch: branch, destinationPath: destinationPath, at: repositoryPath)
+        } else {
+            _ = try runGit(["worktree", "add", "-b", branch, destinationPath, trimmedBaseRef], at: repositoryPath)
+        }
+    }
+
+    func removeWorktree(path: String, at repositoryPath: String) throws {
+        _ = try runGit(["worktree", "remove", path], at: repositoryPath)
     }
 
     func clone(_ remoteURL: String, into path: String, credential: GitCredential? = nil, progress: (@Sendable (String, Double?) -> Void)? = nil) throws {
@@ -494,6 +592,304 @@ struct GitService {
         _ = try runGit(["merge", branch], at: path)
     }
 
+    func squashMerge(branch: String, intoCurrentBranchAt path: String) throws {
+        _ = try runGit(["merge", "--squash", branch], at: path)
+    }
+
+    func deleteBranch(_ branch: String, force: Bool = false, at path: String) throws {
+        let trimmedBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBranch.isEmpty else {
+            return
+        }
+        _ = try runGit(["branch", force ? "-D" : "-d", trimmedBranch], at: path)
+    }
+
+    func diffStat(from baseRef: String, to branch: String, at path: String) throws -> String {
+        _ = branch
+        return try runGit(["diff", "--stat", baseRef], at: path, allowFailure: true, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func diffText(from baseRef: String, to branch: String, at path: String) throws -> String {
+        _ = branch
+        return try runGit(["diff", baseRef], at: path, allowFailure: true, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func workingTreeAuditDiffStat(at path: String) throws -> String {
+        guard try hasResolvableHEAD(at: path) else {
+            return ""
+        }
+        return try runGit(["diff", "--stat", "HEAD"], at: path, allowFailure: true, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func workingTreeAuditDiffText(at path: String) throws -> String {
+        guard try hasResolvableHEAD(at: path) else {
+            return ""
+        }
+        return try runGit(["diff", "HEAD"], at: path, allowFailure: true, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func workingTreeAuditFiles(at path: String) throws -> [WorktreeReviewFileChange] {
+        guard try hasResolvableHEAD(at: path) else {
+            return try unresolvedHeadReviewFiles(at: path)
+        }
+        return try worktreeReviewFiles(from: "HEAD", at: path)
+    }
+
+    func workingTreeAuditComparison(
+        for change: WorktreeReviewFileChange,
+        at path: String
+    ) throws -> WorktreeReviewFileComparison {
+        var comparison = try worktreeReviewComparison(for: change, baseRef: "HEAD", at: path)
+        if change.status != .added {
+            comparison.baseTitle = "HEAD"
+        }
+        comparison.worktreeTitle = change.status == .deleted
+            ? String(localized: "worktree.review.worktree_deleted", defaultValue: "Worktree: deleted", bundle: .module)
+            : String(localized: "worktree.review.audit_working_tree", defaultValue: "Working Tree", bundle: .module)
+        comparison.resultTitle = String(localized: "worktree.review.audit_result", defaultValue: "Audit Result", bundle: .module)
+        return comparison
+    }
+
+    func worktreeReviewFiles(from baseRef: String, at path: String) throws -> [WorktreeReviewFileChange] {
+        let nameStatusOutput = try runGit(["diff", "--name-status", baseRef], at: path, allowFailure: true, allowEmptyOutput: true)
+        let numstatOutput = try runGit(["diff", "--numstat", baseRef], at: path, allowFailure: true, allowEmptyOutput: true)
+        let countsByPath = parseWorktreeReviewNumstat(numstatOutput)
+
+        var seenPaths = Set<String>()
+        var files = nameStatusOutput
+            .split(whereSeparator: \.isNewline)
+            .compactMap { rawLine -> WorktreeReviewFileChange? in
+                let fields = String(rawLine).split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                guard fields.count >= 2 else {
+                    return nil
+                }
+                let rawStatus = fields[0]
+                let status = worktreeReviewFileStatus(rawStatus)
+                let oldPath: String?
+                let path: String
+                if status == .renamed || status == .copied, fields.count >= 3 {
+                    oldPath = fields[1]
+                    path = fields[2]
+                } else {
+                    oldPath = nil
+                    path = fields[1]
+                }
+                let counts = countsByPath[path]
+                return WorktreeReviewFileChange(
+                    path: path,
+                    oldPath: oldPath,
+                    status: status,
+                    additions: counts?.additions,
+                    deletions: counts?.deletions
+                )
+            }
+        for file in files {
+            seenPaths.insert(file.path)
+        }
+
+        if let state = try? repositoryState(at: path) {
+            for entry in state.untracked where !seenPaths.contains(entry.path) {
+                files.append(
+                    WorktreeReviewFileChange(
+                        path: entry.path,
+                        oldPath: nil,
+                        status: .added,
+                        additions: nil,
+                        deletions: nil
+                    )
+                )
+            }
+        }
+
+        return files.sorted { lhs, rhs in
+            lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
+        }
+    }
+
+    func worktreeReviewComparison(
+        for change: WorktreeReviewFileChange,
+        baseRef: String,
+        at path: String
+    ) throws -> WorktreeReviewFileComparison {
+        let basePath = change.oldPath ?? change.path
+        let baseDeletesFile = change.status == .added
+        let worktreeDeletesFile = change.status == .deleted
+        let baseTitle = change.status == .added
+            ? String(localized: "worktree.review.base_empty", defaultValue: "Base: new file", bundle: .module)
+            : "Base: \(baseRef)"
+        let worktreeTitle = change.status == .deleted
+            ? String(localized: "worktree.review.worktree_deleted", defaultValue: "Worktree: deleted", bundle: .module)
+            : String(localized: "worktree.review.worktree_file", defaultValue: "Worktree", bundle: .module)
+        let resultTitle = String(localized: "worktree.review.merge_result", defaultValue: "Merge Result", bundle: .module)
+
+        var messageParts: [String] = []
+        let baseText: String
+        if baseDeletesFile {
+            baseText = ""
+        } else {
+            do {
+                baseText = try gitObjectTextIfPresent("\(baseRef):\(basePath)", at: path)
+            } catch {
+                baseText = ""
+                messageParts.append(error.localizedDescription)
+            }
+        }
+
+        let worktreeText: String
+        if worktreeDeletesFile {
+            worktreeText = ""
+        } else {
+            do {
+                worktreeText = try workingTreeTextIfPresent(relativePath: change.path, at: path)
+            } catch {
+                worktreeText = ""
+                messageParts.append(error.localizedDescription)
+            }
+        }
+
+        return WorktreeReviewFileComparison(
+            file: change,
+            baseTitle: baseTitle,
+            worktreeTitle: worktreeTitle,
+            resultTitle: resultTitle,
+            baseText: baseText,
+            worktreeText: worktreeText,
+            resultText: worktreeText,
+            baseDeletesFile: baseDeletesFile,
+            worktreeDeletesFile: worktreeDeletesFile,
+            resultDeletesFile: worktreeDeletesFile,
+            message: messageParts.isEmpty ? nil : messageParts.joined(separator: "\n")
+        )
+    }
+
+    private func unresolvedHeadReviewFiles(at path: String) throws -> [WorktreeReviewFileChange] {
+        guard let state = try repositoryState(at: path) else {
+            return []
+        }
+
+        var seenPaths = Set<String>()
+        var files: [WorktreeReviewFileChange] = []
+        for entry in state.staged + state.changes + state.untracked where seenPaths.insert(entry.path).inserted {
+            files.append(
+                WorktreeReviewFileChange(
+                    path: entry.path,
+                    oldPath: nil,
+                    status: entry.kind == .changed ? .modified : .added,
+                    additions: nil,
+                    deletions: nil
+                )
+            )
+        }
+        return files.sorted { lhs, rhs in
+            lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
+        }
+    }
+
+    func writeWorktreeReviewResult(
+        _ resultText: String,
+        deletesFile: Bool,
+        for change: WorktreeReviewFileChange,
+        at path: String
+    ) throws {
+        let fileURL = try safeRepositoryFileURL(relativePath: change.path, repositoryPath: path)
+        if deletesFile {
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
+            }
+            return
+        }
+
+        let parentURL = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parentURL, withIntermediateDirectories: true)
+        try resultText.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    func mergeConflictPaths(from baseRef: String, to branch: String, at path: String) throws -> [String] {
+        let output = try runGit(
+            ["merge-tree", "--write-tree", "--name-only", "--messages", baseRef, branch],
+            at: path,
+            allowFailure: true,
+            allowEmptyOutput: true
+        )
+        let lines = output
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let hasConflictMessage = lines.contains { line in
+            line.localizedCaseInsensitiveContains("CONFLICT")
+                || line.localizedCaseInsensitiveContains("Auto-merging")
+        }
+        guard hasConflictMessage || output.localizedCaseInsensitiveContains("CONFLICT") else {
+            return []
+        }
+
+        return lines
+            .filter { line in
+                !line.localizedCaseInsensitiveContains("CONFLICT")
+                    && !line.localizedCaseInsensitiveContains("Auto-merging")
+                    && !line.hasPrefix("changed in both")
+                    && !line.hasPrefix("added in both")
+                    && !line.hasPrefix("removed in")
+            }
+            .map { line in
+                line.replacingOccurrences(of: "\u{0}", with: "")
+            }
+            .filter { !$0.isEmpty }
+    }
+
+    func hasDiff(from baseRef: String, to branch: String, at path: String) throws -> Bool {
+        let output = try runGit(["diff", "--name-only", baseRef, branch], at: path, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !output.isEmpty
+    }
+
+    func headCommit(at path: String) throws -> String? {
+        let output = try runGit(["rev-parse", "--verify", "HEAD"], at: path, allowFailure: true, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !output.isEmpty, !output.contains("fatal:") else {
+            return nil
+        }
+        return output
+    }
+
+    func commitHash(ref: String, at path: String) throws -> String? {
+        let trimmedRef = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRef.isEmpty else {
+            return try headCommit(at: path)
+        }
+        let output = try runGit(["rev-parse", "--verify", trimmedRef], at: path, allowFailure: true, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !output.isEmpty, !output.contains("fatal:") else {
+            return nil
+        }
+        return output
+    }
+
+    func hasCommitsAhead(of baseRef: String, branch: String, at path: String) throws -> Bool {
+        let output = try runGit(["rev-list", "--count", "\(baseRef)..\(branch)"], at: path, allowFailure: true, allowEmptyOutput: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (Int(output) ?? 0) > 0
+    }
+
+    func currentBranchUpstream(at path: String) throws -> String? {
+        let upstream = try runGit(
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+            at: path,
+            allowFailure: true,
+            allowEmptyOutput: true
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !upstream.isEmpty, !upstream.contains("fatal:") else {
+            return nil
+        }
+        return upstream
+    }
+
     func remoteSyncState(at path: String) throws -> GitRemoteSyncState {
         let upstream = try runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], at: path, allowFailure: true, allowEmptyOutput: true)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -573,8 +969,9 @@ struct GitService {
         guard byteCount <= maxDiffPreviewBytes else {
             throw GitServiceError.commandFailed(
                 String(localized: "git.diff.too_large", defaultValue: "This file is too large to compare safely.", bundle: .module)
-            )
-        }
+        )
+    }
+
         let data = try Data(contentsOf: fileURL)
         guard data.contains(0) == false,
               let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16) else {
@@ -585,8 +982,24 @@ struct GitService {
         return text
     }
 
+    private func workingTreeTextIfPresent(relativePath: String, at path: String) throws -> String {
+        let fileURL = URL(fileURLWithPath: path).appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return ""
+        }
+        return try workingTreeText(relativePath: relativePath, at: path)
+    }
+
     private func gitObjectText(_ object: String, at path: String) throws -> String {
         try runGit(["show", object], at: path, allowEmptyOutput: true)
+    }
+
+    private func gitObjectTextIfPresent(_ object: String, at path: String) throws -> String {
+        let output = try runGit(["show", object], at: path, allowFailure: true, allowEmptyOutput: true)
+        if output.hasPrefix("fatal:") {
+            return ""
+        }
+        return output
     }
 
     private func indexContains(_ filePath: String, at path: String) throws -> Bool {
@@ -743,6 +1156,69 @@ struct GitService {
         return !output.isEmpty && !output.contains("fatal:")
     }
 
+    private func safeRepositoryFileURL(relativePath: String, repositoryPath: String) throws -> URL {
+        let repositoryURL = URL(fileURLWithPath: repositoryPath, isDirectory: true).standardizedFileURL
+        let candidateURL = repositoryURL
+            .appendingPathComponent(relativePath)
+            .standardizedFileURL
+        let repositoryPrefix = repositoryURL.path.hasSuffix("/")
+            ? repositoryURL.path
+            : repositoryURL.path + "/"
+        guard candidateURL.path == repositoryURL.path || candidateURL.path.hasPrefix(repositoryPrefix) else {
+            throw GitServiceError.unsafePath(relativePath)
+        }
+        return candidateURL
+    }
+
+    private func parseWorktreeReviewNumstat(_ output: String) -> [String: (additions: Int?, deletions: Int?)] {
+        var result: [String: (additions: Int?, deletions: Int?)] = [:]
+        for line in output.split(whereSeparator: \.isNewline).map(String.init) {
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count >= 3 else {
+                continue
+            }
+            let path = normalizedWorktreeReviewNumstatPath(fields.dropFirst(2).joined(separator: "\t"))
+            result[path] = (
+                additions: Int(fields[0]),
+                deletions: Int(fields[1])
+            )
+        }
+        return result
+    }
+
+    private func normalizedWorktreeReviewNumstatPath(_ path: String) -> String {
+        if path.contains(" => ") {
+            return path
+                .split(separator: "=>", maxSplits: 1, omittingEmptySubsequences: true)
+                .last
+                .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: " {}")) }
+                ?? path
+        }
+        return path
+    }
+
+    private func worktreeReviewFileStatus(_ rawStatus: String) -> WorktreeReviewFileStatus {
+        guard let code = rawStatus.first else {
+            return .unknown
+        }
+        switch code {
+        case "A":
+            return .added
+        case "M":
+            return .modified
+        case "D":
+            return .deleted
+        case "R":
+            return .renamed
+        case "C":
+            return .copied
+        case "T":
+            return .typeChanged
+        default:
+            return .unknown
+        }
+    }
+
     private func runGit(
         _ arguments: [String],
         at path: String,
@@ -870,6 +1346,7 @@ private enum ParsedStatusEntry {
 enum GitServiceError: LocalizedError {
     case commandFailed(String)
     case authenticationRequired(String)
+    case unsafePath(String)
 
     var errorDescription: String? {
         switch self {
@@ -877,6 +1354,11 @@ enum GitServiceError: LocalizedError {
             return message.trimmingCharacters(in: .whitespacesAndNewlines)
         case .authenticationRequired(let message):
             return message.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .unsafePath(let path):
+            return String(
+                format: String(localized: "git.error.unsafe_path_format", defaultValue: "Refusing to write outside the repository: %@", bundle: .module),
+                path
+            )
         }
     }
 }

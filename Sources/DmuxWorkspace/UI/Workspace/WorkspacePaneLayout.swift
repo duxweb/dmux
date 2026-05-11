@@ -15,13 +15,15 @@ struct TopPaneRowView: View {
     let workspace: ProjectWorkspace
     let activeTerminalSessionID: UUID?
     let showsInactiveOverlay: Bool
+    let isVisible: Bool
 
     var body: some View {
         TopPaneSplitContainer(
             model: model,
             workspace: workspace,
             activeTerminalSessionID: activeTerminalSessionID,
-            showsInactiveOverlay: showsInactiveOverlay
+            showsInactiveOverlay: showsInactiveOverlay,
+            isVisible: isVisible
         )
     }
 }
@@ -31,6 +33,7 @@ struct TopPaneSplitContainer: NSViewControllerRepresentable {
     let workspace: ProjectWorkspace
     let activeTerminalSessionID: UUID?
     let showsInactiveOverlay: Bool
+    let isVisible: Bool
 
     func makeNSViewController(context: Context) -> TopPaneSplitController {
         TopPaneSplitController(
@@ -38,6 +41,7 @@ struct TopPaneSplitContainer: NSViewControllerRepresentable {
             workspace: workspace,
             activeTerminalSessionID: activeTerminalSessionID,
             showsInactiveOverlay: showsInactiveOverlay,
+            isVisible: isVisible,
             dividerColor: model.terminalDividerNSColor
         )
     }
@@ -47,6 +51,7 @@ struct TopPaneSplitContainer: NSViewControllerRepresentable {
             workspace: workspace,
             activeTerminalSessionID: activeTerminalSessionID,
             showsInactiveOverlay: showsInactiveOverlay,
+            isVisible: isVisible,
             dividerColor: model.terminalDividerNSColor
         )
     }
@@ -63,22 +68,27 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
     private var lastRenderedFocusedSessionID: UUID?
     private var showsInactiveOverlay: Bool
     private var lastRenderedShowsInactiveOverlay: Bool
+    private var isVisible: Bool
+    private var lastRenderedIsVisible: Bool
     private var dividerColor: NSColor
     private let minimumPaneWidth: CGFloat = 220
     private var isApplyingLayout = false
     private var hasAppliedInitialRatios = false
-    init(model: AppModel, workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
+    init(model: AppModel, workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, isVisible: Bool, dividerColor: NSColor) {
         self.model = model
         self.currentWorkspace = workspace
         self.activeTerminalSessionID = activeTerminalSessionID
         self.showsInactiveOverlay = showsInactiveOverlay
         self.lastRenderedShowsInactiveOverlay = showsInactiveOverlay
+        self.isVisible = isVisible
+        self.lastRenderedIsVisible = isVisible
         self.dividerColor = dividerColor
         super.init(nibName: nil, bundle: nil)
         paneSplitView.dividerStyle = NSSplitView.DividerStyle.thin
         paneSplitView.isVertical = true
         paneSplitView.delegate = self
         paneSplitView.customDividerColor = dividerColor
+        paneSplitView.isDividerInteractive = isVisible && workspace.topSessionIDs.count > 1
         rebuildPanes(for: workspace)
     }
 
@@ -105,7 +115,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
         applyRatiosIfNeeded()
     }
 
-    func update(workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, dividerColor: NSColor) {
+    func update(workspace: ProjectWorkspace, activeTerminalSessionID: UUID?, showsInactiveOverlay: Bool, isVisible: Bool, dividerColor: NSColor) {
         let shouldResetPaneDistribution = Self.shouldResetTopPaneDistribution(
             from: currentWorkspace,
             to: workspace
@@ -114,8 +124,10 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
         currentWorkspace = workspace
         self.activeTerminalSessionID = activeTerminalSessionID
         self.showsInactiveOverlay = showsInactiveOverlay
+        self.isVisible = isVisible
         self.dividerColor = dividerColor
         paneSplitView.customDividerColor = dividerColor
+        paneSplitView.isDividerInteractive = isVisible && workspace.topSessionIDs.count > 1
         if sessionIDsChanged {
             if shouldResetPaneDistribution {
                 let equal = 1 / CGFloat(max(workspace.topSessionIDs.count, 1))
@@ -201,7 +213,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
         let sessionsByID = Dictionary(uniqueKeysWithValues: workspace.sessions.map { ($0.id, $0) })
         var sessionsToUpdate = Set<UUID>()
 
-        if lastRenderedShowsInactiveOverlay != showsInactiveOverlay {
+        if lastRenderedShowsInactiveOverlay != showsInactiveOverlay || lastRenderedIsVisible != isVisible {
             sessionsToUpdate.formUnion(workspace.topSessionIDs)
         } else {
             sessionsToUpdate.formUnion([lastRenderedFocusedSessionID, activeTerminalSessionID].compactMap { $0 })
@@ -222,6 +234,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
 
         lastRenderedFocusedSessionID = activeTerminalSessionID
         lastRenderedShowsInactiveOverlay = showsInactiveOverlay
+        lastRenderedIsVisible = isVisible
     }
 
     private func makePaneView(session: TerminalSession, sessionID: UUID) -> TerminalPaneView {
@@ -231,7 +244,7 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
             terminalBackgroundPreset: model.terminalBackgroundPreset,
             backgroundColorPreset: model.backgroundColorPreset,
             isFocused: sessionID == activeTerminalSessionID,
-            isVisible: true,
+            isVisible: isVisible,
             showsInactiveOverlay: showsInactiveOverlay,
             onSelect: { self.model.selectSession(sessionID) },
             onClose: { self.model.closeSession(sessionID) },
@@ -268,11 +281,34 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
             currentWorkspace.topSessionIDs != nextWorkspace.topSessionIDs
     }
 
+    static func shouldCommitTopPaneRatios(
+        isApplyingLayout: Bool,
+        hasAppliedInitialRatios: Bool,
+        isUserDraggingDivider: Bool,
+        isVisible: Bool,
+        topSessionCount: Int,
+        selectedWorktreeID: UUID?,
+        currentWorkspaceProjectID: UUID
+    ) -> Bool {
+        !isApplyingLayout &&
+            hasAppliedInitialRatios &&
+            isUserDraggingDivider &&
+            isVisible &&
+            topSessionCount > 1 &&
+            selectedWorktreeID == currentWorkspaceProjectID
+    }
+
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard !isApplyingLayout,
-              hasAppliedInitialRatios,
-              currentSessionIDs.count > 1,
-              model.selectedProjectID == currentWorkspace.projectID else { return }
+        guard Self.shouldCommitTopPaneRatios(
+            isApplyingLayout: isApplyingLayout,
+            hasAppliedInitialRatios: hasAppliedInitialRatios,
+            isUserDraggingDivider: paneSplitView.isTrackingDividerDrag,
+            isVisible: isVisible,
+            topSessionCount: currentSessionIDs.count,
+            selectedWorktreeID: model.selectedWorktreeID,
+            currentWorkspaceProjectID: currentWorkspace.projectID
+        ) else { return }
+
         let widths = paneSplitView.subviews.prefix(currentSessionIDs.count).map { $0.frame.width }
         let total = widths.reduce(0, +)
         guard total > 0 else { return }
@@ -288,6 +324,10 @@ final class TopPaneSplitController: NSViewController, NSSplitViewDelegate {
         let nextFrame = paneSplitView.subviews[dividerIndex + 1].frame
         return nextFrame.maxX - minimumPaneWidth - paneSplitView.dividerThickness
     }
+
+    func splitView(_ splitView: NSSplitView, additionalEffectiveRectOfDividerAt dividerIndex: Int) -> NSRect {
+        splitView.coduxExpandedDividerRect(at: dividerIndex)
+    }
 }
 
 struct BottomTabbedPaneView: View {
@@ -295,8 +335,9 @@ struct BottomTabbedPaneView: View {
     let workspace: ProjectWorkspace
     let activeTerminalSessionID: UUID?
     let showsInactiveOverlay: Bool
+    let isVisible: Bool
 
-    static let statusBarHeight: CGFloat = 40
+    static let statusBarHeight = WorkspaceVerticalSplitMetrics.collapsedBottomHeight
     @State private var draggingBottomTabSessionID: UUID?
     @State private var didReorderBottomTabs = false
 
@@ -388,7 +429,7 @@ struct BottomTabbedPaneView: View {
                     terminalBackgroundPreset: model.terminalBackgroundPreset,
                     backgroundColorPreset: model.backgroundColorPreset,
                     isFocused: selectedBottomSessionID == activeTerminalSessionID,
-                    isVisible: true,
+                    isVisible: isVisible,
                     showsInactiveOverlay: showsInactiveOverlay,
                     onSelect: { model.selectBottomTabSession(selectedBottomSessionID) },
                     onClose: { model.closeSession(selectedBottomSessionID) },
@@ -423,41 +464,81 @@ struct VerticalTerminalSplitView<Top: View, Bottom: View>: NSViewControllerRepre
     let dividerColor: NSColor
     let hasBottomRegion: Bool
     let bottomHeight: CGFloat
+    let isVisible: Bool
     let top: () -> Top
     let bottom: () -> Bottom
 
     func makeNSViewController(context: Context) -> SplitViewController<Top, Bottom> {
-        SplitViewController(model: model, workspace: workspace, dividerColor: dividerColor, hasBottomRegion: hasBottomRegion, bottomHeight: bottomHeight, top: top(), bottom: bottom())
+        SplitViewController(model: model, workspace: workspace, dividerColor: dividerColor, hasBottomRegion: hasBottomRegion, bottomHeight: bottomHeight, isVisible: isVisible, top: top(), bottom: bottom())
     }
 
     func updateNSViewController(_ controller: SplitViewController<Top, Bottom>, context: Context) {
-        controller.update(workspace: workspace, top: top(), bottom: bottom(), dividerColor: dividerColor, hasBottomRegion: hasBottomRegion, bottomHeight: bottomHeight)
+        controller.update(workspace: workspace, top: top(), bottom: bottom(), dividerColor: dividerColor, hasBottomRegion: hasBottomRegion, bottomHeight: bottomHeight, isVisible: isVisible)
     }
 }
 
-final class SplitViewController<Top: View, Bottom: View>: NSViewController, NSSplitViewDelegate {
+enum WorkspaceVerticalSplitMetrics {
+    static let collapsedBottomHeight: CGFloat = 40
+
+    static func minimumDividerCoordinate(totalHeight: CGFloat, hasBottomRegion: Bool, hasBottomTabs: Bool) -> CGFloat {
+        guard hasBottomRegion else { return 0 }
+        guard hasBottomTabs else {
+            return collapsedBottomHeight
+        }
+        return ProjectWorkspace.minimumBottomPaneHeight
+    }
+
+    static func maximumDividerCoordinate(totalHeight: CGFloat, hasBottomRegion: Bool, hasBottomTabs: Bool) -> CGFloat {
+        guard hasBottomRegion else { return 0 }
+        guard hasBottomTabs else {
+            return collapsedBottomHeight
+        }
+        let maximum = max(0, totalHeight - ProjectWorkspace.minimumBottomPaneHeight)
+        let topConstrainedMaximum = max(0, totalHeight - ProjectWorkspace.minimumTopPaneHeight)
+        return max(ProjectWorkspace.minimumBottomPaneHeight, min(maximum, topConstrainedMaximum))
+    }
+
+    static func clampedBottomHeight(requested: CGFloat, totalHeight: CGFloat, hasBottomTabs: Bool) -> CGFloat {
+        guard totalHeight > 0 else {
+            return hasBottomTabs ? ProjectWorkspace.minimumBottomPaneHeight : collapsedBottomHeight
+        }
+        let minimumBottomHeight = hasBottomTabs
+            ? ProjectWorkspace.minimumBottomPaneHeight
+            : collapsedBottomHeight
+        return min(
+            max(requested, minimumBottomHeight),
+            max(minimumBottomHeight, totalHeight - ProjectWorkspace.minimumTopPaneHeight)
+        )
+    }
+
+    static func dividerPosition(forBottomHeight bottomHeight: CGFloat, totalHeight: CGFloat, hasBottomTabs: Bool) -> CGFloat {
+        guard totalHeight > 0 else {
+            return 0
+        }
+        return clampedBottomHeight(requested: bottomHeight, totalHeight: totalHeight, hasBottomTabs: hasBottomTabs)
+    }
+}
+
+final class SplitViewController<Top: View, Bottom: View>: NSViewController {
     private unowned let model: AppModel
-    private let splitView = DividerStyledSplitView()
+    private let splitView = VerticalBottomSplitHostView()
     private let topHosting = NSHostingController(rootView: AnyView(EmptyView()))
     private let bottomHosting = NSHostingController(rootView: AnyView(EmptyView()))
     private var currentWorkspace: ProjectWorkspace
     private var dividerColor: NSColor
     private var hasBottomRegion: Bool
     private var bottomHeight: CGFloat
+    private var isVisible: Bool
     private var isApplyingLayout = false
     private var hasCommittedInitialBottomLayout = false
-    private let minimumTopHeight: CGFloat = 220
-    private let bottomStatusBarHeight = BottomTabbedPaneView.statusBarHeight
-    init(model: AppModel, workspace: ProjectWorkspace, dividerColor: NSColor, hasBottomRegion: Bool, bottomHeight: CGFloat, top: Top, bottom: Bottom) {
+    init(model: AppModel, workspace: ProjectWorkspace, dividerColor: NSColor, hasBottomRegion: Bool, bottomHeight: CGFloat, isVisible: Bool, top: Top, bottom: Bottom) {
         self.model = model
         self.currentWorkspace = workspace
         self.dividerColor = dividerColor
         self.hasBottomRegion = hasBottomRegion
         self.bottomHeight = bottomHeight
+        self.isVisible = isVisible
         super.init(nibName: nil, bundle: nil)
-        splitView.dividerStyle = .thin
-        splitView.isVertical = false
-        splitView.delegate = self
         splitView.customDividerColor = dividerColor
         topHosting.rootView = AnyView(top)
         bottomHosting.rootView = AnyView(bottom)
@@ -469,27 +550,28 @@ final class SplitViewController<Top: View, Bottom: View>: NSViewController, NSSp
     }
 
     override func loadView() {
-        view = NSView()
-        splitView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(splitView)
-
-        NSLayoutConstraint.activate([
-            splitView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            splitView.topAnchor.constraint(equalTo: view.topAnchor),
-            splitView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        let topItem = NSSplitViewItem(viewController: topHosting)
-        let bottomItem = NSSplitViewItem(viewController: bottomHosting)
+        view = splitView
         addChild(topHosting)
         addChild(bottomHosting)
-        splitView.addArrangedSubview(topHosting.view)
-        splitView.addArrangedSubview(bottomHosting.view)
-        topHosting.view.translatesAutoresizingMaskIntoConstraints = false
-        bottomHosting.view.translatesAutoresizingMaskIntoConstraints = false
-        topItem.minimumThickness = 220
-        bottomItem.minimumThickness = 0
+        splitView.install(topView: topHosting.view, bottomView: bottomHosting.view)
+        splitView.onBottomHeightChanged = { [weak self] height, availableHeight in
+            guard let self else {
+                return
+            }
+            self.bottomHeight = height
+            guard !self.isApplyingLayout,
+                  self.isVisible,
+                  self.hasBottomRegion,
+                  self.currentWorkspace.hasBottomTabs,
+                  self.hasCommittedInitialBottomLayout else {
+                return
+            }
+            self.model.updateBottomPaneHeight(
+                height,
+                for: self.currentWorkspace.projectID,
+                availableHeight: availableHeight
+            )
+        }
     }
 
     override func viewDidLayout() {
@@ -497,13 +579,14 @@ final class SplitViewController<Top: View, Bottom: View>: NSViewController, NSSp
         applyBottomHeightIfNeeded()
     }
 
-    func update(workspace: ProjectWorkspace, top: Top, bottom: Bottom, dividerColor: NSColor, hasBottomRegion: Bool, bottomHeight: CGFloat) {
+    func update(workspace: ProjectWorkspace, top: Top, bottom: Bottom, dividerColor: NSColor, hasBottomRegion: Bool, bottomHeight: CGFloat, isVisible: Bool) {
         if currentWorkspace.projectID != workspace.projectID {
             hasCommittedInitialBottomLayout = false
         }
         currentWorkspace = workspace
         self.dividerColor = dividerColor
         self.hasBottomRegion = hasBottomRegion
+        self.isVisible = isVisible
         topHosting.rootView = AnyView(top)
         bottomHosting.rootView = AnyView(bottom)
         splitView.customDividerColor = dividerColor
@@ -517,73 +600,273 @@ final class SplitViewController<Top: View, Bottom: View>: NSViewController, NSSp
         isApplyingLayout = true
         defer { isApplyingLayout = false }
 
-        splitView.customDividerColor = hasBottomRegion ? dividerColor : .clear
-        bottomHosting.view.alphaValue = hasBottomRegion ? 1 : 0
-
-        if !hasBottomRegion {
-            hasCommittedInitialBottomLayout = false
-            splitView.setPosition(splitView.bounds.height, ofDividerAt: 0)
-            splitView.adjustSubviews()
-            return
-        }
-
-        let totalHeight = splitView.bounds.height
-        let requestedMinimumBottomHeight = currentWorkspace.hasBottomTabs ? ProjectWorkspace.minimumBottomPaneHeight : bottomStatusBarHeight
-        let clampedBottomHeight = min(
-            max(bottomHeight, requestedMinimumBottomHeight),
-            max(requestedMinimumBottomHeight, totalHeight - minimumTopHeight)
+        splitView.isDividerInteractive = isVisible && hasBottomRegion && currentWorkspace.hasBottomTabs
+        splitView.configure(
+            hasBottomRegion: hasBottomRegion,
+            hasBottomTabs: currentWorkspace.hasBottomTabs,
+            bottomHeight: bottomHeight,
+            dividerColor: hasBottomRegion ? dividerColor : .clear
         )
-        let dividerPosition = max(minimumTopHeight, totalHeight - clampedBottomHeight)
-        splitView.setPosition(dividerPosition, ofDividerAt: 0)
-        splitView.adjustSubviews()
-        hasCommittedInitialBottomLayout = true
-    }
-
-    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        guard hasBottomRegion else { return splitView.bounds.height }
-        guard currentWorkspace.hasBottomTabs else {
-            return splitView.bounds.height - bottomStatusBarHeight
-        }
-        return minimumTopHeight
-    }
-
-    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        guard hasBottomRegion else { return splitView.bounds.height }
-        guard currentWorkspace.hasBottomTabs else {
-            return splitView.bounds.height - bottomStatusBarHeight
-        }
-        let requestedMinimumBottomHeight = currentWorkspace.hasBottomTabs ? ProjectWorkspace.minimumBottomPaneHeight : bottomStatusBarHeight
-        return splitView.bounds.height - requestedMinimumBottomHeight
-    }
-
-    func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard !isApplyingLayout,
-              hasBottomRegion,
-              currentWorkspace.hasBottomTabs,
-              hasCommittedInitialBottomLayout,
-              model.selectedProjectID == currentWorkspace.projectID,
-              splitView.bounds.height > 0 else { return }
-        let newBottomHeight = bottomHosting.view.frame.height
-        guard newBottomHeight > 0 else { return }
-        model.updateBottomPaneHeight(newBottomHeight, for: currentWorkspace.projectID, availableHeight: splitView.bounds.height)
+        hasCommittedInitialBottomLayout = hasBottomRegion
     }
 
 }
 
-private final class DividerStyledSplitView: NSSplitView {
-    var customDividerColor: NSColor = .separatorColor
+private final class VerticalBottomSplitHostView: NSView, CoduxSplitDividerHitRegionProviding {
+    var customDividerColor: NSColor = .separatorColor {
+        didSet {
+            guard oldValue.isEqual(customDividerColor) == false else {
+                return
+            }
+            dividerHandleView.dividerColor = customDividerColor
+        }
+    }
+    var isDividerInteractive = true {
+        didSet {
+            guard oldValue != isDividerInteractive else {
+                return
+            }
+            dividerHandleView.isInteractive = isDividerInteractive
+        }
+    }
+    var onBottomHeightChanged: ((CGFloat, CGFloat) -> Void)?
 
-    override var dividerColor: NSColor {
-        customDividerColor
+    private let dividerHandleView = VerticalBottomSplitDividerHandleView()
+    private weak var topView: NSView?
+    private weak var bottomView: NSView?
+    private var hasBottomRegion = true
+    private var hasBottomTabs = false
+    private var targetBottomHeight = ProjectWorkspace.defaultBottomPaneHeight
+    private let dividerHandleHeight: CGFloat = 24
+    private let dividerLineHeight: CGFloat = 1
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        dividerHandleView.dividerColor = customDividerColor
+        dividerHandleView.onDrag = { [weak self] boundaryY in
+            self?.setBottomHeightFromDrag(boundaryY)
+        }
     }
 
-    override var dividerThickness: CGFloat {
-        1
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    override func drawDivider(in rect: NSRect) {
-        customDividerColor.setFill()
-        rect.fill()
+    func install(topView: NSView, bottomView: NSView) {
+        self.topView = topView
+        self.bottomView = bottomView
+        topView.translatesAutoresizingMaskIntoConstraints = true
+        bottomView.translatesAutoresizingMaskIntoConstraints = true
+        topView.autoresizingMask = []
+        bottomView.autoresizingMask = []
+        topView.wantsLayer = true
+        bottomView.wantsLayer = true
+        topView.layer?.masksToBounds = true
+        bottomView.layer?.masksToBounds = true
+        addSubview(topView)
+        addSubview(bottomView)
+        addSubview(dividerHandleView)
+    }
+
+    func configure(hasBottomRegion: Bool, hasBottomTabs: Bool, bottomHeight: CGFloat, dividerColor: NSColor) {
+        var shouldRelayout = false
+        if self.hasBottomRegion != hasBottomRegion {
+            self.hasBottomRegion = hasBottomRegion
+            shouldRelayout = true
+        }
+        if self.hasBottomTabs != hasBottomTabs {
+            self.hasBottomTabs = hasBottomTabs
+            shouldRelayout = true
+        }
+        customDividerColor = dividerColor
+        dividerHandleView.isInteractive = isDividerInteractive && hasBottomRegion && hasBottomTabs
+        if abs(targetBottomHeight - bottomHeight) > 0.5 {
+            targetBottomHeight = bottomHeight
+            shouldRelayout = true
+        }
+        if shouldRelayout {
+            needsLayout = true
+        }
+    }
+
+    func coduxSplitDividerHitRegions() -> [CoduxSplitDividerHitRegion] {
+        guard hasBottomRegion,
+              hasBottomTabs,
+              dividerHandleView.isHidden == false else {
+            return []
+        }
+        return [
+            CoduxSplitDividerHitRegion(
+                rect: dividerHandleView.frame,
+                cursor: .resizeUpDown,
+                targetView: dividerHandleView
+            ),
+        ]
+    }
+
+    override func layout() {
+        super.layout()
+        layoutHostedViews()
+    }
+
+    private func layoutHostedViews() {
+        guard let topView, let bottomView else {
+            return
+        }
+
+        let totalHeight = bounds.height
+        let bottomHeight = resolvedBottomHeight(forTotalHeight: totalHeight)
+
+        if !hasBottomRegion {
+            bottomView.alphaValue = 0
+            bottomView.frame = NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 0)
+            dividerHandleView.isHidden = true
+            topView.frame = bounds
+            return
+        }
+
+        bottomView.alphaValue = 1
+        dividerHandleView.isHidden = false
+        bottomView.frame = NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bottomHeight)
+
+        let topY = bottomHeight + dividerLineHeight
+        let topHeight = max(0, totalHeight - topY)
+        topView.frame = NSRect(x: bounds.minX, y: topY, width: bounds.width, height: topHeight)
+
+        let dividerFrame = NSRect(
+            x: bounds.minX,
+            y: max(bounds.minY, bottomHeight - dividerHandleHeight / 2),
+            width: bounds.width,
+            height: dividerHandleHeight
+        )
+        if dividerHandleView.frame != dividerFrame {
+            dividerHandleView.frame = dividerFrame
+            window?.invalidateCursorRects(for: dividerHandleView)
+        }
+    }
+
+    private func setBottomHeightFromDrag(_ boundaryY: CGFloat) {
+        guard hasBottomRegion, hasBottomTabs, bounds.height > 0 else {
+            return
+        }
+        let clamped = WorkspaceVerticalSplitMetrics.clampedBottomHeight(
+            requested: boundaryY,
+            totalHeight: bounds.height,
+            hasBottomTabs: true
+        )
+        targetBottomHeight = clamped
+        layoutHostedViews()
+        needsLayout = true
+        onBottomHeightChanged?(clamped, bounds.height)
+    }
+
+    private func resolvedBottomHeight(forTotalHeight totalHeight: CGFloat) -> CGFloat {
+        guard hasBottomRegion else {
+            return 0
+        }
+        let requestedHeight = hasBottomTabs ? targetBottomHeight : WorkspaceVerticalSplitMetrics.collapsedBottomHeight
+        return WorkspaceVerticalSplitMetrics.clampedBottomHeight(
+            requested: requestedHeight,
+            totalHeight: totalHeight,
+            hasBottomTabs: hasBottomTabs
+        )
+    }
+}
+
+private final class VerticalBottomSplitDividerHandleView: NSView {
+    var dividerColor: NSColor = .separatorColor {
+        didSet {
+            guard oldValue.isEqual(dividerColor) == false else {
+                return
+            }
+            needsDisplay = true
+        }
+    }
+    var isInteractive = true {
+        didSet {
+            guard oldValue != isInteractive else {
+                return
+            }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+    var onDrag: ((CGFloat) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard isInteractive, bounds.contains(point) else {
+            return nil
+        }
+        return self
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if isInteractive {
+            addCursorRect(bounds, cursor: .resizeUpDown)
+        }
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if isInteractive {
+            NSCursor.resizeUpDown.set()
+            return
+        }
+        super.cursorUpdate(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        if isInteractive {
+            NSCursor.resizeUpDown.set()
+            return
+        }
+        super.mouseMoved(with: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isInteractive else {
+            return
+        }
+        NSCursor.resizeUpDown.set()
+        updateHeight(with: event)
+        while let nextEvent = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if nextEvent.type == .leftMouseUp {
+                break
+            }
+            NSCursor.resizeUpDown.set()
+            updateHeight(with: nextEvent)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        dividerColor.setFill()
+        NSRect(x: bounds.minX, y: bounds.midY - 0.5, width: bounds.width, height: 1).fill()
+    }
+
+    private func updateHeight(with event: NSEvent) {
+        guard let superview else {
+            return
+        }
+        let point = superview.convert(event.locationInWindow, from: nil)
+        onDrag?(point.y)
     }
 }
 

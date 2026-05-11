@@ -173,6 +173,7 @@ extension AppModel {
             reason: "select-project"
         )
         updateSelectedProjectID(projectID, source: "selectProject")
+        selectPreferredWorktree(for: projectID)
         clearTerminalFocusOutsideSelectedProject()
         restoreSelectedTerminalFocusIfNeeded()
         DispatchQueue.main.async { [weak self] in
@@ -187,6 +188,46 @@ extension AppModel {
         refreshGitState()
         updateGitRemoteSyncPolling()
         refreshAIStatsIfNeeded()
+    }
+
+    func selectWorktree(_ worktreeID: UUID) {
+        guard let worktree = worktrees.first(where: { $0.id == worktreeID }) else {
+            statusMessage = String(localized: "worktree.not_found", defaultValue: "Worktree not found.", bundle: .module)
+            return
+        }
+        if selectedProjectID != worktree.projectID {
+            updateSelectedProjectID(worktree.projectID, source: "selectWorktree.project")
+        }
+        selectedWorktreeID = worktreeID
+        let isReviewMode = workspacePrimaryViewModeByWorktreeID[worktreeID] == .review
+        if isReviewMode {
+            let shouldResetReviewFile = selectedWorktreeReviewID != worktreeID
+            selectedWorktreeReviewID = worktreeID
+            if shouldResetReviewFile {
+                selectedWorktreeReviewFileID = nil
+            }
+            refreshWorktreeReview()
+        }
+        clearTerminalFocusOutsideSelectedProject()
+        if isReviewMode {
+            DmuxTerminalBackend.shared.registry.clearFocusedSession()
+        } else {
+            restoreSelectedTerminalFocusIfNeeded()
+        }
+        restoreCachedGitPanelIfAvailable(for: worktreeID)
+        persist()
+        refreshGitState()
+        updateGitRemoteSyncPolling()
+        refreshAIStatsIfNeeded()
+    }
+
+    func selectPreferredWorktree(for projectID: UUID) {
+        if let selectedWorktreeID,
+           worktrees.contains(where: { $0.id == selectedWorktreeID && $0.projectID == projectID }) {
+            return
+        }
+        selectedWorktreeID = worktrees.first(where: { $0.projectID == projectID && $0.isDefault })?.id
+            ?? worktrees.first(where: { $0.projectID == projectID })?.id
     }
 
     func selectProject(atSidebarIndex index: Int) {
@@ -219,8 +260,12 @@ extension AppModel {
         }
 
         projects = updatedProjects
-        workspaces = projects.compactMap { project in
-            workspaces.first(where: { $0.projectID == project.id })
+        let orderedWorkspaceIDs = projects.flatMap { project -> [UUID] in
+            let worktreeIDs = worktrees.filter { $0.projectID == project.id }.map(\.id)
+            return worktreeIDs.isEmpty ? [project.id] : worktreeIDs
+        }
+        workspaces = orderedWorkspaceIDs.compactMap { workspaceID in
+            workspaces.first(where: { $0.projectID == workspaceID })
         }
         if persists {
             persistProjectOrder()
@@ -297,7 +342,10 @@ extension AppModel {
     }
 
     func openProject(_ projectID: UUID, in application: ProjectOpenApplication) {
-        guard let project = projects.first(where: { $0.id == projectID }) else {
+        let project = selectedProjectID == projectID
+            ? selectedProject
+            : projects.first(where: { $0.id == projectID })
+        guard let project else {
             statusMessage = String(localized: "project.not_found", defaultValue: "Project not found.", bundle: .module)
             return
         }
@@ -461,14 +509,23 @@ extension AppModel {
             updatedProjects[index] = updatedProject
             self.projects = updatedProjects
 
-            if let workspaceIndex = self.workspaces.firstIndex(where: { $0.projectID == projectID }) {
-                var updatedWorkspaces = self.workspaces
-                for sessionIndex in updatedWorkspaces[workspaceIndex].sessions.indices {
-                    updatedWorkspaces[workspaceIndex].sessions[sessionIndex].projectName = updatedProject.name
-                    updatedWorkspaces[workspaceIndex].sessions[sessionIndex].cwd = updatedProject.path
-                }
-                self.workspaces = updatedWorkspaces
+            if let worktreeIndex = self.worktrees.firstIndex(where: { $0.projectID == projectID && $0.isDefault }) {
+                self.worktrees[worktreeIndex].path = updatedProject.path
+                self.worktrees[worktreeIndex].updatedAt = Date()
             }
+            var updatedWorkspaces = self.workspaces
+            for workspaceIndex in updatedWorkspaces.indices {
+                guard let worktree = self.worktrees.first(where: { $0.id == updatedWorkspaces[workspaceIndex].projectID && $0.projectID == projectID }) else {
+                    continue
+                }
+                let effectiveName = worktree.isDefault ? updatedProject.name : "\(updatedProject.name) · \(worktree.name)"
+                for sessionIndex in updatedWorkspaces[workspaceIndex].sessions.indices {
+                    updatedWorkspaces[workspaceIndex].sessions[sessionIndex].projectName = effectiveName
+                    updatedWorkspaces[workspaceIndex].sessions[sessionIndex].cwd = worktree.path
+                    updatedWorkspaces[workspaceIndex].sessions[sessionIndex].shell = updatedProject.shell
+                }
+            }
+            self.workspaces = updatedWorkspaces
 
             self.statusMessage = String(
                 format: String(localized: "project.update.success_format", defaultValue: "Updated project %@.", bundle: .module),
@@ -477,7 +534,7 @@ extension AppModel {
             self.persist()
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            if let data = try? encoder.encode(AppSnapshot(projects: self.projects, workspaces: self.workspaces, selectedProjectID: self.selectedProjectID, appSettings: self.appSettings, taskMemos: self.taskMemos, sshProfiles: self.sshProfiles)),
+            if let data = try? encoder.encode(AppSnapshot(projects: self.projects, worktrees: self.worktrees, worktreeTasks: self.worktreeTasks, workspaces: self.workspaces, selectedProjectID: self.selectedProjectID, selectedWorktreeID: self.selectedWorktreeID, workspaceContentStates: self.workspaceContentStatesSnapshot(), appSettings: self.appSettings, taskMemos: self.taskMemos, sshProfiles: self.sshProfiles)),
                let encoded = String(data: data, encoding: .utf8) {
                 appendProjectEditLog("[PersistSnapshot] \(encoded)")
             }
@@ -509,9 +566,20 @@ extension AppModel {
             guard let self, result == .primary else { return }
             self.petStore.forgetProjectBaseline(projectID)
             self.projects.removeAll { $0.id == projectID }
-            self.workspaces.removeAll { $0.projectID == projectID }
+            let removedWorktreeIDs = Set(self.worktrees.filter { $0.projectID == projectID }.map(\.id))
+            self.worktrees.removeAll { $0.projectID == projectID }
+            self.workspaces.removeAll { removedWorktreeIDs.contains($0.projectID) }
+            self.workspaceFileTabsByWorktreeID = self.workspaceFileTabsByWorktreeID.filter { !removedWorktreeIDs.contains($0.key) }
+            self.selectedWorkspaceContentByWorktreeID = self.selectedWorkspaceContentByWorktreeID.filter { !removedWorktreeIDs.contains($0.key) }
+            self.workspacePrimaryViewModeByWorktreeID = self.workspacePrimaryViewModeByWorktreeID.filter { !removedWorktreeIDs.contains($0.key) }
+            self.worktreeTasks.removeAll { removedWorktreeIDs.contains($0.worktreeID) }
             if self.selectedProjectID == projectID {
                 self.updateSelectedProjectID(self.projects.first?.id, source: "removeProject")
+                if let nextProjectID = self.selectedProjectID {
+                    self.selectPreferredWorktree(for: nextProjectID)
+                } else {
+                    self.selectedWorktreeID = nil
+                }
             }
             self.statusMessage = String(
                 format: String(localized: "project.remove.success_format", defaultValue: "Removed project %@.", bundle: .module),
@@ -525,14 +593,25 @@ extension AppModel {
     }
 
     func closeCurrentProject() {
-        guard let project = selectedProject else {
+        guard let project = selectedRootProject else {
             return
         }
 
         petStore.forgetProjectBaseline(project.id)
         projects.removeAll { $0.id == project.id }
-        workspaces.removeAll { $0.projectID == project.id }
+        let removedWorktreeIDs = Set(worktrees.filter { $0.projectID == project.id }.map(\.id))
+        worktrees.removeAll { $0.projectID == project.id }
+        workspaces.removeAll { removedWorktreeIDs.contains($0.projectID) }
+        workspaceFileTabsByWorktreeID = workspaceFileTabsByWorktreeID.filter { !removedWorktreeIDs.contains($0.key) }
+        selectedWorkspaceContentByWorktreeID = selectedWorkspaceContentByWorktreeID.filter { !removedWorktreeIDs.contains($0.key) }
+        workspacePrimaryViewModeByWorktreeID = workspacePrimaryViewModeByWorktreeID.filter { !removedWorktreeIDs.contains($0.key) }
+        worktreeTasks.removeAll { removedWorktreeIDs.contains($0.worktreeID) }
         updateSelectedProjectID(projects.first?.id, source: "closeCurrentProject")
+        if let selectedProjectID {
+            selectPreferredWorktree(for: selectedProjectID)
+        } else {
+            selectedWorktreeID = nil
+        }
         statusMessage = String(
             format: String(localized: "project.close.success_format", defaultValue: "Closed project %@.", bundle: .module),
             project.name
@@ -566,8 +645,17 @@ extension AppModel {
             guard let self, result == .primary else { return }
             self.petStore.forgetProjectBaselines(self.projects.map(\.id))
             self.projects.removeAll()
+            self.worktrees.removeAll()
             self.workspaces.removeAll()
+            self.workspaceFileTabsByWorktreeID.removeAll()
+            self.selectedWorkspaceContentByWorktreeID.removeAll()
+            self.workspacePrimaryViewModeByWorktreeID.removeAll()
+            self.worktreeTasks.removeAll()
+            self.selectedWorktreeReviewID = nil
+            self.selectedWorktreeReviewFileID = nil
+            self.worktreeReviewSnapshot = nil
             self.updateSelectedProjectID(nil, source: "closeAllProjects")
+            self.selectedWorktreeID = nil
             self.rightPanel = nil
             self.statusMessage = String(localized: "workspace.close_all_projects.success", defaultValue: "Closed all projects.", bundle: .module)
             self.persist()
@@ -804,6 +892,11 @@ extension AppModel {
         if selectedProjectID == projectID {
             selectedProjectIDChangeSource = "unspecified"
         }
+        if let projectID {
+            selectPreferredWorktree(for: projectID)
+        } else {
+            selectedWorktreeID = nil
+        }
     }
 
     private func openProject(_ project: Project, in application: ProjectOpenApplication) {
@@ -871,7 +964,7 @@ extension AppModel {
         return components.url
     }
 
-    private func importProject(name: String, path: String, badgeText: String, badgeSymbol: String?, badgeColorHex: String) {
+    func importProject(name: String, path: String, badgeText: String, badgeSymbol: String?, badgeColorHex: String) {
         let rawPath = (path as NSString).expandingTildeInPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPath = URL(fileURLWithPath: rawPath).standardizedFileURL.path
         debugLog.log(
@@ -910,6 +1003,7 @@ extension AppModel {
 
         if let existing = projects.first(where: { URL(fileURLWithPath: $0.path).standardizedFileURL.path == normalizedPath }) {
             updateSelectedProjectID(existing.id, source: "importProject.existing")
+            selectPreferredWorktree(for: existing.id)
             statusMessage = String(localized: "project.exists.switched", defaultValue: "Project already exists. Switched to it.", bundle: .module)
             debugLog.log("project-create", "switched-to-existing projectID=\(existing.id.uuidString) path=\(normalizedPath)")
             refreshGitState()
@@ -931,8 +1025,11 @@ extension AppModel {
         )
         debugLog.log("project-create", "project-created id=\(project.id.uuidString) name=\(project.name) path=\(project.path)")
         projects.append(project)
+        let defaultWorktree = ProjectWorktree.defaultWorktree(for: project)
+        worktrees.append(defaultWorktree)
         workspaces.append(ProjectWorkspace.sample(projectID: project.id, path: project.path))
         updateSelectedProjectID(project.id, source: "importProject.created")
+        selectedWorktreeID = defaultWorktree.id
         statusMessage = String(
             format: String(localized: "project.add.success_format", defaultValue: "Added project %@.", bundle: .module),
             project.name

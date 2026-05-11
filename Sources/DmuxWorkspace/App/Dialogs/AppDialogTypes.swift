@@ -31,10 +31,36 @@ struct ProjectEditorDialogState: Equatable {
     var badgeColorHex: String
 }
 
+struct WorktreeTaskDialogState: Equatable {
+    var title: String
+    var message: String
+    var confirmTitle: String
+    var baseBranches: [String]
+    var baseBranch: String
+    var branchName: String
+    var taskTitle: String
+}
+
+struct WorktreeTaskDialogResult: Equatable {
+    var baseBranch: String
+    var branchName: String
+    var taskTitle: String
+}
+
 enum ConfirmDialogResult {
     case primary
     case secondary
     case cancel
+}
+
+struct ConfirmDialogOptionState {
+    var title: String
+    var isOn: Bool = false
+}
+
+struct ConfirmDialogOptionResult {
+    var action: ConfirmDialogResult
+    var isOptionEnabled: Bool
 }
 
 struct ConfirmDialogState {
@@ -46,6 +72,7 @@ struct ConfirmDialogState {
     var primaryTint: Color = AppTheme.focus
     var secondaryTitle: String?
     var cancelTitle: String?
+    var option: ConfirmDialogOptionState? = nil
 }
 
 struct GitCredentialDialogState {
@@ -88,10 +115,24 @@ enum ProjectEditorPanelPresenter {
     }
 }
 
+enum WorktreeTaskPanelPresenter {
+    @MainActor
+    static func present(dialog: WorktreeTaskDialogState, parentWindow: NSWindow, completion: @escaping (WorktreeTaskDialogResult?) -> Void) {
+        let controller = WorktreeTaskPanelController(dialog: dialog)
+        controller.beginSheet(for: parentWindow, completion: completion)
+    }
+}
+
 enum ConfirmDialogPresenter {
     @MainActor
     static func present(dialog: ConfirmDialogState, parentWindow: NSWindow, completion: @escaping (ConfirmDialogResult?) -> Void) {
         let controller = ConfirmDialogController(dialog: dialog)
+        controller.beginSheet(for: parentWindow, completion: completion)
+    }
+
+    @MainActor
+    static func presentWithOption(dialog: ConfirmDialogState, parentWindow: NSWindow, completion: @escaping (ConfirmDialogOptionResult?) -> Void) {
+        let controller = ConfirmDialogOptionController(dialog: dialog)
         controller.beginSheet(for: parentWindow, completion: completion)
     }
 }

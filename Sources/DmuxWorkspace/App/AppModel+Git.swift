@@ -173,6 +173,7 @@ extension AppModel {
             presentation: presentation,
             includesRemoteSync: includesRemoteSync
         )
+        refreshWorktreeGitSummaries()
     }
 
     func initializeGitRepository() {

@@ -4,25 +4,90 @@ import Foundation
 
 extension AppModel {
     func activityPhase(for projectID: UUID) -> ProjectActivityPhase {
-        discardStaleCompletionPresentationIfNeeded(projectID: projectID)
-        let runtimePhase = aiSessionStore.projectPhase(projectID: projectID)
-        let completionPhase = completionPresentationPhase(for: projectID)
-        let resolvedPhase = Self.resolveDisplayedActivityPhase(
-            runtimePhase: runtimePhase,
-            completionPhase: completionPhase
-        )
+        resolvedProjectActivityPhase(projectID: projectID)
+    }
 
-        let source: String
-        if resolvedPhase == runtimePhase {
-            source = "runtime"
-        } else if resolvedPhase == completionPhase, completionPhase != .idle {
-            source = "ui-completion"
-        } else {
-            source = "default"
+    private func activityScopeIDs(for projectID: UUID) -> [UUID] {
+        guard projects.contains(where: { $0.id == projectID }) else {
+            return [projectID]
         }
 
-        logActivityPhaseResolution(projectID: projectID, source: source, phase: resolvedPhase)
-        return resolvedPhase
+        var seen: Set<UUID> = []
+        return ([projectID] + worktrees.filter { $0.projectID == projectID }.map(\.id)).filter { id in
+            seen.insert(id).inserted
+        }
+    }
+
+    private func prioritizedActivityPhase(from phases: [ProjectActivityPhase]) -> ProjectActivityPhase {
+        phases.max { lhs, rhs in
+            lhs.petActivityStatusPriority < rhs.petActivityStatusPriority
+        } ?? .idle
+    }
+
+    private func runtimeActivityPhase(projectID: UUID) -> ProjectActivityPhase {
+        prioritizedActivityPhase(
+            from: activityScopeIDs(for: projectID).map {
+                aiSessionStore.projectPhase(projectID: $0)
+            }
+        )
+    }
+
+    private func activeTaskWorktrees(for projectID: UUID) -> [ProjectWorktree] {
+        worktrees.filter { worktree in
+            worktree.projectID == projectID
+                && !worktree.isDefault
+                && effectiveWorktreeTaskStatus(for: worktree) != .archived
+        }
+    }
+
+    private func isCompletedTaskStatus(_ status: ProjectWorktreeTaskStatus) -> Bool {
+        switch status {
+        case .done, .merged:
+            return true
+        case .todo, .planning, .ready, .running, .waiting, .review, .blocked, .archived:
+            return false
+        }
+    }
+
+    private func allActiveTaskWorktreesCompleted(projectID: UUID) -> Bool {
+        let taskWorktrees = activeTaskWorktrees(for: projectID)
+        guard !taskWorktrees.isEmpty else {
+            return false
+        }
+        return taskWorktrees.allSatisfy { worktree in
+            isCompletedTaskStatus(effectiveWorktreeTaskStatus(for: worktree))
+        }
+    }
+
+    private func completedTaskWorktreeCount(projectID: UUID) -> Int? {
+        guard allActiveTaskWorktreesCompleted(projectID: projectID) else {
+            return nil
+        }
+        return activeTaskWorktrees(for: projectID).count
+    }
+
+    func activityIndicatorCount(for projectID: UUID, phase: ProjectActivityPhase) -> Int? {
+        guard projects.contains(where: { $0.id == projectID }) else {
+            return nil
+        }
+        let scopeIDs = activityScopeIDs(for: projectID)
+        guard scopeIDs.count > 1 else {
+            return nil
+        }
+
+        let count: Int
+        switch phase {
+        case .idle:
+            return nil
+        case .loading, .running, .waitingInput:
+            count = scopeIDs
+                .map { aiSessionStore.projectPhase(projectID: $0) }
+                .filter(\.isActiveAIActivity)
+                .count
+        case .completed:
+            count = completedTaskWorktreeCount(projectID: projectID) ?? 1
+        }
+        return count > 1 ? count : nil
     }
 
     func observeApplicationActivation() {
@@ -239,6 +304,7 @@ extension AppModel {
     func refreshProjectActivity(sendNotifications: Bool) {
         let currentProjects = projects
         runtimeIngressService.importRuntime(projects: currentProjects)
+        syncWorktreeTaskStatusesFromRuntime()
 
         var phases: [UUID: ProjectActivityPhase] = [:]
         let previousPhases = activityByProjectID
@@ -270,12 +336,23 @@ extension AppModel {
 
     func resolvedProjectActivityPhase(projectID: UUID) -> ProjectActivityPhase {
         discardStaleCompletionPresentationIfNeeded(projectID: projectID)
-        let runtimePhase = aiSessionStore.projectPhase(projectID: projectID)
+        let runtimePhase = runtimeActivityPhase(projectID: projectID)
         let completionPhase = completionPresentationPhase(for: projectID)
-        return Self.resolveDisplayedActivityPhase(
+        let resolvedPhase = Self.resolveDisplayedActivityPhase(
             runtimePhase: runtimePhase,
             completionPhase: completionPhase
         )
+
+        let source: String
+        if resolvedPhase == runtimePhase {
+            source = "runtime"
+        } else if resolvedPhase == completionPhase, completionPhase != .idle {
+            source = "ui-completion"
+        } else {
+            source = "default"
+        }
+        logActivityPhaseResolution(projectID: projectID, source: source, phase: resolvedPhase)
+        return resolvedPhase
     }
 
     private func debugActivityDescription(_ phase: ProjectActivityPhase) -> String {
@@ -367,8 +444,9 @@ extension AppModel {
         guard let presentation = activityCacheByProjectID[projectID]?.completionPresentation else {
             return .idle
         }
-        guard presentation.isFreshForPet(now: Date()) else {
-            _ = clearCompletionPresentation(projectID: projectID)
+        if projects.contains(where: { $0.id == projectID }),
+           !activeTaskWorktrees(for: projectID).isEmpty,
+           !allActiveTaskWorktreesCompleted(projectID: projectID) {
             return .idle
         }
 
@@ -402,7 +480,9 @@ extension AppModel {
 
     private func discardStaleCompletionPresentationIfNeeded(projectID: UUID) {
         guard let presentation = activityCacheByProjectID[projectID]?.completionPresentation,
-              let latestActiveStartedAt = aiSessionStore.latestActiveStartedAt(projectID: projectID),
+              let latestActiveStartedAt = activityScopeIDs(for: projectID)
+                .compactMap({ aiSessionStore.latestActiveStartedAt(projectID: $0) })
+                .max(),
               latestActiveStartedAt > presentation.finishedAt else {
             return
         }
@@ -414,10 +494,47 @@ extension AppModel {
     }
 
     private func observedCompletionPhase(projectID: UUID) -> ProjectActivityPhase {
-        if let runtimeCompletion = aiSessionStore.completedPhase(projectID: projectID) {
-            return runtimeCompletion
+        if projects.contains(where: { $0.id == projectID }),
+           !activeTaskWorktrees(for: projectID).isEmpty,
+           !allActiveTaskWorktreesCompleted(projectID: projectID) {
+            return .idle
         }
-        return .idle
+
+        return activityScopeIDs(for: projectID)
+            .compactMap { aiSessionStore.completedPhase(projectID: $0) }
+            .sorted { lhs, rhs in
+                (completionFinishedAt(lhs) ?? .distantPast) > (completionFinishedAt(rhs) ?? .distantPast)
+            }
+            .first ?? .idle
+    }
+
+    private func observedCompletionNotificationToken(
+        projectID: UUID,
+        completionPhase: ProjectActivityPhase
+    ) -> String? {
+        guard case .completed = completionPhase else {
+            return nil
+        }
+
+        return activityScopeIDs(for: projectID)
+            .compactMap { scopeID -> (Date, String)? in
+                guard let phase = aiSessionStore.completedPhase(projectID: scopeID),
+                      case .completed(_, let finishedAt, _) = phase,
+                      let token = aiSessionStore.completedNotificationToken(projectID: scopeID) else {
+                    return nil
+                }
+                return (finishedAt, token)
+            }
+            .sorted { lhs, rhs in lhs.0 > rhs.0 }
+            .first?
+            .1
+    }
+
+    private func completionFinishedAt(_ phase: ProjectActivityPhase) -> Date? {
+        guard case .completed(_, let finishedAt, _) = phase else {
+            return nil
+        }
+        return finishedAt
     }
 
     private func logProjectActivityTransitionIfNeeded(
@@ -457,7 +574,7 @@ extension AppModel {
             return
         }
 
-        let runtimePhase = aiSessionStore.projectPhase(projectID: project.id)
+        let runtimePhase = runtimeActivityPhase(projectID: project.id)
         let runtimeSummary = aiSessionStore.debugSummary(projectID: project.id)
         debugLog.log(
             "app-activation",
@@ -497,6 +614,13 @@ extension AppModel {
         ].joined(separator: "|")
     }
 
+    private func observedWaitingInputContext(projectID: UUID) -> AISessionStore.WaitingInputContext? {
+        activityScopeIDs(for: projectID)
+            .compactMap { aiSessionStore.waitingInputContext(projectID: $0) }
+            .sorted { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+            .first
+    }
+
     private func shouldNotifyForWaitingInput(
         _ context: AISessionStore.WaitingInputContext
     ) -> Bool {
@@ -504,8 +628,8 @@ extension AppModel {
     }
 
     private func handleWaitingInputNotificationIfNeeded(project: Project, phase: ProjectActivityPhase) {
-        guard case .waitingInput(let tool) = phase,
-              let context = aiSessionStore.waitingInputContext(projectID: project.id),
+        guard case .waitingInput = phase,
+              let context = observedWaitingInputContext(projectID: project.id),
               shouldNotifyForWaitingInput(context) else {
             updateActivityCache(projectID: project.id) { cache in
                 cache.lastWaitingInputToken = nil
@@ -513,7 +637,7 @@ extension AppModel {
             return
         }
 
-        let token = waitingInputNotificationToken(tool: tool, context: context)
+        let token = waitingInputNotificationToken(tool: context.tool, context: context)
         guard activityCacheByProjectID[project.id]?.lastWaitingInputToken != token else {
             return
         }
@@ -523,7 +647,7 @@ extension AppModel {
         }
         activityService.notifyNeedsInput(
             projectName: project.name,
-            tool: tool,
+            tool: context.tool,
             notificationType: context.notificationType,
             targetToolName: context.targetToolName,
             message: context.message
@@ -538,7 +662,7 @@ extension AppModel {
             return
         }
 
-        let token = aiSessionStore.completedNotificationToken(projectID: project.id)
+        let token = observedCompletionNotificationToken(projectID: project.id, completionPhase: completionPhase)
             ?? completionActivityToken(tool: tool, finishedAt: finishedAt)
 
         guard activityCacheByProjectID[project.id]?.lastCompletionToken != token else {
@@ -554,7 +678,6 @@ extension AppModel {
                 presentedAt: Date()
             )
         }
-        scheduleCompletionPresentationDismissal(projectID: project.id)
         sendNextQueuedTaskMemoAfterCompletion(projectID: project.id, completionToken: token)
         activityService.notifyCompletion(
             projectName: project.name,
@@ -598,41 +721,9 @@ extension AppModel {
         guard activityCacheByProjectID[projectID]?.completionPresentation != nil else {
             return false
         }
-        pendingCompletionPresentationDismissalTasks[projectID]?.cancel()
-        pendingCompletionPresentationDismissalTasks[projectID] = nil
         updateActivityCache(projectID: projectID) { cache in
             cache.completionPresentation = nil
         }
         return true
-    }
-
-    private func scheduleCompletionPresentationDismissal(projectID: UUID) {
-        pendingCompletionPresentationDismissalTasks[projectID]?.cancel()
-        pendingCompletionPresentationDismissalTasks[projectID] = Task { @MainActor [weak self] in
-            try? await Task.sleep(
-                nanoseconds: UInt64(ProjectActivityPhase.petCompletedActivityStatusDisplayDuration * 1_000_000_000)
-            )
-            guard let self, !Task.isCancelled else {
-                return
-            }
-            self.pendingCompletionPresentationDismissalTasks[projectID] = nil
-            _ = self.dismissCompletionPresentationIfNeeded(
-                projectID: projectID,
-                reason: "completed-expired"
-            )
-        }
-    }
-
-    func cancelCompletionPresentationDismissalTasks() {
-        for task in pendingCompletionPresentationDismissalTasks.values {
-            task.cancel()
-        }
-        pendingCompletionPresentationDismissalTasks.removeAll()
-    }
-}
-
-extension AppModel.ProjectCompletionPresentation {
-    func isFreshForPet(now: Date) -> Bool {
-        now.timeIntervalSince(presentedAt) <= ProjectActivityPhase.petCompletedActivityStatusDisplayDuration
     }
 }

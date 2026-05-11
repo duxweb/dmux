@@ -75,7 +75,7 @@ final class RemoteHostService: ObservableObject {
   private let p2pTransport = RemoteP2PHostTransport()
   private let terminalEnvironmentService = AIRuntimeBridgeService()
   private let maxTerminalBufferCharacters = 2_000_000
-  private let terminalOutputFlushInterval: TimeInterval = 0.016
+  private let terminalOutputFlushInterval: TimeInterval = 0.05
   private let terminalOutputFlushByteLimit = 32 * 1024
   private let terminalOutputCompressionThreshold = 4 * 1024
   private let encoder = JSONEncoder()
@@ -412,6 +412,7 @@ final class RemoteHostService: ObservableObject {
       updateDeviceOnline(
         envelope.deviceID ?? envelope.payload?["deviceId"] as? String, online: false)
       if let deviceID = envelope.deviceID ?? envelope.payload?["deviceId"] as? String {
+        removeTerminalViewer(deviceID: deviceID)
         p2pTransport.close(deviceID: deviceID)
       }
     case "project.list":
@@ -943,9 +944,15 @@ final class RemoteHostService: ObservableObject {
   private func handleLocalTerminalOutput(sessionID: UUID, data: Data) {
     guard let text = String(data: data, encoding: .utf8), text.isEmpty == false else { return }
     let id = sessionID.uuidString
+    pruneInactiveTerminalViewers(sessionID: id)
+    let viewers = terminalViewersBySession[id] ?? []
+    guard viewers.isEmpty == false else {
+      terminalOutputBuffer.removeValue(forKey: id)
+      return
+    }
     appendBuffer(sessionID: id, text: text)
     let bufferCharacters = terminalOutputBuffer[id]?.count ?? 0
-    for deviceID in terminalViewersBySession[id] ?? [] {
+    for deviceID in viewers {
       enqueueTerminalOutput(
         sessionID: id,
         deviceID: deviceID,
@@ -1032,6 +1039,40 @@ final class RemoteHostService: ObservableObject {
   private func registerTerminalViewer(sessionID: String, deviceID: String?) {
     guard let deviceID, deviceID.isEmpty == false else { return }
     terminalViewersBySession[sessionID, default: []].insert(deviceID)
+  }
+
+  private func removeTerminalViewer(deviceID: String) {
+    guard deviceID.isEmpty == false else { return }
+    for sessionID in Array(terminalViewersBySession.keys) {
+      terminalViewersBySession[sessionID]?.remove(deviceID)
+      if terminalViewersBySession[sessionID]?.isEmpty == true {
+        terminalViewersBySession.removeValue(forKey: sessionID)
+        terminalOutputBuffer.removeValue(forKey: sessionID)
+        pendingTerminalOutput.removeValue(forKey: sessionID)?.flushTimer?.invalidate()
+      }
+    }
+  }
+
+  private func pruneInactiveTerminalViewers(sessionID: String) {
+    guard var viewers = terminalViewersBySession[sessionID], viewers.isEmpty == false else {
+      return
+    }
+    viewers = viewers.filter { viewer in
+      if p2pTransport.isOpen(deviceID: viewer) {
+        return true
+      }
+      if let device = snapshot.devices.first(where: { $0.id == viewer }) {
+        return device.online != false
+      }
+      return true
+    }
+    if viewers.isEmpty {
+      terminalViewersBySession.removeValue(forKey: sessionID)
+      terminalOutputBuffer.removeValue(forKey: sessionID)
+      pendingTerminalOutput.removeValue(forKey: sessionID)?.flushTimer?.invalidate()
+    } else {
+      terminalViewersBySession[sessionID] = viewers
+    }
   }
 
   private func shouldAcceptTerminalInput(envelope: RemoteEnvelope, sessionID: UUID) -> Bool {
@@ -1189,10 +1230,12 @@ final class RemoteHostService: ObservableObject {
     if p2pTransport.send(data: data, deviceID: deviceID) {
       return true
     }
-    logger.log(
-      "remote-p2p",
-      "fallback relay terminal data type=\(type) session=\(sessionID ?? "") device=\(deviceID ?? "") reason=p2p-not-open"
-    )
+    if type != "terminal.output" {
+      logger.log(
+        "remote-p2p",
+        "fallback relay terminal data type=\(type) session=\(sessionID ?? "") device=\(deviceID ?? "") reason=p2p-not-open"
+      )
+    }
     send(type: type, deviceID: deviceID, sessionID: sessionID, payload: payload)
     return true
   }
