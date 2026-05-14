@@ -17,9 +17,11 @@ extension AISessionStore {
         aggregationSnapshots(from: terminalSessionsByID.values.filter(\.isLive).map(snapshot(from:)))
     }
 
-    func runtimeTrackedSessions() -> [TerminalSessionState] {
+    private static let runtimeIdleProbeWindow: TimeInterval = 120
+
+    func runtimeTrackedSessions(now: TimeInterval = Date().timeIntervalSince1970) -> [TerminalSessionState] {
         terminalSessionsByID.values
-            .filter { isRuntimeTracked($0) }
+            .filter { isRuntimeTracked($0, now: now) }
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -153,7 +155,7 @@ extension AISessionStore {
         .joined(separator: " | ")
     }
 
-    private func isRuntimeTracked(_ session: TerminalSessionState) -> Bool {
+    private func isRuntimeTracked(_ session: TerminalSessionState, now: TimeInterval) -> Bool {
         guard session.isLive else {
             return false
         }
@@ -162,7 +164,11 @@ extension AISessionStore {
         case .responding, .needsInput:
             return true
         case .idle:
-            return session.wasInterrupted == false
+            guard session.wasInterrupted == false,
+                  session.hasCompletedTurn == false else {
+                return false
+            }
+            return now - session.updatedAt <= Self.runtimeIdleProbeWindow
         }
     }
 

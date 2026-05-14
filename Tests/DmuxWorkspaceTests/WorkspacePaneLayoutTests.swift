@@ -423,6 +423,43 @@ final class WorkspacePaneLayoutTests: XCTestCase {
         XCTAssertEqual(model.worktreeStatusSummary(for: root.id), "1 Running")
     }
 
+    func testDefaultWorktreeUsesLiveRuntimeForMainTaskActivity() {
+        AISessionStore.shared.reset()
+        defer { AISessionStore.shared.reset() }
+
+        let root = makeProject(id: UUID(uuidString: "00000000-0000-0000-0000-000000000311")!, name: "Root")
+        let sessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000312")!
+        let defaultWorktree = ProjectWorktree.defaultWorktree(for: root)
+        let model = AppModel(snapshot: nil, persistenceService: PersistenceService())
+        model.projects = [root]
+        model.worktrees = [defaultWorktree]
+        model.workspaces = [
+            makeWorkspace(projectID: root.id, sessionIDs: [sessionID])
+        ]
+
+        XCTAssertTrue(
+            AISessionStore.shared.apply(
+                AIHookEvent(
+                    kind: .promptSubmitted,
+                    terminalID: sessionID,
+                    terminalInstanceID: "instance-main",
+                    projectID: root.id,
+                    projectName: "Root",
+                    sessionTitle: "Codex",
+                    tool: "codex",
+                    aiSessionID: "codex-main-session",
+                    model: "gpt-5.5",
+                    totalTokens: 10,
+                    updatedAt: 100,
+                    metadata: nil
+                )
+            )
+        )
+
+        XCTAssertEqual(model.effectiveWorktreeTaskStatus(for: defaultWorktree), .running)
+        XCTAssertTrue(model.isWorktreeAIActive(for: defaultWorktree))
+    }
+
     func testProjectActivityAggregatesRunningWorktreeAIAndCountsMultipleActiveTasks() {
         AISessionStore.shared.reset()
         defer { AISessionStore.shared.reset() }

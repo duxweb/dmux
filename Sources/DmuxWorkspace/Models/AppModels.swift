@@ -246,7 +246,6 @@ struct WorktreeReviewSnapshot: Equatable, Sendable {
     var mode: WorktreeReviewMode
     var title: String
     var diffStat: String
-    var diff: String
     var files: [WorktreeReviewFileChange]
     var selectedFileID: String?
     var selectedFileComparison: WorktreeReviewFileComparison?
@@ -259,7 +258,6 @@ struct WorktreeReviewSnapshot: Equatable, Sendable {
             mode: mode,
             title: title,
             diffStat: "",
-            diff: "",
             files: [],
             selectedFileID: nil,
             selectedFileComparison: nil,

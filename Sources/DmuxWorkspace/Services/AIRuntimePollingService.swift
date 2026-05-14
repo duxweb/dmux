@@ -18,19 +18,28 @@ final class AIRuntimePollingService {
     private var transcriptMonitorTimer: Timer?
     private var transcriptMonitorsByTerminalID: [UUID: TranscriptMonitor] = [:]
     private let transcriptMonitorInterval: TimeInterval
+    private let transcriptPollMinimumInterval: TimeInterval
+    private let runningStateRenewalInterval: TimeInterval
+    private let codexIntervalPollMinimumInterval: TimeInterval
 
     init(
         aiSessionStore: AISessionStore = .shared,
         toolDriverFactory: AIToolDriverFactory = .shared,
         notificationCenter: NotificationCenter = .default,
         interval: TimeInterval = 6,
-        transcriptMonitorInterval: TimeInterval = 0.75
+        transcriptMonitorInterval: TimeInterval = 0.75,
+        transcriptPollMinimumInterval: TimeInterval = 5,
+        runningStateRenewalInterval: TimeInterval = 30,
+        codexIntervalPollMinimumInterval: TimeInterval = 60
     ) {
         self.aiSessionStore = aiSessionStore
         self.toolDriverFactory = toolDriverFactory
         self.notificationCenter = notificationCenter
         self.interval = interval
         self.transcriptMonitorInterval = transcriptMonitorInterval
+        self.transcriptPollMinimumInterval = transcriptPollMinimumInterval
+        self.runningStateRenewalInterval = runningStateRenewalInterval
+        self.codexIntervalPollMinimumInterval = codexIntervalPollMinimumInterval
     }
 
     func start() {
@@ -81,15 +90,12 @@ final class AIRuntimePollingService {
 
     func sync(reason: String) {
         let trackedSessions = aiSessionStore.runtimeTrackedSessions()
-        refreshTranscriptMonitors(for: trackedSessions)
         if trackedSessions.isEmpty {
-            timer?.invalidate()
-            timer = nil
-            pendingPollReason = nil
-            logger.log("runtime-refresh", "stop reason=\(reason) tracked=0")
+            stopPolling(reason: reason)
             return
         }
 
+        refreshTranscriptMonitors(for: trackedSessions)
         if timer == nil {
             timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
@@ -102,7 +108,7 @@ final class AIRuntimePollingService {
         schedulePoll(reason: reason)
     }
 
-    private func schedulePoll(reason: String) {
+    private func schedulePoll(reason: String, terminalIDs: Set<UUID>? = nil) {
         if isPolling {
             pendingPollReason = reason
             return
@@ -110,8 +116,24 @@ final class AIRuntimePollingService {
 
         let now = Date().timeIntervalSince1970
         pruneHookMarkers(now: now)
-        let trackedSessions = aiSessionStore.runtimeTrackedSessions()
-            .filter { shouldPoll(session: $0, now: now) }
+        let allRuntimeSessions = aiSessionStore.runtimeTrackedSessions()
+        guard !allRuntimeSessions.isEmpty else {
+            stopPolling(reason: reason)
+            return
+        }
+
+        let runtimeSessions: [AISessionStore.TerminalSessionState]
+        if let terminalIDs {
+            runtimeSessions = allRuntimeSessions.filter { terminalIDs.contains($0.terminalID) }
+        } else {
+            runtimeSessions = allRuntimeSessions
+        }
+
+        guard !runtimeSessions.isEmpty else {
+            return
+        }
+
+        let trackedSessions = runtimeSessions.filter { shouldPoll(session: $0, reason: reason, now: now) }
         guard !trackedSessions.isEmpty else {
             logger.log("runtime-refresh", "skip reason=\(reason) eligible=0")
             return
@@ -153,7 +175,7 @@ final class AIRuntimePollingService {
                 continue
             }
             var observedSnapshot = snapshot
-            if observedSnapshot.responseState == .responding {
+            if shouldRenewRunningState(terminalID: terminalID, snapshot: observedSnapshot, now: now) {
                 observedSnapshot.updatedAt = max(observedSnapshot.updatedAt, now)
             }
             didChange = aiSessionStore.applyRuntimeSnapshot(
@@ -164,6 +186,19 @@ final class AIRuntimePollingService {
 
         if didChange {
             logger.log("runtime-refresh", "apply reason=\(reason) updates=\(updates.count)")
+        }
+
+        isPolling = false
+        pruneHookMarkers(now: now)
+
+        let trackedSessions = aiSessionStore.runtimeTrackedSessions()
+        if trackedSessions.isEmpty {
+            stopPolling(reason: reason)
+        } else {
+            refreshTranscriptMonitors(for: trackedSessions)
+        }
+
+        if didChange {
             notificationCenter.post(
                 name: .dmuxAIRuntimeBridgeDidChange,
                 object: nil,
@@ -171,27 +206,34 @@ final class AIRuntimePollingService {
             )
         }
 
-        isPolling = false
         if let pendingPollReason {
             self.pendingPollReason = nil
             schedulePoll(reason: pendingPollReason)
         }
-
-        pruneHookMarkers(now: now)
-        refreshTranscriptMonitors(for: aiSessionStore.runtimeTrackedSessions())
     }
 
     private func shouldPoll(
         session: AISessionStore.TerminalSessionState,
+        reason: String,
         now: TimeInterval
     ) -> Bool {
-        _ = now
+        if shouldUseTranscriptEventsOnly(session: session),
+           reason == "interval",
+           now - session.updatedAt < codexIntervalPollMinimumInterval {
+            return false
+        }
+
         switch session.state {
         case .responding, .needsInput:
             return true
         case .idle:
             return session.hasCompletedTurn == false
         }
+    }
+
+    private func shouldUseTranscriptEventsOnly(session: AISessionStore.TerminalSessionState) -> Bool {
+        canonicalToolName(session.tool) == "codex"
+            && normalizedNonEmptyString(session.transcriptPath) != nil
     }
 
     private func shouldSkipSnapshot(terminalID: UUID, pollStartedAt: TimeInterval, now: TimeInterval) -> Bool {
@@ -202,8 +244,35 @@ final class AIRuntimePollingService {
         return lastHookAppliedAt > pollStartedAt
     }
 
+    private func shouldRenewRunningState(
+        terminalID: UUID,
+        snapshot: AIRuntimeContextSnapshot,
+        now: TimeInterval
+    ) -> Bool {
+        guard snapshot.responseState == .responding,
+              let session = aiSessionStore.session(for: terminalID) else {
+            return false
+        }
+        return now - session.updatedAt >= runningStateRenewalInterval
+    }
+
     private func pruneHookMarkers(now: TimeInterval) {
         lastHookAppliedAtByTerminalID = lastHookAppliedAtByTerminalID.filter { now - $0.value < max(interval * 2, 10) }
+    }
+
+    private func stopPolling(reason: String) {
+        let hadActivePolling = timer != nil
+            || transcriptMonitorTimer != nil
+            || transcriptMonitorsByTerminalID.isEmpty == false
+
+        timer?.invalidate()
+        timer = nil
+        pendingPollReason = nil
+        stopTranscriptMonitor()
+
+        if hadActivePolling {
+            logger.log("runtime-refresh", "stop reason=\(reason) tracked=0")
+        }
     }
 
     private func refreshTranscriptMonitors(for sessions: [AISessionStore.TerminalSessionState]) {
@@ -225,7 +294,8 @@ final class AIRuntimePollingService {
             }
             transcriptMonitorsByTerminalID[session.terminalID] = TranscriptMonitor(
                 path: transcriptPath,
-                signature: transcriptSignature(path: transcriptPath)
+                signature: transcriptSignature(path: transcriptPath),
+                lastPollAt: nil
             )
             logger.log("runtime-refresh", "transcript-monitor start terminal=\(session.terminalID.uuidString) path=\(transcriptPath)")
         }
@@ -248,20 +318,26 @@ final class AIRuntimePollingService {
             return
         }
 
-        var didObserveChange = false
+        let now = Date().timeIntervalSince1970
+        var changedTerminalIDs = Set<UUID>()
         for (terminalID, monitor) in transcriptMonitorsByTerminalID {
             let signature = transcriptSignature(path: monitor.path)
             guard signature != monitor.signature else {
                 continue
             }
+            if let lastPollAt = monitor.lastPollAt,
+               now - lastPollAt < transcriptPollMinimumInterval {
+                continue
+            }
 
             transcriptMonitorsByTerminalID[terminalID]?.signature = signature
-            didObserveChange = true
+            transcriptMonitorsByTerminalID[terminalID]?.lastPollAt = now
+            changedTerminalIDs.insert(terminalID)
             logger.log("runtime-refresh", "transcript-monitor change terminal=\(terminalID.uuidString) path=\(monitor.path)")
         }
 
-        if didObserveChange {
-            sync(reason: "transcript-tail")
+        if changedTerminalIDs.isEmpty == false {
+            schedulePoll(reason: "transcript-tail", terminalIDs: changedTerminalIDs)
         }
     }
 
@@ -294,10 +370,12 @@ final class AIRuntimePollingService {
     private struct TranscriptMonitor {
         var path: String
         var signature: TranscriptSignature?
+        var lastPollAt: TimeInterval?
     }
 
     private struct TranscriptSignature: Equatable {
         var size: Int
         var modifiedAt: TimeInterval
     }
+
 }

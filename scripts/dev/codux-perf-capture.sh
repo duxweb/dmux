@@ -24,8 +24,7 @@ Examples:
   scripts/dev/codux-perf-capture.sh --bundle-id com.duxweb.codux.dev --label dev-current
 
 CPU and child-process samples are scoped to the matched PID. Log deltas come
-from the shared Codux log files, so run only one Codux instance for clean log
-delta comparisons.
+from the matched app profile's log files.
 EOF
 }
 
@@ -116,6 +115,34 @@ find_pid_by_process_path() {
   '
 }
 
+app_support_name_for_bundle_id() {
+  local id="$1"
+  case "${id}" in
+    com.duxweb.codux.dev)
+      print -- "Codux-dev"
+      ;;
+    com.duxweb.codux.debug)
+      print -- "Codux-debug"
+      ;;
+    *)
+      print -- "Codux"
+      ;;
+  esac
+}
+
+app_support_name_for_process_path() {
+  local path="$1"
+  if [[ "${path}" == *"/Codux-dev.app/"* ]]; then
+    print -- "Codux-dev"
+    return
+  fi
+  if [[ "${path}" == *"/Codux-debug.app/"* ]]; then
+    print -- "Codux-debug"
+    return
+  fi
+  print -- "Codux"
+}
+
 pid=""
 if [[ -n "${process_path}" ]]; then
   pid="$(find_pid_by_process_path "${process_path}")"
@@ -134,8 +161,14 @@ safe_label="$(print -r -- "${label}" | /usr/bin/tr -cs '[:alnum:]._-+' '-')"
 out_dir="${TMPDIR:-/tmp}/codux-perf-${safe_label}-${timestamp}"
 /bin/mkdir -p "${out_dir}"
 
-runtime_log="${HOME}/Library/Application Support/Codux/logs/runtime.log"
-live_log="${HOME}/Library/Application Support/Codux/logs/live.log"
+if [[ -n "${process_path}" ]]; then
+  app_support_name="$(app_support_name_for_process_path "${process_path}")"
+else
+  app_support_name="$(app_support_name_for_bundle_id "${bundle_id}")"
+fi
+logs_dir="${HOME}/Library/Application Support/${app_support_name}/logs"
+runtime_log="${logs_dir}/runtime.log"
+live_log="${logs_dir}/live.log"
 summary_file="${out_dir}/summary.txt"
 samples_file="${out_dir}/process-samples.tsv"
 children_file="${out_dir}/child-process-samples.tsv"
@@ -193,7 +226,7 @@ ai_runtime_start="$(pattern_count "${live_log}" "[ai-session-store] source=Codux
   print -- "started_at=$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
   print -- "duration=${duration}"
   print -- "interval=${interval}"
-  print -- "log_delta_scope=shared_codux_log_files"
+  print -- "log_delta_scope=${app_support_name}"
   print -- "runtime_log=${runtime_log}"
   print -- "live_log=${live_log}"
 } > "${summary_file}"

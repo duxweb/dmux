@@ -196,6 +196,9 @@ private final class AppDebugLogBackend: @unchecked Sendable {
                 && message.contains(" state=responding ") {
                 return false
             }
+            if message.hasPrefix("runtime terminal=") {
+                break
+            }
             return true
         case "pet-refresh":
             return message.hasPrefix("reason=bootstrap")
@@ -238,6 +241,11 @@ private final class AppDebugLogBackend: @unchecked Sendable {
                 return 15
             }
             if message.hasPrefix("live session=") {
+                return 10
+            }
+            return nil
+        case "ai-session-store":
+            if message.hasPrefix("runtime terminal=") {
                 return 10
             }
             return nil

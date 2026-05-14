@@ -558,7 +558,6 @@ extension AppModel {
         Task.detached(priority: .utility) {
             let service = GitService()
             let diffStat = (try? service.diffStat(from: baseBranch, to: worktree.branch, at: worktree.path)) ?? ""
-            let diff = (try? service.diffText(from: baseBranch, to: worktree.branch, at: worktree.path)) ?? ""
             let files = (try? service.worktreeReviewFiles(from: baseBranch, at: worktree.path)) ?? []
             let selectedFileID = requestedFileID.flatMap { requested in
                 files.contains(where: { $0.id == requested }) ? requested : nil
@@ -588,7 +587,6 @@ extension AppModel {
                     mode: .taskBranch,
                     title: title,
                     diffStat: diffStat,
-                    diff: diff,
                     files: files,
                     selectedFileID: selectedFileID,
                     selectedFileComparison: comparison,
@@ -607,7 +605,6 @@ extension AppModel {
         Task.detached(priority: .utility) {
             let service = GitService()
             let diffStat = (try? service.workingTreeAuditDiffStat(at: worktree.path)) ?? ""
-            let diff = (try? service.workingTreeAuditDiffText(at: worktree.path)) ?? ""
             let files = (try? service.workingTreeAuditFiles(at: worktree.path)) ?? []
             let selectedFileID = requestedFileID.flatMap { requested in
                 files.contains(where: { $0.id == requested }) ? requested : nil
@@ -633,7 +630,6 @@ extension AppModel {
                     mode: .workingTreeAudit,
                     title: title,
                     diffStat: diffStat,
-                    diff: diff,
                     files: files,
                     selectedFileID: selectedFileID,
                     selectedFileComparison: comparison,

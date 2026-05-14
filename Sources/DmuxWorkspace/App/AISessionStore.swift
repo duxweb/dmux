@@ -617,9 +617,6 @@ final class AISessionStore {
             if let normalizedModel {
                 session.model = normalizedModel
             }
-            if let assistantPreview = sanitizedAssistantPreview(snapshot.assistantPreview) {
-                session.latestAssistantPreview = assistantPreview
-            }
             if shouldIgnoreRuntimeSnapshot(session: session, snapshot: snapshot) {
                 logger.log(
                     "ai-session-store",
@@ -644,6 +641,15 @@ final class AISessionStore {
             session.committedTotalTokens = max(session.committedTotalTokens, snapshot.totalTokens)
             if observedActiveTokenGrowth {
                 session.updatedAt = max(session.updatedAt, Date().timeIntervalSince1970)
+            }
+            if let assistantPreview = sanitizedAssistantPreview(snapshot.assistantPreview),
+               shouldApplyRuntimeAssistantPreview(
+                   snapshot: snapshot,
+                   previousState: previousState,
+                   nextState: session,
+                   observedActiveTokenGrowth: observedActiveTokenGrowth
+               ) {
+                session.latestAssistantPreview = assistantPreview
             }
 
             terminalSessionsByID[targetTerminalID] = session
@@ -880,6 +886,21 @@ final class AISessionStore {
             session.interactionMessage = nil
             session.latestAssistantPreview = nil
         }
+    }
+
+    private func shouldApplyRuntimeAssistantPreview(
+        snapshot: AIRuntimeContextSnapshot,
+        previousState: TerminalSessionState,
+        nextState: TerminalSessionState,
+        observedActiveTokenGrowth: Bool
+    ) -> Bool {
+        if snapshot.wasInterrupted || snapshot.hasCompletedTurn {
+            return true
+        }
+        if previousState.state != nextState.state {
+            return true
+        }
+        return observedActiveTokenGrowth
     }
 
     private func resolveBaselineIfNeeded(

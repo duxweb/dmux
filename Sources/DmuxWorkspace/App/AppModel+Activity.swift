@@ -210,7 +210,6 @@ extension AppModel {
                 guard let self else {
                     return
                 }
-                self.refreshProjectActivity(sendNotifications: true)
                 self.scheduleProjectActivityRefresh(sendNotifications: true)
             }
         }
@@ -240,6 +239,14 @@ extension AppModel {
     }
 
     func scheduleMemorySessionSnapshotHandling() {
+        guard appSettings.ai.memory.enabled,
+              appSettings.ai.memory.automaticExtractionEnabled,
+              aiSessionStore.terminalSessionsByID.values.contains(where: { session in
+                  session.state == .idle && session.hasCompletedTurn
+              }) else {
+            return
+        }
+
         pendingMemorySessionSnapshotTask?.cancel()
         pendingMemorySessionSnapshotTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(800))
@@ -303,7 +310,7 @@ extension AppModel {
 
     func refreshProjectActivity(sendNotifications: Bool) {
         let currentProjects = projects
-        runtimeIngressService.importRuntime(projects: currentProjects)
+        runtimeIngressService.updateProjectContext(projects: currentProjects)
         syncWorktreeTaskStatusesFromRuntime()
 
         var phases: [UUID: ProjectActivityPhase] = [:]

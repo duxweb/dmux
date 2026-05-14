@@ -3,8 +3,24 @@ import Foundation
 
 @MainActor
 extension AIStatsStore {
+    private static let titlebarBaseRefreshInterval: TimeInterval = 5
+
     func titlebarTodayLevelTokens() -> Int {
-        clampedAdd(aiUsageStore.globalTodayNormalizedTokens(), titlebarTodayLiveOverlayTokens)
+        clampedAdd(titlebarTodayBaseTokens(), titlebarTodayLiveOverlayTokens)
+    }
+
+    @discardableResult
+    func refreshTitlebarTodayBaseTokens(now: Date = .init()) -> Bool {
+        let calendar = Calendar.autoupdatingCurrent
+        let day = calendar.startOfDay(for: now)
+        let nextValue = aiUsageStore.globalTodayNormalizedTokens(now: now)
+        let didChange = cachedTitlebarTodayBaseDay.map { !calendar.isDate($0, inSameDayAs: day) } ?? true
+            || cachedTitlebarTodayBaseTokens != nextValue
+
+        cachedTitlebarTodayBaseDay = day
+        cachedTitlebarTodayBaseTokens = nextValue
+        cachedTitlebarTodayBaseRefreshedAt = now
+        return didChange
     }
 
     @discardableResult
@@ -15,7 +31,7 @@ extension AIStatsStore {
         let previousTokens = titlebarTodayLiveOverlayTokens
         let previousCachedTokens = titlebarTodayLiveOverlayCachedInputTokens
 
-        let overlay = globalTodayLiveOverlayTotals(indexedSessions: aiUsageStore.indexedSessions(since: nil))
+        let overlay = globalTodayLiveOverlayTotals(indexedSessions: [])
         titlebarTodayLiveOverlayTokens = overlay.tokens
         titlebarTodayLiveOverlayCachedInputTokens = overlay.cachedInputTokens
 
@@ -333,6 +349,20 @@ extension AIStatsStore {
         let base = max(0, lhs)
         let increment = max(0, rhs)
         return increment > Int.max - base ? Int.max : base + increment
+    }
+
+    private func titlebarTodayBaseTokens(now: Date = .init()) -> Int {
+        let calendar = Calendar.autoupdatingCurrent
+        let day = calendar.startOfDay(for: now)
+        if let cachedDay = cachedTitlebarTodayBaseDay,
+           calendar.isDate(cachedDay, inSameDayAs: day),
+           let refreshedAt = cachedTitlebarTodayBaseRefreshedAt,
+           now.timeIntervalSince(refreshedAt) < Self.titlebarBaseRefreshInterval {
+            return cachedTitlebarTodayBaseTokens
+        }
+
+        refreshTitlebarTodayBaseTokens(now: now)
+        return cachedTitlebarTodayBaseTokens
     }
 
     static func computePetStats(from sessions: [AISessionSummary], now: Date = Date()) -> PetStats {

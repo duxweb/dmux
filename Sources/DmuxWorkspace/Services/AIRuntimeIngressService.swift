@@ -41,6 +41,10 @@ final class AIRuntimeIngressService {
 
     func importRuntime(projects: [Project]) {
         ensureSocketListening()
+        updateProjectContext(projects: projects)
+    }
+
+    func updateProjectContext(projects: [Project]) {
         latestProjects = projects
     }
 

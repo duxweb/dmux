@@ -610,25 +610,11 @@ struct GitService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func diffText(from baseRef: String, to branch: String, at path: String) throws -> String {
-        _ = branch
-        return try runGit(["diff", baseRef], at: path, allowFailure: true, allowEmptyOutput: true)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     func workingTreeAuditDiffStat(at path: String) throws -> String {
         guard try hasResolvableHEAD(at: path) else {
             return ""
         }
         return try runGit(["diff", "--stat", "HEAD"], at: path, allowFailure: true, allowEmptyOutput: true)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func workingTreeAuditDiffText(at path: String) throws -> String {
-        guard try hasResolvableHEAD(at: path) else {
-            return ""
-        }
-        return try runGit(["diff", "HEAD"], at: path, allowFailure: true, allowEmptyOutput: true)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

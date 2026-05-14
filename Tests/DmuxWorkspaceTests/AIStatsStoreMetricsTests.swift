@@ -458,6 +458,37 @@ final class AIStatsStoreMetricsTests: XCTestCase {
         XCTAssertEqual(store.titlebarTodayLevelTokens(), 500)
     }
 
+    func testTitlebarTodayLevelTokensCachesHistoricalBaseBetweenExplicitRefreshes() {
+        let aiUsageStore = AIUsageStore(databaseURL: databaseURL)
+        let store = makeStore(aiUsageStore: aiUsageStore)
+        let project = makeProject(name: "Project A", path: "/tmp/project-a")
+        let calendar = Calendar.autoupdatingCurrent
+        let today = calendar.startOfDay(for: Date())
+
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: project,
+                externalSessionID: "before-cache",
+                firstSeenAt: calendar.date(byAdding: .hour, value: 9, to: today) ?? today,
+                totalTokens: 200
+            )
+        )
+        XCTAssertEqual(store.titlebarTodayLevelTokens(), 200)
+
+        aiUsageStore.saveExternalSummary(
+            makeExternalSummary(
+                project: project,
+                externalSessionID: "after-cache",
+                firstSeenAt: calendar.date(byAdding: .hour, value: 10, to: today) ?? today,
+                totalTokens: 300
+            )
+        )
+        XCTAssertEqual(store.titlebarTodayLevelTokens(), 200)
+
+        XCTAssertTrue(store.refreshTitlebarTodayBaseTokens())
+        XCTAssertEqual(store.titlebarTodayLevelTokens(), 500)
+    }
+
     func testTitlebarTodayLevelTokensIsPureReadAfterExplicitLiveOverlayRefresh() {
         let store = makeStore()
         let project = makeProject(name: "Project A", path: "/tmp/project-a")

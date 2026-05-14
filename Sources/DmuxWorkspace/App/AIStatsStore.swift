@@ -57,6 +57,9 @@ final class AIStatsStore {
     var titlebarLiveOverlayCachedInputBaselines: [String: Int] = [:]
     var titlebarTodayLiveOverlayTokens = 0
     var titlebarTodayLiveOverlayCachedInputTokens = 0
+    var cachedTitlebarTodayBaseTokens = 0
+    var cachedTitlebarTodayBaseDay: Date?
+    var cachedTitlebarTodayBaseRefreshedAt: Date?
     var currentProjectID: UUID?
     var currentSelectedSessionID: UUID?
     var currentProjects: [Project] = []

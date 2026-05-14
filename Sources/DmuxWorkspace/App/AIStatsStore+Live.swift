@@ -8,6 +8,18 @@ extension AIStatsStore {
         reason: LiveRefreshReason
     ) {
         let liveContext = liveSnapshotContext(projectID: project.id, selectedSessionID: selectedSessionID)
+        updateCachedLiveState(
+            project: project,
+            liveContext: liveContext,
+            reason: reason
+        )
+    }
+
+    func updateCachedLiveState(
+        project: Project,
+        liveContext: LiveSnapshotContext,
+        reason: LiveRefreshReason? = nil
+    ) {
         let status = projectIndexingStatus(
             projectID: project.id,
             fallback: .completed(detail: String(localized: "ai.indexing.complete", defaultValue: "Index complete.", bundle: .module))
@@ -26,16 +38,18 @@ extension AIStatsStore {
             return
         }
 
-        logger.log(
-            "ai-live-refresh",
-            "project=\(project.id.uuidString) reason=\(reason.rawValue) live=\(nextState.liveSnapshots.count) current=\(nextState.currentSnapshot?.sessionID.uuidString ?? "nil")"
-        )
+        if let reason {
+            logger.log(
+                "ai-live-refresh",
+                "project=\(project.id.uuidString) reason=\(reason.rawValue) live=\(nextState.liveSnapshots.count) current=\(nextState.currentSnapshot?.sessionID.uuidString ?? "nil")"
+            )
+        }
         storeState(nextState, refreshState: .idle, for: project.id, updateCurrent: true)
         syncCurrentAutomaticRefreshFlag()
     }
 
     func ingestRuntime(project: Project, projects: [Project], selectedSessionID: UUID?) -> [AITerminalSessionSnapshot] {
-        runtimeIngressService.importRuntime(projects: projects)
+        runtimeIngressService.updateProjectContext(projects: projects)
         return resolveProjectLiveSnapshots(project: project, selectedSessionID: selectedSessionID)
     }
 

@@ -5,6 +5,22 @@ private let worktreeStatusOrder: [ProjectWorktreeTaskStatus] = [
     .running, .waiting, .ready, .review, .blocked, .done, .merged, .todo, .archived
 ]
 
+private let worktreeActiveIndicatorColor = Color.orange
+
+private struct WorktreeActiveIndicator: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(worktreeActiveIndicatorColor.opacity(0.28), lineWidth: 2)
+                .frame(width: 10, height: 10)
+            Circle()
+                .fill(worktreeActiveIndicatorColor)
+                .frame(width: 6, height: 6)
+        }
+        .frame(width: 12, height: 12)
+    }
+}
+
 struct WorktreeSidebarView: View {
     let model: AppModel
 
@@ -173,14 +189,16 @@ private struct BaseWorkspaceCard: View {
         String(localized: "worktree.sidebar.main_task", defaultValue: "Main Task", bundle: .module)
     }
 
+    private var isAgentActive: Bool {
+        model.isWorktreeAIActive(for: worktree)
+    }
+
     var body: some View {
         Button {
             model.selectWorktree(worktree.id)
         } label: {
             HStack(alignment: .center, spacing: 10) {
-                Circle()
-                    .fill(AppTheme.focus)
-                    .frame(width: 8, height: 8)
+                statusIndicator
                 VStack(alignment: .leading, spacing: 3) {
                     Text(mainTaskTitle)
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -258,6 +276,17 @@ private struct BaseWorkspaceCard: View {
             return AppTheme.focus.opacity(0.45)
         }
         return Color(nsColor: .separatorColor).opacity(0.35)
+    }
+
+    @ViewBuilder
+    private var statusIndicator: some View {
+        if isAgentActive {
+            WorktreeActiveIndicator()
+        } else {
+            Circle()
+                .fill(AppTheme.focus)
+                .frame(width: 10, height: 10)
+        }
     }
 }
 
@@ -454,15 +483,11 @@ private struct WorktreeRowCompact: View {
     @ViewBuilder
     private var statusIndicator: some View {
         if isAgentActive {
-            ProgressView()
-                .controlSize(.mini)
-                .scaleEffect(0.58)
-                .frame(width: 8, height: 8)
-                .tint(AppTheme.warning)
+            WorktreeActiveIndicator()
         } else {
             Circle()
                 .fill(statusVisual.color)
-                .frame(width: 8, height: 8)
+                .frame(width: 10, height: 10)
         }
     }
 

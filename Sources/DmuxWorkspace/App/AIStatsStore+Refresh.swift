@@ -213,7 +213,6 @@ extension AIStatsStore {
     }
 
     func storeState(_ newState: AIStatsPanelState, refreshState newRefreshState: PanelRefreshState, for projectID: UUID, updateCurrent: Bool) {
-        let titlebarDidChange = refreshTitlebarTodayLiveOverlay(notify: false)
         panelStateByProjectID[projectID] = newState
         refreshStateByProjectID[projectID] = newRefreshState
         cacheState(newState, for: projectID)
@@ -221,7 +220,7 @@ extension AIStatsStore {
             state = newState
             refreshState = newRefreshState
             renderVersion &+= 1
-        } else if titlebarDidChange || newState.indexedAt != nil {
+        } else if newState.indexedAt != nil {
             renderVersion &+= 1
         }
     }

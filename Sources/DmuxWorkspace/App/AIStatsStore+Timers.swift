@@ -12,6 +12,7 @@ extension AIStatsStore {
         selectedProjectProvider = selectedProject
         selectedSessionIDProvider = selectedSessionID
         projectsProvider = projects
+        refreshTitlebarTodayBaseTokens()
         refreshTitlebarTodayLiveOverlay()
 
         refreshTimer?.invalidate()
@@ -97,6 +98,18 @@ extension AIStatsStore {
 
         _ = ingestRuntime(project: project, projects: projects, selectedSessionID: currentSelectedSessionID)
         let liveContext = liveSnapshotContext(projectID: project.id, selectedSessionID: selectedSessionID)
+        guard panelVisibilityProvider?() == true else {
+            updateCachedLiveState(
+                project: project,
+                liveContext: liveContext
+            )
+            logger.log(
+                "history-refresh",
+                "skip trigger=automatic project=\(project.id.uuidString) reason=panel-hidden-live-only"
+            )
+            return
+        }
+
         let persistedIndexedSnapshot = aiUsageStore.indexedProjectSnapshot(projectID: project.id)
         if cachedState(for: project.id) == nil, let persistedIndexedSnapshot {
             logger.log(
