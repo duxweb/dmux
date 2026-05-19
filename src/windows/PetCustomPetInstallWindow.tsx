@@ -17,10 +17,9 @@ import { WindowFrame } from "./WindowFrame";
 
 const WINDOW_WIDTH = 680;
 const WINDOW_MIN_HEIGHT = 210;
-const WINDOW_HEADER_HEIGHT = 40;
-const WINDOW_FOOTER_HEIGHT = 62;
+const WINDOW_FOOTER_HEIGHT = 56;
 const WINDOW_MAIN_VERTICAL_PADDING = 40;
-const WINDOW_VERTICAL_INSET = WINDOW_HEADER_HEIGHT + WINDOW_FOOTER_HEIGHT + WINDOW_MAIN_VERTICAL_PADDING;
+const WINDOW_VERTICAL_INSET = WINDOW_FOOTER_HEIGHT + WINDOW_MAIN_VERTICAL_PADDING;
 const WINDOW_MAX_HEIGHT = 640;
 
 export function PetCustomPetInstallWindow() {
@@ -108,7 +107,6 @@ export function PetCustomPetInstallWindow() {
 
   return (
     <WindowFrame
-      title={tm("pet.custom.install.title", "Add Custom Pet")}
       footer={
         <>
           <Button variant="ghost" disabled={isBusy} onPressUp={() => void closeCurrentAppWindow()}>

@@ -10,7 +10,7 @@ import {
   Wrench,
 } from "../icons";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { checkForUpdates, type UpdateInstallResult, type UpdateStatus } from "../appActions";
 import { Button } from "../components/Button";
 import { PressableButton } from "../components/PressableButton";
@@ -24,7 +24,7 @@ import {
   TextInput,
   Toggle,
 } from "../components/Form";
-import { closeCurrentAppWindow, revealCurrentAppWindow } from "../windowing";
+import { closeCurrentAppWindow, resizeCurrentAppWindow, revealCurrentAppWindow } from "../windowing";
 import type { AppIcon } from "../icons";
 import {
   readAppSettings,
@@ -195,68 +195,72 @@ const notificationChannels = [
   ["webhook", "Webhook", "Request URL", "Bearer Token", "Send JSON POST requests to your own endpoint."],
 ] as const;
 
+const settingsWindowHeights: Record<SectionId, number> = {
+  general: 600,
+  appearance: 620,
+  pet: 660,
+  ai: 720,
+  notifications: 700,
+  remote: 620,
+  shortcuts: 640,
+  experiments: 520,
+  developer: 520,
+};
+
 export function SettingsWindow() {
   const [active, setActive] = useState<SectionId>("general");
   const activeSection = sections.find((item) => item.id === active) ?? sections[0];
+  const preferredHeight = useMemo(() => settingsWindowHeight(active), [active]);
 
   useEffect(() => {
     void revealCurrentAppWindow();
   }, []);
+
+  useEffect(() => {
+    void resizeSettingsWindow(640, preferredHeight);
+  }, [preferredHeight]);
 
   const dismiss = () => {
     void closeCurrentAppWindow();
   };
 
   return (
-    <div className="app-shell h-screen grid grid-cols-[200px_minmax(0,1fr)] text-ink">
-      <aside className="min-h-0 border-r border-line bg-surface-chrome/45 flex flex-col">
-        <div className="h-14 flex-shrink-0 drag-region" data-tauri-drag-region />
-        <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 no-drag">
-          <div className="grid gap-1.5">
-            {sections.map((item) => (
-              <PressableButton
-                key={item.id}
-                onPressUp={() => setActive(item.id)}
-                className={`h-8 px-2.5 rounded-md grid grid-cols-[18px_minmax(0,1fr)] items-center gap-2 text-sm text-left transition-colors ${
-                  active === item.id
-                    ? "bg-brand-blue/16 text-ink"
-                    : "text-ink-soft hover:bg-fill/[0.06] hover:text-ink"
-                }`}
-              >
-                <item.icon size={14} strokeWidth={2} />
-                <span>{tm(item.labelKey ?? "", item.label)}</span>
-              </PressableButton>
-            ))}
-          </div>
+    <div className="app-shell h-screen min-w-[640px] overflow-hidden text-ink flex flex-col">
+      <header className="flex-shrink-0 border-b border-line bg-surface-chrome px-4 pb-2 pt-3">
+        <nav className="no-drag flex items-end justify-center gap-1.5 overflow-x-auto scrollbar-hidden">
+          {sections.map((item) => (
+            <PressableButton
+              key={item.id}
+              onPressUp={() => setActive(item.id)}
+              className={`grid h-[58px] min-w-[62px] place-items-center content-center gap-1 rounded-[8px] px-2 text-center transition-colors ${
+                active === item.id
+                  ? "bg-fill/[0.09] text-ink shadow-sm"
+                  : "text-ink-mute hover:bg-fill/[0.055] hover:text-ink"
+              }`}
+            >
+              <item.icon size={19} strokeWidth={1.9} />
+              <span className="text-[11px] font-medium leading-none">{tm(item.labelKey ?? "", item.label)}</span>
+            </PressableButton>
+          ))}
         </nav>
-      </aside>
+      </header>
 
-      <section className="relative min-w-0 min-h-0 overflow-hidden">
-        <header
-          className="absolute left-0 right-0 top-0 z-20 h-[92px] flex flex-col justify-end px-6 pb-4 drag-region"
-          data-tauri-drag-region
-          style={{
-            background: "linear-gradient(to top, transparent 0%, var(--color-surface-chrome) 50%)",
-          }}
-        >
-          <div className="text-lg font-semibold tracking-tight drag-region" data-tauri-drag-region>
-            {tm(activeSection.labelKey ?? "", activeSection.label)}
+      <section className="relative min-w-0 min-h-0 flex-1 overflow-hidden">
+        <main className="absolute inset-0 overflow-y-auto px-6 pb-[76px] pt-5 no-drag">
+          <div className="mx-auto w-full max-w-[640px]">
+            <div className="mb-4">
+              <div className="text-[17px] font-semibold tracking-tight">
+                {tm(activeSection.labelKey ?? "", activeSection.label)}
+              </div>
+              <div className="mt-1 text-[12.5px] text-ink-mute">
+                {tm(activeSection.description, activeSection.description)}
+              </div>
+            </div>
+            <SettingsPane active={active} />
           </div>
-          <div className="mt-1.5 text-sm text-ink-mute drag-region" data-tauri-drag-region>
-            {tm(activeSection.description, activeSection.description)}
-          </div>
-        </header>
-
-        <main className="absolute inset-0 overflow-y-auto px-5 pt-[108px] pb-[78px] no-drag">
-          <SettingsPane active={active} />
         </main>
 
-        <footer
-          className="absolute left-0 right-0 bottom-0 z-20 h-[58px] px-5 flex items-center justify-end gap-2 no-drag"
-          style={{
-            background: "linear-gradient(to bottom, transparent 0%, var(--color-surface-chrome) 50%)",
-          }}
-        >
+        <footer className="absolute left-0 right-0 bottom-0 z-20 h-[56px] px-5 flex items-center justify-end gap-2 border-t border-line bg-surface-chrome no-drag">
           <Button variant="ghost" onPress={dismiss}>
             {tm("common.cancel", "Cancel")}
           </Button>
@@ -289,6 +293,18 @@ function SettingsPane({ active }: { active: SectionId }) {
       return <ExperimentSection />;
     case "developer":
       return <DeveloperSection />;
+  }
+}
+
+function settingsWindowHeight(active: SectionId) {
+  return settingsWindowHeights[active] ?? 600;
+}
+
+async function resizeSettingsWindow(width: number, height: number) {
+  try {
+    await resizeCurrentAppWindow(width, height);
+  } catch (error) {
+    console.error("failed to resize settings window", error);
   }
 }
 

@@ -1,5 +1,5 @@
 import { WebviewWindow, getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { LogicalPosition, getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import { formatI18n, tm } from "./i18n";
 
 export type AppWindowKind =
@@ -44,10 +44,10 @@ const windowConfig: Record<AppWindowKind, WindowConfig> = {
     label: "settings",
     titleKey: "menu.settings",
     titleFallback: "Settings",
-    width: 820,
-    height: 640,
-    minWidth: 720,
-    minHeight: 540,
+    width: 640,
+    height: 600,
+    minWidth: 640,
+    minHeight: 480,
     route: "/settings",
   },
   "project-create": {
@@ -84,9 +84,9 @@ const windowConfig: Record<AppWindowKind, WindowConfig> = {
     label: "pet-dex",
     titleKey: "pet.dex.title",
     titleFallback: "Petdex",
-    width: 760,
-    height: 620,
-    minWidth: 680,
+    width: 900,
+    height: 660,
+    minWidth: 780,
     minHeight: 560,
     route: "/pet-dex",
   },
@@ -142,10 +142,7 @@ export async function openAppWindow(kind: AppWindowKind) {
     resizable: kind === "desktop-pet" || kind === "pet-claim" || kind === "pet-custom-install" ? false : true,
     transparent: kind === "desktop-pet",
     decorations: kind === "desktop-pet" ? false : true,
-    titleBarStyle: kind === "desktop-pet" ? undefined : "overlay",
-    hiddenTitle: kind === "desktop-pet" ? undefined : true,
     acceptFirstMouse: true,
-    trafficLightPosition: kind === "desktop-pet" ? undefined : new LogicalPosition(14, 22),
     backgroundColor: kind === "desktop-pet" ? "#00000000" : opaqueAppWindowBackground,
     visible: false,
     focus: false,
@@ -229,10 +226,7 @@ export async function openGitDiffWindow(options: GitDiffWindowOptions) {
     resizable: true,
     transparent: false,
     decorations: true,
-    titleBarStyle: "overlay",
-    hiddenTitle: true,
     acceptFirstMouse: true,
-    trafficLightPosition: new LogicalPosition(14, 22),
     backgroundColor: opaqueAppWindowBackground,
     visible: false,
     focus: false,
@@ -271,6 +265,11 @@ export async function closeCurrentAppWindow() {
     return;
   }
   await getCurrentWindow().close();
+}
+
+export async function resizeCurrentAppWindow(width: number, height: number) {
+  if (!window.__TAURI_INTERNALS__) return;
+  await getCurrentWindow().setSize(new LogicalSize(width, height));
 }
 
 export async function destroyCurrentAppWindow() {

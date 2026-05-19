@@ -83,7 +83,6 @@ export function GitDiffWindow() {
 
   return (
     <WindowFrame
-      title={request.path || "Diff"}
       footer={
         <>
           <Button

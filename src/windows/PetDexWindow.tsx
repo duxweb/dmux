@@ -144,7 +144,6 @@ export function PetDexWindow() {
 
   return (
     <WindowFrame
-      title={tm("pet.dex.title", "Pet Dex")}
       mainClassName="px-0 py-0"
       mainScrollable={false}
     >
