@@ -1325,6 +1325,9 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
   const [childrenByPath, setChildrenByPath] = useState<Record<string, FileEntry[]>>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState("");
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [selectionAnchorPath, setSelectionAnchorPath] = useState("");
+  const [pendingDeletePaths, setPendingDeletePaths] = useState<string[]>([]);
   const [copiedPath, setCopiedPath] = useState("");
   const [fileStatus, setFileStatus] = useState<{ tone: "neutral" | "success" | "warning" | "danger"; message: string }>({
     tone: "neutral",
@@ -1354,6 +1357,8 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     if (stored) {
       setExpandedPaths(new Set(stored.expandedPaths));
       setSelectedPath(stored.selectedPath);
+      setSelectedPaths(stored.selectedPath ? new Set([stored.selectedPath]) : new Set());
+      setSelectionAnchorPath(stored.selectedPath);
     }
   }, [rootPath]);
 
@@ -1400,6 +1405,9 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     const stored = fileTreeStateRef.current.get(rootPath);
     setChildrenByPath({});
     setSelectedPath(stored?.selectedPath ?? "");
+    setSelectedPaths(stored?.selectedPath ? new Set([stored.selectedPath]) : new Set());
+    setSelectionAnchorPath(stored?.selectedPath ?? "");
+    setPendingDeletePaths([]);
     setCopiedPath("");
     setError(null);
     if (!rootPath) {
@@ -1439,6 +1447,32 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     () => rows.find((row) => row.entry.path === selectedPath)?.entry,
     [rows, selectedPath],
   );
+  const selectedEntries = useMemo(
+    () => rows.filter((row) => selectedPaths.has(row.entry.path)).map((row) => row.entry),
+    [rows, selectedPaths],
+  );
+  const pendingDeleteEntries = useMemo(
+    () => rows.filter((row) => pendingDeletePaths.includes(row.entry.path)).map((row) => row.entry),
+    [pendingDeletePaths, rows],
+  );
+  const filePanelStatus = useMemo(() => {
+    if (pendingDeletePaths.length > 0) {
+      return {
+        tone: "warning" as const,
+        message: formatI18n(tm("files.panel.delete.pending_count_format", "%d item(s) marked for delete"), pendingDeletePaths.length),
+      };
+    }
+    if (error) {
+      return { tone: "danger" as const, message: error };
+    }
+    if (selectedPaths.size > 1) {
+      return {
+        tone: "neutral" as const,
+        message: formatI18n(tm("files.panel.status.selected_count_format", "%d selected"), selectedPaths.size),
+      };
+    }
+    return fileStatus;
+  }, [error, fileStatus, pendingDeletePaths.length, selectedPaths.size]);
 
   const refresh = useCallback(() => {
     if (!rootPath) return;
@@ -1489,6 +1523,8 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
         }
         const next = await renameFile(rootPath, inlineEdit.entry.path, name);
         setSelectedPath(next.path);
+        setSelectedPaths(new Set([next.path]));
+        setSelectionAnchorPath(next.path);
         setError(null);
         setInlineEdit(null);
         updateStatus(formatI18n(tm("files.panel.status.renamed_format", "Renamed to %@"), next.name), "success");
@@ -1504,6 +1540,8 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
       }
       setExpandedPaths((current) => new Set(current).add(inlineEdit.parentPath));
       setSelectedPath(entry.path);
+      setSelectedPaths(new Set([entry.path]));
+      setSelectionAnchorPath(entry.path);
       setError(null);
       setInlineEdit(null);
       updateStatus(formatI18n(tm("files.panel.status.created_format", "Created %@"), entry.name), "success");
@@ -1524,26 +1562,33 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     });
   };
 
-  const deleteEntry = async (entry?: FileEntry) => {
-    const target = entry ?? selectedEntry;
-    if (!rootPath || !target) return;
-    if (
-      !(await systemConfirm(formatI18n(tm("files.panel.delete.confirm_message_format", "Move \"%@\" to Trash?"), target.name), {
-        title: tm("files.panel.delete.confirm_title", "Move to Trash"),
-        kind: "warning",
-        okLabel: tm("files.panel.delete", "Move to Trash"),
-        cancelLabel: tm("common.cancel", "Cancel"),
-      }))
-    ) return;
+  const stageDeleteEntries = (entries: FileEntry[]) => {
+    if (!rootPath || entries.length === 0) return;
+    setPendingDeletePaths(entries.map((entry) => entry.path));
+  };
+
+  const confirmDeleteEntries = async () => {
+    if (!rootPath || pendingDeleteEntries.length === 0) return;
+    const targets = pendingDeleteEntries;
     try {
-      const parent = parentPath(target.path, rootPath);
-      await deleteFile(rootPath, target.path);
-      if (selectedPath === target.path) {
-        setSelectedPath("");
+      const parentPaths = new Set(targets.map((target) => parentPath(target.path, rootPath)));
+      for (const target of targets) {
+        await deleteFile(rootPath, target.path);
       }
+      if (targets.some((target) => selectedPaths.has(target.path))) {
+        setSelectedPath("");
+        setSelectedPaths(new Set());
+        setSelectionAnchorPath("");
+      }
+      setPendingDeletePaths([]);
       setError(null);
-      updateStatus(formatI18n(tm("files.panel.status.trashed_format", "Moved %@ to Trash"), target.name), "warning");
-      await loadChildren(parent);
+      updateStatus(
+        targets.length === 1
+          ? formatI18n(tm("files.panel.status.trashed_format", "Moved %@ to Trash"), targets[0].name)
+          : formatI18n(tm("files.panel.status.trashed_count_format", "Moved %d item(s) to Trash"), targets.length),
+        "warning",
+      );
+      await Promise.all(Array.from(parentPaths).map((parent) => loadChildren(parent)));
     } catch (nextError) {
       handleFileError(nextError);
     }
@@ -1555,6 +1600,8 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
       const entry = await copyFile(rootPath, copiedPath, targetDirectory);
       setExpandedPaths((current) => new Set(current).add(targetDirectory));
       setSelectedPath(entry.path);
+      setSelectedPaths(new Set([entry.path]));
+      setSelectionAnchorPath(entry.path);
       setError(null);
       updateStatus(formatI18n(tm("files.panel.status.pasted_format", "Pasted %@"), entry.name), "success");
       await loadChildren(targetDirectory);
@@ -1570,6 +1617,8 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
         const imported = await importExternalFiles(rootPath, paths, targetDirectoryPath);
         setExpandedPaths((current) => new Set(current).add(targetDirectoryPath));
         setSelectedPath(imported[0]?.path ?? "");
+        setSelectedPaths(imported[0]?.path ? new Set([imported[0].path]) : new Set());
+        setSelectionAnchorPath(imported[0]?.path ?? "");
         setError(null);
         updateStatus(formatI18n(tm("files.panel.status.imported_count_format", "Imported %d item(s)"), imported.length), "success");
         await loadChildren(targetDirectoryPath);
@@ -1666,8 +1715,40 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     };
   }, [handleFileError, loadChildren, rootPath]);
 
-  const selectEntry = (entry: FileEntry) => {
+  const selectEntry = (entry: FileEntry, options?: { extend?: boolean; toggle?: boolean }) => {
+    setPendingDeletePaths([]);
+    if (options?.extend && selectionAnchorPath) {
+      const anchorIndex = rows.findIndex((row) => row.entry.path === selectionAnchorPath);
+      const targetIndex = rows.findIndex((row) => row.entry.path === entry.path);
+      if (anchorIndex >= 0 && targetIndex >= 0) {
+        const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+        setSelectedPaths(new Set(rows.slice(start, end + 1).map((row) => row.entry.path)));
+        setSelectedPath(entry.path);
+        return;
+      }
+    }
+    if (options?.toggle) {
+      setSelectedPaths((current) => {
+        const next = new Set(current);
+        if (next.has(entry.path)) {
+          next.delete(entry.path);
+        } else {
+          next.add(entry.path);
+        }
+        if (next.size === 0) {
+          setSelectedPath(entry.path);
+          return new Set([entry.path]);
+        }
+        const nextPaths = Array.from(next);
+        setSelectedPath(next.has(entry.path) ? entry.path : nextPaths[nextPaths.length - 1] ?? entry.path);
+        return next;
+      });
+      setSelectionAnchorPath(entry.path);
+      return;
+    }
     setSelectedPath(entry.path);
+    setSelectedPaths(new Set([entry.path]));
+    setSelectionAnchorPath(entry.path);
     if (!entry.isDirectory) return;
     setExpandedPaths((current) => {
       const next = new Set(current);
@@ -1683,6 +1764,8 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
 
   const openEntry = (entry: FileEntry) => {
     setSelectedPath(entry.path);
+    setSelectedPaths(new Set([entry.path]));
+    setSelectionAnchorPath(entry.path);
     if (entry.isDirectory) {
       selectEntry(entry);
       return;
@@ -1708,7 +1791,7 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     }
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
-      void deleteEntry();
+      stageDeleteEntries(selectedEntries.length ? selectedEntries : [selectedEntry]);
       return;
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
@@ -1767,14 +1850,14 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                 row={row}
                 rootPath={rootPath}
                 inlineEdit={inlineEdit}
-                selected={selectedPath === row.entry.path}
+                selected={selectedPaths.has(row.entry.path)}
                 expanded={expandedPaths.has(row.entry.path)}
                 loading={loadingPaths.has(row.entry.path)}
                 labels={fileTreeLabels}
                 onInlineChange={setInlineEdit}
                 onInlineCancel={() => setInlineEdit(null)}
                 onInlineSubmit={() => void submitInlineEdit()}
-                onSelect={() => selectEntry(row.entry)}
+                onSelect={(modifiers) => selectEntry(row.entry, modifiers)}
                 onOpen={() => openEntry(row.entry)}
                 onEdit={() => {
                   setSelectedPath(row.entry.path);
@@ -1782,6 +1865,8 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                 }}
                 onInsertPathIntoTerminal={() => {
                   setSelectedPath(row.entry.path);
+                  setSelectedPaths(new Set([row.entry.path]));
+                  setSelectionAnchorPath(row.entry.path);
                   broadcastWorkspaceCommand({
                     type: "insert-terminal-text",
                     text: shellQuote(row.entry.path),
@@ -1789,35 +1874,50 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                 }}
                 onCopyPath={() => {
                   setSelectedPath(row.entry.path);
+                  setSelectedPaths(new Set([row.entry.path]));
+                  setSelectionAnchorPath(row.entry.path);
                   void navigator.clipboard?.writeText(row.entry.path);
                   updateStatus(formatI18n(tm("files.panel.status.copied_format", "Copied %@"), row.entry.name), "success");
                 }}
                 onRename={() => {
                   setSelectedPath(row.entry.path);
+                  setSelectedPaths(new Set([row.entry.path]));
+                  setSelectionAnchorPath(row.entry.path);
                   void renameEntry(row.entry);
                 }}
                 onDelete={() => {
+                  const targets = selectedPaths.has(row.entry.path) && selectedEntries.length > 1 ? selectedEntries : [row.entry];
                   setSelectedPath(row.entry.path);
-                  void deleteEntry(row.entry);
+                  setSelectedPaths(new Set(targets.map((entry) => entry.path)));
+                  setSelectionAnchorPath(row.entry.path);
+                  stageDeleteEntries(targets);
                 }}
                 onCopy={() => {
                   setSelectedPath(row.entry.path);
+                  setSelectedPaths(new Set([row.entry.path]));
+                  setSelectionAnchorPath(row.entry.path);
                   setCopiedPath(row.entry.path);
                   void navigator.clipboard?.writeText(row.entry.path);
                   updateStatus(formatI18n(tm("files.panel.status.copied_format", "Copied %@"), row.entry.name), "success");
                 }}
                 onReveal={() => {
                   setSelectedPath(row.entry.path);
+                  setSelectedPaths(new Set([row.entry.path]));
+                  setSelectionAnchorPath(row.entry.path);
                   void revealFile(rootPath, row.entry.path).catch((nextError) => {
                     handleFileError(nextError);
                   });
                 }}
                 onPaste={copiedPath ? () => {
                   setSelectedPath(row.entry.path);
+                  setSelectedPaths(new Set([row.entry.path]));
+                  setSelectionAnchorPath(row.entry.path);
                   void copyFile(rootPath, copiedPath, row.entry.isDirectory ? row.entry.path : parentPath(row.entry.path, rootPath))
                     .then((entry) => {
                       const parent = parentPath(entry.path, rootPath);
                       setSelectedPath(entry.path);
+                      setSelectedPaths(new Set([entry.path]));
+                      setSelectionAnchorPath(entry.path);
                       setExpandedPaths((current) => new Set(current).add(parent));
                       setError(null);
                       updateStatus(formatI18n(tm("files.panel.status.pasted_format", "Pasted %@"), entry.name), "success");
@@ -1847,20 +1947,43 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
         )}
       </div>
       <PanelStatusBar
-        tone={fileStatus.tone}
+        tone={filePanelStatus.tone}
         leading={
           <>
             {loadingPaths.size > 0 ? <Spinner size="sm" color="current" /> : <FileText size={12} />}
-            <span className="truncate">{error ?? fileStatus.message}</span>
+            <span className="truncate">{filePanelStatus.message}</span>
           </>
         }
         trailing={
-          copiedPath ? (
+          pendingDeletePaths.length > 0 ? (
+            <div className="flex items-center gap-1">
+              <PressableButton
+                className="h-6 rounded-md px-2 text-current/80 hover:bg-fill/10 hover:text-current"
+                onPressUp={() => setPendingDeletePaths([])}
+              >
+                {tm("files.panel.delete.cancel", "Cancel Delete")}
+              </PressableButton>
+              <PressableButton
+                className="h-6 rounded-md bg-brand-red px-2 font-semibold text-on-brand hover:bg-brand-red/90"
+                onPressUp={() => void confirmDeleteEntries()}
+              >
+                {tm("files.panel.delete.confirm", "Confirm Delete")}
+              </PressableButton>
+            </div>
+          ) : copiedPath ? (
             <span className="max-w-[118px] truncate text-current/80">
               {formatI18n(tm("files.panel.status.clipboard_format", "Clipboard: %@"), fileNameFromPath(copiedPath))}
             </span>
+          ) : selectedPaths.size > 0 ? (
+            <span className="max-w-[118px] truncate text-current/80">
+              {selectedPaths.size === 1
+                ? fileNameFromPath(selectedPath)
+                : formatI18n(tm("files.panel.status.selected_count_format", "%d selected"), selectedPaths.size)}
+            </span>
           ) : (
-            <span className="tabular-nums text-current/75">{rows.length}</span>
+            <span className="text-current/75">
+              {formatI18n(tm("files.panel.status.file_count_format", "%d files"), rows.length)}
+            </span>
           )
         }
       />
@@ -1902,6 +2025,11 @@ type FileTreeLabels = {
   actions: string;
 };
 
+type FileSelectionModifiers = {
+  extend: boolean;
+  toggle: boolean;
+};
+
 function FileTreeFragment({
   row,
   rootPath,
@@ -1934,7 +2062,7 @@ function FileTreeFragment({
   onInlineChange: (edit: FileInlineEdit) => void;
   onInlineCancel: () => void;
   onInlineSubmit: () => void;
-  onSelect: () => void;
+  onSelect: (modifiers: FileSelectionModifiers) => void;
   onOpen: () => void;
   onEdit?: () => void;
   onInsertPathIntoTerminal?: () => void;
@@ -2065,7 +2193,7 @@ function FileTreeRow({
   expanded: boolean;
   loading: boolean;
   labels: FileTreeLabels;
-  onSelect: () => void;
+  onSelect: (modifiers: FileSelectionModifiers) => void;
   onOpen: () => void;
   onEdit?: () => void;
   onInsertPathIntoTerminal?: () => void;
@@ -2078,6 +2206,7 @@ function FileTreeRow({
 }) {
   const entry = row.entry;
   const contextMenu = useContextMenu();
+  const selectionModifiersRef = useRef<FileSelectionModifiers>({ extend: false, toggle: false });
   return (
     <Tooltip label={entry.relativePath || entry.name} placement="left" triggerClassName="block w-full">
       <div
@@ -2089,7 +2218,13 @@ function FileTreeRow({
         <PressableButton
           className="min-w-0 h-full flex-1 inline-flex items-center gap-1.5 pr-11 text-left"
           style={{ paddingLeft: `${8 + row.depth * 14}px` }}
-          onPressUp={onSelect}
+          onPointerDown={(event) => {
+            selectionModifiersRef.current = {
+              extend: event.shiftKey,
+              toggle: event.metaKey || event.ctrlKey,
+            };
+          }}
+          onPressUp={() => onSelect(selectionModifiersRef.current)}
           onDoubleClick={entry.isDirectory ? undefined : onOpen}
         >
           {entry.isDirectory ? (

@@ -299,7 +299,8 @@
       "settings.update.status.latest_format": "Current version %@ is up to date.",
       "settings.update.status.disabled": "Update checks are turned off.",
       "settings.update.status.checking_github": "Checking GitHub releases...",
-      "settings.update.status.error": "Unable to check updates. Please try again later."
+      "settings.update.status.error": "Unable to check updates. Please try again later.",
+      "settings.update.mode.disabled": "Aus"
     },
     "en": {
       "settings.ai_auto_refresh": "AI Auto Refresh",
@@ -600,7 +601,8 @@
       "settings.update.status.latest_format": "Current version %@ is up to date.",
       "settings.update.status.disabled": "Update checks are turned off.",
       "settings.update.status.checking_github": "Checking GitHub releases...",
-      "settings.update.status.error": "Unable to check updates. Please try again later."
+      "settings.update.status.error": "Unable to check updates. Please try again later.",
+      "settings.update.mode.disabled": "Off"
     },
     "es": {
       "settings.ai_auto_refresh": "Actualización automática de IA",
@@ -901,7 +903,8 @@
       "settings.update.status.latest_format": "Current version %@ is up to date.",
       "settings.update.status.disabled": "Update checks are turned off.",
       "settings.update.status.checking_github": "Checking GitHub releases...",
-      "settings.update.status.error": "Unable to check updates. Please try again later."
+      "settings.update.status.error": "Unable to check updates. Please try again later.",
+      "settings.update.mode.disabled": "Desactivado"
     },
     "fr": {
       "settings.ai_auto_refresh": "Actualisation auto IA",
@@ -1202,7 +1205,8 @@
       "settings.update.status.latest_format": "Current version %@ is up to date.",
       "settings.update.status.disabled": "Update checks are turned off.",
       "settings.update.status.checking_github": "Checking GitHub releases...",
-      "settings.update.status.error": "Unable to check updates. Please try again later."
+      "settings.update.status.error": "Unable to check updates. Please try again later.",
+      "settings.update.mode.disabled": "Désactivé"
     },
     "ja": {
       "settings.ai_auto_refresh": "AI 自動更新",
@@ -1503,7 +1507,8 @@
       "settings.update.status.latest_format": "Current version %@ is up to date.",
       "settings.update.status.disabled": "Update checks are turned off.",
       "settings.update.status.checking_github": "Checking GitHub releases...",
-      "settings.update.status.error": "Unable to check updates. Please try again later."
+      "settings.update.status.error": "Unable to check updates. Please try again later.",
+      "settings.update.mode.disabled": "オフ"
     },
     "ko": {
       "settings.ai_auto_refresh": "AI 자동 새로고침",
@@ -1804,7 +1809,8 @@
       "settings.update.status.latest_format": "Current version %@ is up to date.",
       "settings.update.status.disabled": "Update checks are turned off.",
       "settings.update.status.checking_github": "Checking GitHub releases...",
-      "settings.update.status.error": "Unable to check updates. Please try again later."
+      "settings.update.status.error": "Unable to check updates. Please try again later.",
+      "settings.update.mode.disabled": "꺼짐"
     },
     "pt-BR": {
       "settings.ai_auto_refresh": "Atualização automática de IA",
@@ -2105,7 +2111,8 @@
       "settings.update.status.latest_format": "Current version %@ is up to date.",
       "settings.update.status.disabled": "Update checks are turned off.",
       "settings.update.status.checking_github": "Checking GitHub releases...",
-      "settings.update.status.error": "Unable to check updates. Please try again later."
+      "settings.update.status.error": "Unable to check updates. Please try again later.",
+      "settings.update.mode.disabled": "Desativado"
     },
     "ru": {
       "settings.ai_auto_refresh": "Автообновление ИИ",
@@ -2406,7 +2413,8 @@
       "settings.update.status.latest_format": "Current version %@ is up to date.",
       "settings.update.status.disabled": "Update checks are turned off.",
       "settings.update.status.checking_github": "Checking GitHub releases...",
-      "settings.update.status.error": "Unable to check updates. Please try again later."
+      "settings.update.status.error": "Unable to check updates. Please try again later.",
+      "settings.update.mode.disabled": "Отключено"
     },
     "zh-Hans": {
       "settings.ai_auto_refresh": "AI 自动刷新",
@@ -2707,7 +2715,8 @@
       "settings.update.status.latest_format": "当前版本 %@ 已是最新。",
       "settings.update.status.disabled": "检查更新已关闭。",
       "settings.update.status.checking_github": "正在检查 GitHub Release...",
-      "settings.update.status.error": "暂时无法检查更新，请稍后重试。"
+      "settings.update.status.error": "暂时无法检查更新，请稍后重试。",
+      "settings.update.mode.disabled": "已关闭"
     },
     "zh-Hant": {
       "settings.ai_auto_refresh": "AI 自動重新整理",
@@ -3008,7 +3017,8 @@
       "settings.update.status.latest_format": "目前版本 %@ 已是最新。",
       "settings.update.status.disabled": "檢查更新已關閉。",
       "settings.update.status.checking_github": "正在檢查 GitHub Release...",
-      "settings.update.status.error": "暫時無法檢查更新，請稍後再試。"
+      "settings.update.status.error": "暫時無法檢查更新，請稍後再試。",
+      "settings.update.mode.disabled": "已關閉"
     }
   }
 }

@@ -91,10 +91,7 @@ const languageOptions = [
   { value: "russian", label: "Русский" },
 ];
 
-const shellOptions = [
-  { value: "system", label: tm("settings.default_shell.system", "Follow System") },
-  ...["zsh", "bash", "sh", "fish", "powershell.exe", "cmd.exe"].map((value) => ({ value, label: value })),
-];
+const shellOptions = shellOptionsForPlatform();
 const gitRefreshOptions = intervalOptions([30, 60, 120, 300, 600]);
 const aiRefreshOptions = intervalOptions([60, 120, 180, 300, 600]);
 const aiBackgroundRefreshOptions = intervalOptions([300, 600, 900, 1800]);
@@ -443,7 +440,7 @@ function GeneralSection() {
             <Button
               size="sm"
               variant="secondary"
-              disabled={isCheckingUpdates}
+              disabled={isCheckingUpdates || !settings.update.enabled}
               onPress={() => void checkForUpdates().then(refreshUpdateStatus)}
             >
               {isCheckingUpdates ? tm("update.checking", "Checking...") : tm("about.updates", "Check for Updates")}
@@ -467,6 +464,9 @@ function GeneralSection() {
 
 function updateModeLabel(status: UpdateStatus | null) {
   if (!status) return tm("update.checking", "Checking");
+  if (status.installationMode === "disabled") {
+    return tm("settings.update.mode.disabled", "Off");
+  }
   if (status.automaticInstallSupported) {
     return tm("settings.update.mode.automatic", "Automatic");
   }
@@ -486,7 +486,7 @@ function updateStatusDescription(status: UpdateStatus | null, checking: boolean)
   if (checking || !status) {
     return tm("settings.update.status.checking_github", "Checking GitHub releases...");
   }
-  if (!status.configured && status.installationMode === "disabled") {
+  if (status.installationMode === "disabled") {
     return tm("settings.update.status.disabled", "Update checks are turned off.");
   }
   if (status.available) {
@@ -503,6 +503,27 @@ function updateStatusDescription(status: UpdateStatus | null, checking: boolean)
     );
   }
   return tm("settings.update.status.error", "Unable to check updates. Please try again later.");
+}
+
+function shellOptionsForPlatform() {
+  const platform = typeof navigator === "undefined" ? "" : navigator.platform.toLowerCase();
+  const userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent.toLowerCase();
+  const isWindows = platform.includes("win") || userAgent.includes("windows");
+  const isMac = platform.includes("mac");
+  const shells = isWindows
+    ? [
+        { value: "powershell.exe", label: "Windows PowerShell" },
+        { value: "pwsh.exe", label: "PowerShell 7" },
+        { value: "cmd.exe", label: "Command Prompt" },
+        { value: "bash.exe", label: "Git Bash" },
+      ]
+    : isMac
+      ? ["zsh", "bash", "sh", "fish"].map((value) => ({ value, label: value }))
+      : ["bash", "sh", "zsh", "fish"].map((value) => ({ value, label: value }));
+  return [
+    { value: "system", label: tm("settings.default_shell.system", "Follow System") },
+    ...shells,
+  ];
 }
 
 function AppearanceSection() {

@@ -88,7 +88,10 @@
       "files.preview.external_reload.message_format": "\"%@\" wurde außerhalb der App geändert. Version vom Datenträger neu laden?",
       "files.preview.external_reload.keep": "Aktuellen Inhalt behalten",
       "files.preview.external_kept": "Diese Datei wurde auf dem Datenträger geändert. Der aktuelle Editorinhalt bleibt erhalten, bis du neu lädst oder speicherst.",
-      "files.panel.paste": "Einfügen"
+      "files.panel.paste": "Einfügen",
+      "files.panel.status.selected_count_format": "%d ausgewählt",
+      "files.panel.status.file_count_format": "%d Dateien",
+      "files.panel.status.trashed_count_format": "%d Element(e) in den Papierkorb gelegt"
     },
     "en": {
       "files.panel.title": "Files",
@@ -178,7 +181,10 @@
       "files.preview.external_reload.message_format": "\"%@\" was changed outside the app. Reload the version on disk?",
       "files.preview.external_reload.keep": "Keep Current Content",
       "files.preview.external_kept": "This file changed on disk. Current editor content is being kept until you reload or save.",
-      "files.panel.paste": "Paste"
+      "files.panel.paste": "Paste",
+      "files.panel.status.selected_count_format": "%d selected",
+      "files.panel.status.file_count_format": "%d files",
+      "files.panel.status.trashed_count_format": "Moved %d item(s) to Trash"
     },
     "es": {
       "files.panel.title": "Archivos",
@@ -268,7 +274,10 @@
       "files.preview.external_reload.message_format": "\"%@\" se modificó fuera de la app. ¿Recargar la versión del disco?",
       "files.preview.external_reload.keep": "Conservar contenido actual",
       "files.preview.external_kept": "Este archivo cambió en disco. El contenido actual del editor se conserva hasta que recargues o guardes.",
-      "files.panel.paste": "Pegar"
+      "files.panel.paste": "Pegar",
+      "files.panel.status.selected_count_format": "%d seleccionado(s)",
+      "files.panel.status.file_count_format": "%d archivos",
+      "files.panel.status.trashed_count_format": "%d elemento(s) movidos a la papelera"
     },
     "fr": {
       "files.panel.title": "Fichiers",
@@ -358,7 +367,10 @@
       "files.preview.external_reload.message_format": "\"%@\" a été modifié hors de l’app. Recharger la version du disque ?",
       "files.preview.external_reload.keep": "Garder le contenu actuel",
       "files.preview.external_kept": "Ce fichier a changé sur le disque. Le contenu actuel de l’éditeur est conservé jusqu’au rechargement ou à l’enregistrement.",
-      "files.panel.paste": "Coller"
+      "files.panel.paste": "Coller",
+      "files.panel.status.selected_count_format": "%d sélectionné(s)",
+      "files.panel.status.file_count_format": "%d fichiers",
+      "files.panel.status.trashed_count_format": "%d élément(s) placés dans la corbeille"
     },
     "ja": {
       "files.panel.title": "ファイル",
@@ -448,7 +460,10 @@
       "files.preview.external_reload.message_format": "\"%@\" はアプリ外で変更されています。ディスク上の版を再読み込みしますか？",
       "files.preview.external_reload.keep": "現在の内容を保持",
       "files.preview.external_kept": "このファイルはディスク上で変更されました。再読み込みまたは保存するまで、現在のエディタ内容を保持します。",
-      "files.panel.paste": "貼り付け"
+      "files.panel.paste": "貼り付け",
+      "files.panel.status.selected_count_format": "%d 件選択中",
+      "files.panel.status.file_count_format": "%d 件のファイル",
+      "files.panel.status.trashed_count_format": "%d 件をゴミ箱に移動しました"
     },
     "ko": {
       "files.panel.title": "파일",
@@ -538,7 +553,10 @@
       "files.preview.external_reload.message_format": "\"%@\"이(가) 앱 밖에서 변경되었습니다. 디스크 버전을 다시 불러올까요?",
       "files.preview.external_reload.keep": "현재 내용 유지",
       "files.preview.external_kept": "이 파일은 디스크에서 변경되었습니다. 다시 불러오거나 저장할 때까지 현재 편집기 내용을 유지합니다.",
-      "files.panel.paste": "붙여넣기"
+      "files.panel.paste": "붙여넣기",
+      "files.panel.status.selected_count_format": "%d개 선택됨",
+      "files.panel.status.file_count_format": "%d개 파일",
+      "files.panel.status.trashed_count_format": "%d개 항목을 휴지통으로 이동함"
     },
     "pt-BR": {
       "files.panel.title": "Arquivos",
@@ -628,7 +646,10 @@
       "files.preview.external_reload.message_format": "\"%@\" foi alterado fora do app. Recarregar a versão do disco?",
       "files.preview.external_reload.keep": "Manter conteúdo atual",
       "files.preview.external_kept": "Este arquivo mudou no disco. O conteúdo atual do editor será mantido até você recarregar ou salvar.",
-      "files.panel.paste": "Colar"
+      "files.panel.paste": "Colar",
+      "files.panel.status.selected_count_format": "%d selecionado(s)",
+      "files.panel.status.file_count_format": "%d arquivos",
+      "files.panel.status.trashed_count_format": "%d item(ns) movidos para o Lixo"
     },
     "ru": {
       "files.panel.title": "Файлы",
@@ -718,7 +739,10 @@
       "files.preview.external_reload.message_format": "\"%@\" был изменён вне приложения. Перезагрузить версию с диска?",
       "files.preview.external_reload.keep": "Оставить текущий текст",
       "files.preview.external_kept": "Этот файл изменился на диске. Текущий текст редактора будет сохранён до перезагрузки или сохранения.",
-      "files.panel.paste": "Вставить"
+      "files.panel.paste": "Вставить",
+      "files.panel.status.selected_count_format": "Выбрано: %d",
+      "files.panel.status.file_count_format": "Файлов: %d",
+      "files.panel.status.trashed_count_format": "%d элем. перемещено в корзину"
     },
     "zh-Hans": {
       "files.panel.title": "文件",
@@ -808,7 +832,10 @@
       "files.preview.external_reload.message_format": "“%@”已在外部修改。要重新加载磁盘上的版本吗？",
       "files.preview.external_reload.keep": "保留当前内容",
       "files.preview.external_kept": "该文件已在磁盘修改。重新加载或保存前，将继续保留当前编辑器内容。",
-      "files.panel.paste": "粘贴"
+      "files.panel.paste": "粘贴",
+      "files.panel.status.selected_count_format": "已选择 %d 项",
+      "files.panel.status.file_count_format": "%d 个文件",
+      "files.panel.status.trashed_count_format": "已将 %d 项移到废纸篓"
     },
     "zh-Hant": {
       "files.panel.title": "檔案",
@@ -898,7 +925,10 @@
       "files.preview.external_reload.message_format": "「%@」已在外部修改。要重新載入磁碟上的版本嗎？",
       "files.preview.external_reload.keep": "保留目前內容",
       "files.preview.external_kept": "此檔案已在磁碟修改。重新載入或儲存前，將繼續保留目前編輯器內容。",
-      "files.panel.paste": "貼上"
+      "files.panel.paste": "貼上",
+      "files.panel.status.selected_count_format": "已選擇 %d 項",
+      "files.panel.status.file_count_format": "%d 個檔案",
+      "files.panel.status.trashed_count_format": "已將 %d 項移到垃圾桶"
     }
   }
 }
