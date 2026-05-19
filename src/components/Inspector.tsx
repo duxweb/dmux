@@ -1666,19 +1666,25 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     };
   }, [handleFileError, loadChildren, rootPath]);
 
+  const selectEntry = (entry: FileEntry) => {
+    setSelectedPath(entry.path);
+    if (!entry.isDirectory) return;
+    setExpandedPaths((current) => {
+      const next = new Set(current);
+      if (next.has(entry.path)) {
+        next.delete(entry.path);
+      } else {
+        next.add(entry.path);
+        if (!childrenByPath[entry.path]) void loadChildren(entry.path);
+      }
+      return next;
+    });
+  };
+
   const openEntry = (entry: FileEntry) => {
     setSelectedPath(entry.path);
     if (entry.isDirectory) {
-      setExpandedPaths((current) => {
-        const next = new Set(current);
-        if (next.has(entry.path)) {
-          next.delete(entry.path);
-        } else {
-          next.add(entry.path);
-          if (!childrenByPath[entry.path]) void loadChildren(entry.path);
-        }
-        return next;
-      });
+      selectEntry(entry);
       return;
     }
     broadcastWorkspaceCommand({
@@ -1768,6 +1774,7 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                 onInlineChange={setInlineEdit}
                 onInlineCancel={() => setInlineEdit(null)}
                 onInlineSubmit={() => void submitInlineEdit()}
+                onSelect={() => selectEntry(row.entry)}
                 onOpen={() => openEntry(row.entry)}
                 onEdit={() => {
                   setSelectedPath(row.entry.path);
@@ -1906,6 +1913,7 @@ function FileTreeFragment({
   onInlineChange,
   onInlineCancel,
   onInlineSubmit,
+  onSelect,
   onOpen,
   onEdit,
   onInsertPathIntoTerminal,
@@ -1926,6 +1934,7 @@ function FileTreeFragment({
   onInlineChange: (edit: FileInlineEdit) => void;
   onInlineCancel: () => void;
   onInlineSubmit: () => void;
+  onSelect: () => void;
   onOpen: () => void;
   onEdit?: () => void;
   onInsertPathIntoTerminal?: () => void;
@@ -1961,6 +1970,7 @@ function FileTreeFragment({
           expanded={expanded}
           loading={loading}
           labels={labels}
+          onSelect={onSelect}
           onOpen={onOpen}
           onEdit={onEdit}
           onInsertPathIntoTerminal={onInsertPathIntoTerminal}
@@ -2038,6 +2048,7 @@ function FileTreeRow({
   selected,
   expanded,
   loading,
+  onSelect,
   onOpen,
   onEdit,
   onInsertPathIntoTerminal,
@@ -2054,6 +2065,7 @@ function FileTreeRow({
   expanded: boolean;
   loading: boolean;
   labels: FileTreeLabels;
+  onSelect: () => void;
   onOpen: () => void;
   onEdit?: () => void;
   onInsertPathIntoTerminal?: () => void;
@@ -2077,8 +2089,8 @@ function FileTreeRow({
         <PressableButton
           className="min-w-0 h-full flex-1 inline-flex items-center gap-1.5 pr-11 text-left"
           style={{ paddingLeft: `${8 + row.depth * 14}px` }}
-          onPressUp={onOpen}
-          onDoubleClick={onOpen}
+          onPressUp={onSelect}
+          onDoubleClick={entry.isDirectory ? undefined : onOpen}
         >
           {entry.isDirectory ? (
             <>
