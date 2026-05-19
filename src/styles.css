@@ -536,11 +536,28 @@
 }
 
 .app-shell {
+  isolation: isolate;
   background: linear-gradient(180deg, var(--surface-window-glass), var(--surface-window-tint));
 }
 
+.app-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  background: linear-gradient(180deg, var(--surface-window-glass), var(--surface-window-tint));
+  mix-blend-mode: color;
+  opacity: 0.95;
+}
+
 html.standalone-window:not(.terminal-window):not(.desktop-pet-window) .app-shell {
+  isolation: auto;
   background: var(--color-surface-chrome);
+}
+
+html.standalone-window:not(.terminal-window):not(.desktop-pet-window) .app-shell::after {
+  content: none;
 }
 
 ::-webkit-scrollbar {
