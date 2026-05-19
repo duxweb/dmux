@@ -292,7 +292,14 @@
       "settings.update.mode.signed_config": "Signierte Konfiguration",
       "settings.update.mode.not_configured": "Nicht konfiguriert",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "Startvorgaben für AI-CLI-Werkzeuge, Speicher und Anbieter."
+      "settings.tab.ai.description": "Startvorgaben für AI-CLI-Werkzeuge, Speicher und Anbieter.",
+      "settings.background_color.help": "Tints the main window background while preserving the translucent desktop material.",
+      "settings.ai.provider.empty": "No API channel has been added yet.",
+      "settings.update.status.available_format": "Version %@ is available. Current version: %@.",
+      "settings.update.status.latest_format": "Current version %@ is up to date.",
+      "settings.update.status.disabled": "Update checks are turned off.",
+      "settings.update.status.checking_github": "Checking GitHub releases...",
+      "settings.update.status.error": "Unable to check updates. Please try again later."
     },
     "en": {
       "settings.ai_auto_refresh": "AI Auto Refresh",
@@ -344,7 +351,7 @@
       "settings.ai.provider.add": "Add API Channel",
       "settings.ai.provider.anthropic_help": "Uses Anthropic Messages API at /v1/messages.",
       "settings.ai.provider.api_key": "API Key",
-      "settings.ai.provider.api_only_help": "Local and API providers for memory extraction.",
+      "settings.ai.provider.api_only_help": "API channels are used for memory extraction and pet text polishing.",
       "settings.ai.provider.base_url": "Base URL",
       "settings.ai.provider.default.local_llama": "Llama Model",
       "settings.ai.provider.enabled": "Enabled",
@@ -566,7 +573,7 @@
       "settings.tools.permission.full_access": "Full Access",
       "settings.tools.permissions": "Tool Configuration",
       "settings.update.channel": "Update Channel",
-      "settings.update.description": "Updates use signed Tauri artifacts from the tauri-stable GitHub Release.",
+      "settings.update.description": "Updates are checked from GitHub Releases for the selected channel.",
       "settings.update.enabled": "Enable Update Checks",
       "settings.update.endpoint": "Update Endpoint",
       "settings.update.endpoint_help": "The default endpoint reads the signed latest.json asset without changing the native macOS release channel.",
@@ -586,7 +593,14 @@
       "settings.update.mode.signed_config": "Signed Config",
       "settings.update.mode.not_configured": "Not Configured",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "Launch defaults for AI CLI tools, memory, and providers."
+      "settings.tab.ai.description": "Launch defaults for AI CLI tools, memory, and providers.",
+      "settings.background_color.help": "Tints the main window background while preserving the translucent desktop material.",
+      "settings.ai.provider.empty": "No API channel has been added yet.",
+      "settings.update.status.available_format": "Version %@ is available. Current version: %@.",
+      "settings.update.status.latest_format": "Current version %@ is up to date.",
+      "settings.update.status.disabled": "Update checks are turned off.",
+      "settings.update.status.checking_github": "Checking GitHub releases...",
+      "settings.update.status.error": "Unable to check updates. Please try again later."
     },
     "es": {
       "settings.ai_auto_refresh": "Actualización automática de IA",
@@ -880,7 +894,14 @@
       "settings.update.mode.signed_config": "Configuración firmada",
       "settings.update.mode.not_configured": "Sin configurar",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "Valores de inicio para herramientas CLI de IA, memoria y proveedores."
+      "settings.tab.ai.description": "Valores de inicio para herramientas CLI de IA, memoria y proveedores.",
+      "settings.background_color.help": "Tints the main window background while preserving the translucent desktop material.",
+      "settings.ai.provider.empty": "No API channel has been added yet.",
+      "settings.update.status.available_format": "Version %@ is available. Current version: %@.",
+      "settings.update.status.latest_format": "Current version %@ is up to date.",
+      "settings.update.status.disabled": "Update checks are turned off.",
+      "settings.update.status.checking_github": "Checking GitHub releases...",
+      "settings.update.status.error": "Unable to check updates. Please try again later."
     },
     "fr": {
       "settings.ai_auto_refresh": "Actualisation auto IA",
@@ -1174,7 +1195,14 @@
       "settings.update.mode.signed_config": "Configuration signée",
       "settings.update.mode.not_configured": "Non configuré",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "Paramètres de lancement pour les CLI IA, la mémoire et les fournisseurs."
+      "settings.tab.ai.description": "Paramètres de lancement pour les CLI IA, la mémoire et les fournisseurs.",
+      "settings.background_color.help": "Tints the main window background while preserving the translucent desktop material.",
+      "settings.ai.provider.empty": "No API channel has been added yet.",
+      "settings.update.status.available_format": "Version %@ is available. Current version: %@.",
+      "settings.update.status.latest_format": "Current version %@ is up to date.",
+      "settings.update.status.disabled": "Update checks are turned off.",
+      "settings.update.status.checking_github": "Checking GitHub releases...",
+      "settings.update.status.error": "Unable to check updates. Please try again later."
     },
     "ja": {
       "settings.ai_auto_refresh": "AI 自動更新",
@@ -1468,7 +1496,14 @@
       "settings.update.mode.signed_config": "署名済み設定",
       "settings.update.mode.not_configured": "未設定",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "AI CLI ツール、メモリ、プロバイダーの起動既定値。"
+      "settings.tab.ai.description": "AI CLI ツール、メモリ、プロバイダーの起動既定値。",
+      "settings.background_color.help": "Tints the main window background while preserving the translucent desktop material.",
+      "settings.ai.provider.empty": "No API channel has been added yet.",
+      "settings.update.status.available_format": "Version %@ is available. Current version: %@.",
+      "settings.update.status.latest_format": "Current version %@ is up to date.",
+      "settings.update.status.disabled": "Update checks are turned off.",
+      "settings.update.status.checking_github": "Checking GitHub releases...",
+      "settings.update.status.error": "Unable to check updates. Please try again later."
     },
     "ko": {
       "settings.ai_auto_refresh": "AI 자동 새로고침",
@@ -1762,7 +1797,14 @@
       "settings.update.mode.signed_config": "서명된 설정",
       "settings.update.mode.not_configured": "설정되지 않음",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "AI CLI 도구, 메모리, 제공자의 실행 기본값입니다."
+      "settings.tab.ai.description": "AI CLI 도구, 메모리, 제공자의 실행 기본값입니다.",
+      "settings.background_color.help": "Tints the main window background while preserving the translucent desktop material.",
+      "settings.ai.provider.empty": "No API channel has been added yet.",
+      "settings.update.status.available_format": "Version %@ is available. Current version: %@.",
+      "settings.update.status.latest_format": "Current version %@ is up to date.",
+      "settings.update.status.disabled": "Update checks are turned off.",
+      "settings.update.status.checking_github": "Checking GitHub releases...",
+      "settings.update.status.error": "Unable to check updates. Please try again later."
     },
     "pt-BR": {
       "settings.ai_auto_refresh": "Atualização automática de IA",
@@ -2056,7 +2098,14 @@
       "settings.update.mode.signed_config": "Configuração assinada",
       "settings.update.mode.not_configured": "Não configurado",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "Padrões de inicialização para CLIs de IA, memória e provedores."
+      "settings.tab.ai.description": "Padrões de inicialização para CLIs de IA, memória e provedores.",
+      "settings.background_color.help": "Tints the main window background while preserving the translucent desktop material.",
+      "settings.ai.provider.empty": "No API channel has been added yet.",
+      "settings.update.status.available_format": "Version %@ is available. Current version: %@.",
+      "settings.update.status.latest_format": "Current version %@ is up to date.",
+      "settings.update.status.disabled": "Update checks are turned off.",
+      "settings.update.status.checking_github": "Checking GitHub releases...",
+      "settings.update.status.error": "Unable to check updates. Please try again later."
     },
     "ru": {
       "settings.ai_auto_refresh": "Автообновление ИИ",
@@ -2350,7 +2399,14 @@
       "settings.update.mode.signed_config": "Подписанная конфигурация",
       "settings.update.mode.not_configured": "Не настроено",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "Параметры запуска для AI CLI, памяти и поставщиков."
+      "settings.tab.ai.description": "Параметры запуска для AI CLI, памяти и поставщиков.",
+      "settings.background_color.help": "Tints the main window background while preserving the translucent desktop material.",
+      "settings.ai.provider.empty": "No API channel has been added yet.",
+      "settings.update.status.available_format": "Version %@ is available. Current version: %@.",
+      "settings.update.status.latest_format": "Current version %@ is up to date.",
+      "settings.update.status.disabled": "Update checks are turned off.",
+      "settings.update.status.checking_github": "Checking GitHub releases...",
+      "settings.update.status.error": "Unable to check updates. Please try again later."
     },
     "zh-Hans": {
       "settings.ai_auto_refresh": "AI 自动刷新",
@@ -2402,7 +2458,7 @@
       "settings.ai.provider.add": "添加 API 通道",
       "settings.ai.provider.anthropic_help": "使用 /v1/messages 的 Anthropic Messages API。",
       "settings.ai.provider.api_key": "API 密钥",
-      "settings.ai.provider.api_only_help": "用于记忆提取的本地和 API 提供商。",
+      "settings.ai.provider.api_only_help": "API 通道用于记忆提取和宠物文本润色。",
       "settings.ai.provider.base_url": "基础 URL",
       "settings.ai.provider.default.local_llama": "Llama 模型",
       "settings.ai.provider.enabled": "启用",
@@ -2624,7 +2680,7 @@
       "settings.tools.permission.full_access": "完全权限",
       "settings.tools.permissions": "工具配置",
       "settings.update.channel": "更新通道",
-      "settings.update.description": "检查更新会保持禁用，直到当前构建配置了已签名的 Tauri 更新端点和公钥。",
+      "settings.update.description": "更新会直接从所选通道的 GitHub Release 检查。",
       "settings.update.enabled": "启用检查更新",
       "settings.update.endpoint": "更新端点",
       "settings.update.endpoint_help": "除非当前构建已签名并配置了匹配的更新公钥，否则保持为空。",
@@ -2644,7 +2700,14 @@
       "settings.update.mode.signed_config": "已签名配置",
       "settings.update.mode.not_configured": "未配置",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "AI CLI 工具、记忆和供应商的启动默认值。"
+      "settings.tab.ai.description": "AI CLI 工具、记忆和供应商的启动默认值。",
+      "settings.background_color.help": "为主窗口背景叠加主题色，同时保留桌面磨砂玻璃效果。",
+      "settings.ai.provider.empty": "还没有添加 API 通道。",
+      "settings.update.status.available_format": "发现版本 %@，当前版本为 %@。",
+      "settings.update.status.latest_format": "当前版本 %@ 已是最新。",
+      "settings.update.status.disabled": "检查更新已关闭。",
+      "settings.update.status.checking_github": "正在检查 GitHub Release...",
+      "settings.update.status.error": "暂时无法检查更新，请稍后重试。"
     },
     "zh-Hant": {
       "settings.ai_auto_refresh": "AI 自動重新整理",
@@ -2696,7 +2759,7 @@
       "settings.ai.provider.add": "新增 API 通道",
       "settings.ai.provider.anthropic_help": "使用 /v1/messages 的 Anthropic Messages API。",
       "settings.ai.provider.api_key": "API 金鑰",
-      "settings.ai.provider.api_only_help": "用於記憶擷取的本機和 API 供應商。",
+      "settings.ai.provider.api_only_help": "API 通道用於記憶擷取和寵物文字潤飾。",
       "settings.ai.provider.base_url": "基礎 URL",
       "settings.ai.provider.default.local_llama": "Llama 模型",
       "settings.ai.provider.enabled": "啟用",
@@ -2918,7 +2981,7 @@
       "settings.tools.permission.full_access": "完整權限",
       "settings.tools.permissions": "工具配置",
       "settings.update.channel": "更新通道",
-      "settings.update.description": "檢查更新會保持停用，直到目前建置配置了已簽署的 Tauri 更新端點與公開金鑰。",
+      "settings.update.description": "更新會直接從所選通道的 GitHub Release 檢查。",
       "settings.update.enabled": "啟用檢查更新",
       "settings.update.endpoint": "更新端點",
       "settings.update.endpoint_help": "除非目前建置已簽署並配置了相符的更新公開金鑰，否則保持空白。",
@@ -2938,7 +3001,14 @@
       "settings.update.mode.signed_config": "已簽署配置",
       "settings.update.mode.not_configured": "未配置",
       "settings.tab.ai": "AI",
-      "settings.tab.ai.description": "AI CLI 工具、記憶和供應商的啟動預設值。"
+      "settings.tab.ai.description": "AI CLI 工具、記憶和供應商的啟動預設值。",
+      "settings.background_color.help": "為主視窗背景疊加主題色，同時保留桌面磨砂玻璃效果。",
+      "settings.ai.provider.empty": "尚未新增 API 通道。",
+      "settings.update.status.available_format": "發現版本 %@，目前版本為 %@。",
+      "settings.update.status.latest_format": "目前版本 %@ 已是最新。",
+      "settings.update.status.disabled": "檢查更新已關閉。",
+      "settings.update.status.checking_github": "正在檢查 GitHub Release...",
+      "settings.update.status.error": "暫時無法檢查更新，請稍後再試。"
     }
   }
 }

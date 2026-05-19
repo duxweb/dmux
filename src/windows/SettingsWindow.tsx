@@ -367,7 +367,7 @@ function GeneralSection() {
 
   useEffect(() => {
     void refreshUpdateStatus();
-  }, [settings.update.enabled, settings.update.channel, settings.update.endpoint]);
+  }, [settings.update.enabled, settings.update.channel]);
 
   return (
     <SettingsForm className="max-w-[640px]">
@@ -432,19 +432,9 @@ function GeneralSection() {
             options={updateChannelOptions}
           />
         </Field>
-        <Field
-          label={tm("settings.update.endpoint", "Update Endpoint")}
-          description={tm("settings.update.endpoint_help", "The default endpoint reads the signed latest.json asset without changing the native macOS release channel.")}
-        >
-          <TextInput
-            value={settings.update.endpoint}
-            placeholder="https://github.com/duxweb/codux/releases/download/tauri-stable/latest.json"
-            onChange={(event) => setSetting("update", { ...settings.update, endpoint: event.currentTarget.value })}
-          />
-        </Field>
         <FormRow
           label={tm("settings.update.status", "Update Status")}
-          description={updateStatus?.message ?? tm("update.checking", "Checking for updates...")}
+          description={updateStatusDescription(updateStatus, isCheckingUpdates)}
         >
           <div className="flex items-center gap-2">
             <span className="rounded-md border border-line bg-fill/[0.04] px-2 py-1 text-xs font-medium text-ink-faint">
@@ -490,6 +480,29 @@ function updateModeLabel(status: UpdateStatus | null) {
     return tm("settings.update.mode.not_configured", "Not Configured");
   }
   return status.installationMode;
+}
+
+function updateStatusDescription(status: UpdateStatus | null, checking: boolean) {
+  if (checking || !status) {
+    return tm("settings.update.status.checking_github", "Checking GitHub releases...");
+  }
+  if (!status.configured && status.installationMode === "disabled") {
+    return tm("settings.update.status.disabled", "Update checks are turned off.");
+  }
+  if (status.available) {
+    return formatI18n(
+      tm("settings.update.status.available_format", "Version %@ is available. Current version: %@."),
+      status.latestVersion ?? status.currentVersion,
+      status.currentVersion,
+    );
+  }
+  if (status.latestVersion) {
+    return formatI18n(
+      tm("settings.update.status.latest_format", "Current version %@ is up to date."),
+      status.currentVersion,
+    );
+  }
+  return tm("settings.update.status.error", "Unable to check updates. Please try again later.");
 }
 
 function AppearanceSection() {
