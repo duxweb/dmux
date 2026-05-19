@@ -32,7 +32,9 @@ import {
   syncAppSettingsFromRust,
   updateAppSettings,
   type AppSettings,
+  type AICodexReasoningEffort,
   type AIProviderSettings,
+  type AIToolPermissionMode,
   type NotificationChannelSettings,
 } from "../settings";
 import {
@@ -124,10 +126,24 @@ const updateChannelOptions = [
 ];
 
 const runtimeTools = [
-  { id: "codex", label: "Codex", model: "gpt-5.5" },
-  { id: "claudeCode", label: "Claude Code", model: "claude-sonnet-4.5" },
-  { id: "gemini", label: "Gemini", model: "gemini-2.5-pro" },
-  { id: "opencode", label: "OpenCode", model: "gpt-5.5" },
+  { id: "codex", permissionKey: "codex", modelKey: "codexModel", label: "Codex", model: "gpt-5.5" },
+  { id: "claudeCode", permissionKey: "claudeCode", modelKey: "claudeCodeModel", label: "Claude Code", model: "claude-sonnet-4.5" },
+  { id: "gemini", permissionKey: "gemini", modelKey: "geminiModel", label: "Gemini", model: "gemini-2.5-pro" },
+  { id: "opencode", permissionKey: "opencode", modelKey: "opencodeModel", label: "OpenCode", model: "gpt-5.5" },
+] as const;
+
+const toolPermissionOptions = [
+  { value: "default", label: tm("settings.tools.permission.default", "Default") },
+  { value: "fullAccess", label: tm("settings.tools.permission.full_access", "Full Access") },
+];
+
+const codexEffortOptions = [
+  { value: "none", label: tm("agent.effort.none", "None") },
+  { value: "minimal", label: tm("agent.effort.minimal", "Minimal") },
+  { value: "low", label: tm("agent.effort.low", "Low") },
+  { value: "medium", label: tm("agent.effort.medium", "Medium") },
+  { value: "high", label: tm("agent.effort.high", "High") },
+  { value: "xhigh", label: tm("agent.effort.xhigh", "XHigh") },
 ];
 
 const aiProviderKindOptions = [
@@ -722,6 +738,14 @@ function AISection() {
     });
     setSettings(next);
   };
+  const setRuntimeTools = (patch: Partial<typeof ai.runtimeTools>) => {
+    setAI({
+      runtimeTools: {
+        ...ai.runtimeTools,
+        ...patch,
+      },
+    });
+  };
   const setMemory = (patch: Partial<typeof ai.memory>) => {
     setAI({ memory: { ...ai.memory, ...patch } });
   };
@@ -794,11 +818,34 @@ function AISection() {
         description={tm("settings.tools.hint", "These defaults apply the next time a supported AI tool is launched inside a Codux terminal. Explicit command-line flags still take priority.")}
       >
         {runtimeTools.map((tool) => (
-          <ReadOnlySetting
-            key={tool.id}
-            label={formatI18n(tm("settings.ai.tool.configuration_format", "%@ Configuration"), tool.label)}
-            value={tool.model}
-          />
+          <div key={tool.id} className="grid gap-3">
+            <div className="text-sm font-semibold text-ink">
+              {formatI18n(tm("settings.ai.tool.configuration_format", "%@ Configuration"), tool.label)}
+            </div>
+            <Field label={tm("settings.ai.permission.full_access_toggle", "Full Access")}>
+              <Select
+                value={ai.runtimeTools[tool.permissionKey]}
+                onChange={(value) => setRuntimeTools({ [tool.permissionKey]: value as AIToolPermissionMode })}
+                options={toolPermissionOptions}
+              />
+            </Field>
+            <Field label={tm("settings.ai.tool.default_model", "Default Model")}>
+              <TextInput
+                placeholder={tool.model}
+                value={ai.runtimeTools[tool.modelKey]}
+                onChange={(event) => setRuntimeTools({ [tool.modelKey]: event.currentTarget.value })}
+              />
+            </Field>
+            {tool.id === "codex" && (
+              <Field label={tm("agent.effort.title", "Reasoning Effort")}>
+                <Select
+                  value={ai.runtimeTools.codexEffort}
+                  onChange={(codexEffort) => setRuntimeTools({ codexEffort: codexEffort as AICodexReasoningEffort })}
+                  options={codexEffortOptions}
+                />
+              </Field>
+            )}
+          </div>
         ))}
       </SettingsCard>
 

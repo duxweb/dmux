@@ -55,9 +55,26 @@ export type PetSettings = {
 
 export type AISettings = {
   globalPrompt: string;
+  runtimeTools: AIRuntimeToolSettings;
   memory: AIMemorySettings;
   pet: AIPetSettings;
   providers: AIProviderSettings[];
+};
+
+export type AIToolPermissionMode = "default" | "fullAccess";
+
+export type AICodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+export type AIRuntimeToolSettings = {
+  codex: AIToolPermissionMode;
+  claudeCode: AIToolPermissionMode;
+  gemini: AIToolPermissionMode;
+  opencode: AIToolPermissionMode;
+  codexModel: string;
+  claudeCodeModel: string;
+  geminiModel: string;
+  opencodeModel: string;
+  codexEffort: AICodexReasoningEffort;
 };
 
 export type AIMemorySettings = {
@@ -128,6 +145,17 @@ export const defaultSettings: AppSettings = {
   },
   ai: {
     globalPrompt: "",
+    runtimeTools: {
+      codex: "default",
+      claudeCode: "default",
+      gemini: "default",
+      opencode: "default",
+      codexModel: "",
+      claudeCodeModel: "",
+      geminiModel: "",
+      opencodeModel: "",
+      codexEffort: "medium",
+    },
     memory: {
       enabled: true,
       automaticInjectionEnabled: true,
@@ -335,6 +363,7 @@ function normalizeAISettings(settings?: Partial<AISettings>, legacyPet?: Partial
   return {
     ...defaultSettings.ai,
     ...(settings ?? {}),
+    runtimeTools: normalizeRuntimeTools(settings?.runtimeTools),
     memory: {
       ...defaultSettings.ai.memory,
       ...(settings?.memory ?? {}),
@@ -360,6 +389,28 @@ function normalizeAISettings(settings?: Partial<AISettings>, legacyPet?: Partial
       priority: provider.priority,
     })),
   };
+}
+
+function normalizeRuntimeTools(settings?: Partial<AIRuntimeToolSettings>): AIRuntimeToolSettings {
+  return {
+    ...defaultSettings.ai.runtimeTools,
+    ...(settings ?? {}),
+    codex: normalizePermissionMode(settings?.codex),
+    claudeCode: normalizePermissionMode(settings?.claudeCode),
+    gemini: normalizePermissionMode(settings?.gemini),
+    opencode: normalizePermissionMode(settings?.opencode),
+    codexEffort: normalizeCodexEffort(settings?.codexEffort),
+  };
+}
+
+function normalizePermissionMode(value: unknown): AIToolPermissionMode {
+  return value === "fullAccess" ? "fullAccess" : "default";
+}
+
+function normalizeCodexEffort(value: unknown): AICodexReasoningEffort {
+  return value === "none" || value === "minimal" || value === "low" || value === "high" || value === "xhigh"
+    ? value
+    : "medium";
 }
 
 function normalizeOptionalHour(value: unknown): number | null {

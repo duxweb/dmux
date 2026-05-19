@@ -1,6 +1,7 @@
 use crate::ai_runtime::{AIRuntimeBridge, AIRuntimeTerminalBinding};
-use crate::app_settings::AppSettingsStore;
+use crate::app_settings::{AIRuntimeToolSettings, AppSettingsStore};
 use crate::memory::{MemoryLaunchRequest, MemoryStore};
+use crate::paths::runtime_temp_dir;
 use crate::ssh::ssh_profiles_file_path;
 use anyhow::{anyhow, Context, Result};
 use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -583,6 +584,14 @@ impl TerminalEnvironment {
             "DMUX_ZSH_HOOK_SCRIPT".to_string(),
             request.ai_runtime.hook_script().display().to_string(),
         );
+        if let Some(tool_settings_file) =
+            write_tool_permission_settings(&request.settings.snapshot().ai.runtime_tools)
+        {
+            values.insert(
+                "DMUX_TOOL_PERMISSION_SETTINGS_FILE".to_string(),
+                tool_settings_file.display().to_string(),
+            );
+        }
         values.insert(
             "DMUX_ORIGINAL_PATH".to_string(),
             values.get("PATH").cloned().unwrap_or_default(),
@@ -620,6 +629,15 @@ impl TerminalEnvironment {
 
         Self { values }
     }
+}
+
+fn write_tool_permission_settings(settings: &AIRuntimeToolSettings) -> Option<PathBuf> {
+    let path = runtime_temp_dir().join("tool-permissions.json");
+    let parent = path.parent()?;
+    fs::create_dir_all(parent).ok()?;
+    let data = serde_json::to_vec(settings).ok()?;
+    fs::write(&path, data).ok()?;
+    Some(path)
 }
 
 struct RingHistory {

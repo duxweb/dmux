@@ -15,6 +15,8 @@ import {
 } from "../icons";
 import {
   checkForUpdates,
+  closeAllProjectsFromMenu,
+  closeProjectFromMenu,
   exportDiagnostics,
   openExternalUrl,
   openLiveLog,
@@ -23,13 +25,20 @@ import {
   toggleDeveloperTools,
 } from "../appActions";
 import { CODUX_GITHUB_URL, CODUX_WEBSITE_URL } from "../appLinks";
-import { useState } from "react";
-import { t, tm } from "../i18n";
+import { useEffect, useState } from "react";
+import {
+  listProjectOpenApplications,
+  openProjectInApplication,
+  revealProjectInFileManager,
+  type ProjectOpenApplication,
+} from "../ide";
+import { formatI18n, t, tm } from "../i18n";
 import { Button } from "./Button";
+import { ContextMenu, ContextMenuItem, ContextMenuSeparator, useContextMenu } from "./ContextMenu";
 import { DesktopMenu, DesktopMenuItem, DesktopMenuSeparator } from "./DesktopMenu";
 import { PressableButton } from "./PressableButton";
 import { Tooltip } from "./Tooltip";
-import type { WorkspaceProject } from "../types";
+import type { ProjectListSnapshot, WorkspaceProject } from "../types";
 import type { AppIcon } from "../icons";
 
 type Props = {
@@ -40,6 +49,8 @@ type Props = {
   onFocusScope: () => void;
   onCreateProject: () => void;
   onOpenSettings: () => void;
+  onProjectSnapshot?: (snapshot: ProjectListSnapshot) => void;
+  onCreateWorktree?: (project: WorkspaceProject) => void;
 };
 
 const badgePalette = [
@@ -84,8 +95,23 @@ export function ProjectSidebar({
   onFocusScope,
   onCreateProject,
   onOpenSettings,
+  onProjectSnapshot,
+  onCreateWorktree,
 }: Props) {
   const width = isExpanded ? 248 : 70;
+  const [openApplications, setOpenApplications] = useState<ProjectOpenApplication[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listProjectOpenApplications()
+      .then((items) => {
+        if (!cancelled) setOpenApplications(items.filter((item) => item.installed && item.category === "ide"));
+      })
+      .catch((error) => console.error("failed to load installed applications", error));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <nav
@@ -114,6 +140,24 @@ export function ProjectSidebar({
               isSelected={project.id === selectedProjectId}
               isExpanded={isExpanded}
               onPress={() => onSelect(project.id)}
+              openApplications={openApplications}
+              onCreateWorktree={() => onCreateWorktree?.(project)}
+              onReveal={() => void revealProjectInFileManager(project.path)}
+              onOpenApplication={(applicationId) => void openProjectInApplication(project.path, applicationId)}
+              onClose={() => {
+                void closeProjectFromMenu(project)
+                  .then((snapshot) => {
+                    if (snapshot) onProjectSnapshot?.(snapshot);
+                  })
+                  .catch((error) => console.error("failed to close project", error));
+              }}
+              onCloseAll={() => {
+                void closeAllProjectsFromMenu(projects)
+                  .then((snapshot) => {
+                    if (snapshot) onProjectSnapshot?.(snapshot);
+                  })
+                  .catch((error) => console.error("failed to close all projects", error));
+              }}
             />
           ))}
         </div>
@@ -153,90 +197,135 @@ function ProjectRow({
   isSelected,
   isExpanded,
   onPress,
+  openApplications,
+  onCreateWorktree,
+  onReveal,
+  onOpenApplication,
+  onClose,
+  onCloseAll,
 }: {
   project: WorkspaceProject;
   colors: { from: string; to: string };
   isSelected: boolean;
   isExpanded: boolean;
   onPress: () => void;
+  openApplications: ProjectOpenApplication[];
+  onCreateWorktree?: () => void;
+  onReveal?: () => void;
+  onOpenApplication?: (applicationId: string) => void;
+  onClose?: () => void;
+  onCloseAll?: () => void;
 }) {
   const initials = project.badge.slice(0, isExpanded ? 2 : 1).toUpperCase();
   const badgeSize = isExpanded ? 38 : 36;
   const BadgeIcon = project.badgeSymbol ? projectBadgeIcons[project.badgeSymbol] : undefined;
+  const contextMenu = useContextMenu();
 
   const body = (
-    <PressableButton
-      onPressUp={onPress}
-      aria-busy={project.aiState === "running"}
-      className={`w-full rounded-[12px] outline-none focus:outline-none focus-visible:outline-none transition-colors ${
-        isSelected ? "bg-fill/[0.085]" : "hover:bg-fill/[0.04]"
-      }`}
-      style={{ opacity: isSelected ? 1 : 0.82 }}
-    >
-      <div
-        className={
-          isExpanded
-            ? "flex items-center gap-2.5 p-2"
-            : "flex justify-center p-[6px]"
-        }
+    <>
+      <PressableButton
+        onPressUp={onPress}
+        onContextMenu={contextMenu.openMenu}
+        aria-busy={project.aiState === "running"}
+        className={`w-full rounded-[12px] outline-none focus:outline-none focus-visible:outline-none transition-colors ${
+          isSelected ? "bg-fill/[0.085]" : "hover:bg-fill/[0.04]"
+        }`}
+        style={{ opacity: isSelected ? 1 : 0.82 }}
       >
-        <span
-          className="relative rounded-[8px] grid place-items-center flex-shrink-0 shadow-badge"
-          style={{
-            width: badgeSize,
-            height: badgeSize,
-            background: `linear-gradient(135deg, ${colors.from} 0%, ${colors.to} 100%)`,
-          }}
+        <div
+          className={
+            isExpanded
+              ? "flex items-center gap-2.5 p-2"
+              : "flex justify-center p-[6px]"
+          }
         >
-          {project.aiState !== "idle" && (
-            project.aiState === "running" ? (
-              <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-surface-chrome ring-2 ring-surface-chrome">
-                <RefreshCw size={10} className="animate-spin text-brand-amber" />
-              </span>
+          <span
+            className="relative rounded-[8px] grid place-items-center flex-shrink-0 shadow-badge"
+            style={{
+              width: badgeSize,
+              height: badgeSize,
+              background: `linear-gradient(135deg, ${colors.from} 0%, ${colors.to} 100%)`,
+            }}
+          >
+            {project.aiState !== "idle" && (
+              project.aiState === "running" ? (
+                <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-surface-chrome ring-2 ring-surface-chrome">
+                  <RefreshCw size={10} className="animate-spin text-brand-amber" />
+                </span>
+              ) : (
+                <span
+                  className={`absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full ring-2 ring-surface-chrome ${
+                    project.aiState === "review"
+                      ? "bg-brand-blue"
+                      : "bg-brand-green"
+                  }`}
+                />
+              )
+            )}
+            {BadgeIcon ? (
+              <BadgeIcon size={isExpanded ? 17 : 16} className="text-on-brand" />
             ) : (
-              <span
-                className={`absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full ring-2 ring-surface-chrome ${
-                  project.aiState === "review"
-                    ? "bg-brand-blue"
-                    : "bg-brand-green"
-                }`}
-              />
-            )
-          )}
-          {BadgeIcon ? (
-            <BadgeIcon size={isExpanded ? 17 : 16} className="text-on-brand" />
-          ) : (
-            <span className="text-on-brand font-bold text-sm tracking-tight">
-              {initials}
-            </span>
-          )}
-        </span>
+              <span className="text-on-brand font-bold text-sm tracking-tight">
+                {initials}
+              </span>
+            )}
+          </span>
 
-        {isExpanded && (
-          <div className="min-w-0 flex-1 text-left">
-            <div
-              className={`text-sm font-semibold truncate ${
-                isSelected ? "text-ink" : "text-ink-soft"
-              }`}
-            >
-              {project.name}
+          {isExpanded && (
+            <div className="min-w-0 flex-1 text-left">
+              <div
+                className={`text-sm font-semibold truncate ${
+                  isSelected ? "text-ink" : "text-ink-soft"
+                }`}
+              >
+                {project.name}
+              </div>
+              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs font-medium text-ink-faint">
+                {project.aiState === "running" && (
+                  <RefreshCw size={11} className="flex-shrink-0 animate-spin text-brand-amber" />
+                )}
+                {project.aiState === "running"
+                  ? tm("agent.status.running", "Running")
+                  : project.aiState === "review"
+                    ? tm("project.activity.input_required", "Action required")
+                    : project.aiState === "done"
+                      ? tm("agent.status.completed", "Completed")
+                      : project.path}
+              </div>
             </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs font-medium text-ink-faint">
-              {project.aiState === "running" && (
-                <RefreshCw size={11} className="flex-shrink-0 animate-spin text-brand-amber" />
-              )}
-              {project.aiState === "running"
-                ? tm("agent.status.running", "Running")
-                : project.aiState === "review"
-                  ? tm("project.activity.input_required", "Action required")
-                  : project.aiState === "done"
-                    ? tm("agent.status.completed", "Completed")
-                    : project.path}
-            </div>
-          </div>
-        )}
-      </div>
-    </PressableButton>
+          )}
+        </div>
+      </PressableButton>
+      <ContextMenu
+        ariaLabel={formatI18n(tm("sidebar.project.actions_format", "%@ Actions"), project.name)}
+        menu={contextMenu.menu}
+        onClose={contextMenu.closeMenu}
+      >
+        <ContextMenuItem label={tm("worktree.create.title", "New Worktree")} onSelect={onCreateWorktree}>
+          {tm("worktree.create.title", "New Worktree")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem label={tm("sidebar.project.open_folder", "Open Folder")} onSelect={onReveal}>
+          {tm("sidebar.project.open_folder", "Open Folder")}
+        </ContextMenuItem>
+        {openApplications.map((application) => (
+          <ContextMenuItem
+            key={application.id}
+            label={formatI18n(tm("open.application.format", "Open in %@"), application.label)}
+            onSelect={() => onOpenApplication?.(application.id)}
+          >
+            {formatI18n(tm("open.application.format", "Open in %@"), application.label)}
+          </ContextMenuItem>
+        ))}
+        <ContextMenuSeparator />
+        <ContextMenuItem label={tm("sidebar.project.remove", "Remove Project")} onSelect={onClose}>
+          {tm("sidebar.project.remove", "Remove Project")}
+        </ContextMenuItem>
+        <ContextMenuItem label={tm("workspace.close_all_projects.confirm", "Close All")} onSelect={onCloseAll}>
+          {tm("workspace.close_all_projects.confirm", "Close All")}
+        </ContextMenuItem>
+      </ContextMenu>
+    </>
   );
 
   if (!isExpanded) {

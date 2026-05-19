@@ -26,6 +26,7 @@ import {
   type AppIcon,
 } from "../icons";
 import { invoke } from "@tauri-apps/api/core";
+import { Tabs } from "@heroui/react";
 import { useEffect, useMemo, useState } from "react";
 import { useAIGlobalHistorySnapshot } from "../ai/history";
 import { useMemoryExtractionStatus, type MemoryExtractionStatusSnapshot } from "../ai/memory";
@@ -52,6 +53,7 @@ import { openAppWindow } from "../windowing";
 
 type Props = {
   projects: WorkspaceProject[];
+  selectedProject?: WorkspaceProject;
   mainView: MainView;
   setMainView: (view: MainView) => void;
   isSidebarExpanded: boolean;
@@ -68,6 +70,7 @@ type TitlebarPopoverKey = "pet" | "daily-level";
 
 export function Titlebar({
   projects,
+  selectedProject,
   mainView,
   setMainView,
   isSidebarExpanded,
@@ -153,7 +156,7 @@ export function Titlebar({
 
           <StandbyPill />
 
-          <OpenInIDEButton />
+          <OpenInIDEButton project={selectedProject ?? projects[0]} />
 
           <GlyphButton
             icon={BarChart3}
@@ -486,10 +489,10 @@ function MemoryStatusButton() {
       <button
         type="button"
         aria-label={tm("memory.manager.window.title", "Memory Manager")}
-        className={`no-drag grid h-[30px] w-[30px] place-items-center rounded-md outline-none transition-colors hover:bg-fill/[0.06] ${tone}`}
+        className={`no-drag inline-grid h-[30px] w-[30px] place-items-center rounded-[8px] border border-line bg-fill/[0.06] outline-none transition-colors hover:border-line-strong hover:bg-fill/10 ${tone}`}
         onClick={() => void openAppWindow("memory-manager")}
       >
-        <BrainCog size={15} strokeWidth={1.85} />
+        <BrainCog size={16} strokeWidth={1.85} />
       </button>
     </Tooltip>
   );
@@ -946,54 +949,33 @@ function ModeSwitcher({
   mainView: MainView;
   setMainView: (view: MainView) => void;
 }) {
+  const items: Array<{ id: MainView; icon: typeof TerminalSquare; label: string }> = [
+    { id: "terminal", icon: TerminalSquare, label: tm("workspace.create_split.terminal", "Terminal") },
+    { id: "files", icon: FileText, label: t("files") },
+    { id: "review", icon: ListChecks, label: t("review") },
+  ];
   return (
-    <div className="flex items-center gap-0.5 h-[30px] p-[3px] rounded-full bg-fill/[0.055] border border-line no-drag">
-      <ModeSegment
-        icon={TerminalSquare}
-        label={tm("workspace.create_split.terminal", "Terminal")}
-        active={mainView === "terminal"}
-        onPress={() => setMainView("terminal")}
-      />
-      <ModeSegment
-        icon={FileText}
-        label={t("files")}
-        active={mainView === "files"}
-        onPress={() => setMainView("files")}
-      />
-      <ModeSegment
-        icon={ListChecks}
-        label={t("review")}
-        active={mainView === "review"}
-        onPress={() => setMainView("review")}
-      />
-    </div>
-  );
-}
-
-function ModeSegment({
-  icon: Icon,
-  label,
-  active,
-  onPress,
-}: {
-  icon: typeof TerminalSquare;
-  label: string;
-  active: boolean;
-  onPress?: () => void;
-}) {
-  return (
-    <Tooltip label={label} placement="bottom">
-      <PressableButton
-        onPressUp={onPress}
-        className={`h-[24px] min-w-[78px] px-3 inline-flex items-center justify-center gap-1.5 rounded-full text-xs font-semibold transition-colors ${
-          active
-            ? "bg-brand-blue/18 text-ink"
-            : "text-ink-soft hover:text-ink hover:bg-fill/8"
-        }`}
-      >
-        <Icon size={12} strokeWidth={2.2} />
-        <span>{label}</span>
-      </PressableButton>
-    </Tooltip>
+    <Tabs
+      selectedKey={mainView}
+      onSelectionChange={(key) => setMainView(key as MainView)}
+      aria-label={tm("titlebar.view_switcher", "View Switcher")}
+      className="no-drag"
+    >
+      <Tabs.List className="flex h-[30px] items-center gap-0.5 rounded-full border border-line bg-fill/[0.055] p-[3px]">
+        {items.map(({ id, icon: Icon, label }) => (
+          <Tooltip key={id} label={label} placement="bottom">
+            <Tabs.Tab
+              id={id}
+              className="h-[24px] min-w-[78px] rounded-full px-3 text-xs font-semibold text-ink-soft outline-none transition-colors hover:bg-fill/8 hover:text-ink data-[selected]:bg-brand-blue/18 data-[selected]:text-ink"
+            >
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <Icon size={12} strokeWidth={2.2} />
+                <span>{label}</span>
+              </span>
+            </Tabs.Tab>
+          </Tooltip>
+        ))}
+      </Tabs.List>
+    </Tabs>
   );
 }

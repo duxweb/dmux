@@ -536,6 +536,7 @@ function App() {
     <main className="app-shell relative w-screen h-screen overflow-hidden text-ink">
       <Titlebar
         projects={projectsWithAIState}
+        selectedProject={selectedWorkspaceProject}
         mainView={mainView}
         setMainView={setMainView}
         isSidebarExpanded={isSidebarExpanded}
@@ -570,6 +571,12 @@ function App() {
           onFocusScope={() => setShortcutFocusScope("project-sidebar")}
           onCreateProject={() => void openAppWindow("project-create")}
           onOpenSettings={() => void openAppWindow("settings")}
+          onProjectSnapshot={applyProjectSnapshot}
+          onCreateWorktree={(project) => {
+            selectProject(project.id);
+            setTaskSidebarExpanded(true);
+            setTaskCreateRequest((value) => value + 1);
+          }}
         />
 
         <div className="flex-1 min-w-0 flex">

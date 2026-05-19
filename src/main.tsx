@@ -72,11 +72,12 @@ async function loadRoot() {
   return App;
 }
 
-lockRuntimeLocale();
 const uninstallSystemTheme = initSystemTheme();
 
-void loadRoot()
-  .then((Root) => {
+void Promise.all([syncAppSettingsFromRust(), syncI18nBundleFromRust(), loadRoot()])
+  .then(([settings, , Root]) => {
+    applyConfiguredTheme(settings);
+    lockRuntimeLocale(settings);
     const reactRoot = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
     const render = () => {
       reactRoot.render(
@@ -88,18 +89,6 @@ void loadRoot()
     };
 
     render();
-
-    void Promise.all([syncAppSettingsFromRust(), syncI18nBundleFromRust()])
-      .then(([settings]) => {
-        applyConfiguredTheme(settings);
-      })
-      .catch((error) => {
-        console.error("failed to bootstrap app state", error);
-      })
-      .finally(() => {
-        lockRuntimeLocale();
-        render();
-      });
   })
   .catch((error) => {
     console.error("failed to load application", error);

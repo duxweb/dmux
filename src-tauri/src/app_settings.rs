@@ -98,11 +98,36 @@ pub struct AISettings {
     #[serde(default)]
     pub global_prompt: String,
     #[serde(default)]
+    pub runtime_tools: AIRuntimeToolSettings,
+    #[serde(default)]
     pub memory: AIMemorySettings,
     #[serde(default)]
     pub pet: AIPetSettings,
     #[serde(default)]
     pub providers: Vec<AIProviderSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIRuntimeToolSettings {
+    #[serde(default = "default_ai_tool_permission_mode")]
+    pub codex: String,
+    #[serde(default = "default_ai_tool_permission_mode")]
+    pub claude_code: String,
+    #[serde(default = "default_ai_tool_permission_mode")]
+    pub gemini: String,
+    #[serde(default = "default_ai_tool_permission_mode")]
+    pub opencode: String,
+    #[serde(default)]
+    pub codex_model: String,
+    #[serde(default)]
+    pub claude_code_model: String,
+    #[serde(default)]
+    pub gemini_model: String,
+    #[serde(default)]
+    pub opencode_model: String,
+    #[serde(default = "default_codex_effort")]
+    pub codex_effort: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,9 +254,26 @@ impl Default for AISettings {
     fn default() -> Self {
         Self {
             global_prompt: String::new(),
+            runtime_tools: AIRuntimeToolSettings::default(),
             memory: AIMemorySettings::default(),
             pet: AIPetSettings::default(),
             providers: Vec::new(),
+        }
+    }
+}
+
+impl Default for AIRuntimeToolSettings {
+    fn default() -> Self {
+        Self {
+            codex: default_ai_tool_permission_mode(),
+            claude_code: default_ai_tool_permission_mode(),
+            gemini: default_ai_tool_permission_mode(),
+            opencode: default_ai_tool_permission_mode(),
+            codex_model: String::new(),
+            claude_code_model: String::new(),
+            gemini_model: String::new(),
+            opencode_model: String::new(),
+            codex_effort: default_codex_effort(),
         }
     }
 }
@@ -534,6 +576,7 @@ fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
 
 fn sanitize_ai_settings(mut ai: AISettings) -> AISettings {
     ai.global_prompt = ai.global_prompt.trim().chars().take(20_000).collect();
+    ai.runtime_tools = sanitize_runtime_tool_settings(ai.runtime_tools);
     ai.memory.max_injected_user_working_memories =
         ai.memory.max_injected_user_working_memories.clamp(0, 24);
     ai.memory.max_injected_project_working_memories =
@@ -597,6 +640,38 @@ fn sanitize_ai_settings(mut ai: AISettings) -> AISettings {
         ai.pet.speech_provider_id = default_ai_pet_provider_id();
     }
     ai
+}
+
+fn sanitize_runtime_tool_settings(mut settings: AIRuntimeToolSettings) -> AIRuntimeToolSettings {
+    settings.codex = sanitize_tool_permission_mode(&settings.codex);
+    settings.claude_code = sanitize_tool_permission_mode(&settings.claude_code);
+    settings.gemini = sanitize_tool_permission_mode(&settings.gemini);
+    settings.opencode = sanitize_tool_permission_mode(&settings.opencode);
+    settings.codex_model = settings.codex_model.trim().chars().take(160).collect();
+    settings.claude_code_model = settings
+        .claude_code_model
+        .trim()
+        .chars()
+        .take(160)
+        .collect();
+    settings.gemini_model = settings.gemini_model.trim().chars().take(160).collect();
+    settings.opencode_model = settings.opencode_model.trim().chars().take(160).collect();
+    settings.codex_effort = match settings.codex_effort.trim() {
+        "none" => "none".to_string(),
+        "minimal" => "minimal".to_string(),
+        "low" => "low".to_string(),
+        "high" => "high".to_string(),
+        "xhigh" => "xhigh".to_string(),
+        _ => default_codex_effort(),
+    };
+    settings
+}
+
+fn sanitize_tool_permission_mode(value: &str) -> String {
+    match value.trim() {
+        "fullAccess" => "fullAccess".to_string(),
+        _ => default_ai_tool_permission_mode(),
+    }
 }
 
 fn sanitize_ai_provider(mut provider: AIProviderSettings) -> Option<AIProviderSettings> {
@@ -735,6 +810,14 @@ fn default_ai_memory_provider_id() -> String {
 
 fn default_ai_pet_provider_id() -> String {
     "automatic".to_string()
+}
+
+fn default_ai_tool_permission_mode() -> String {
+    "default".to_string()
+}
+
+fn default_codex_effort() -> String {
+    "medium".to_string()
 }
 
 fn default_memory_user_recall() -> i32 {

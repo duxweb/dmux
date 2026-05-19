@@ -23,6 +23,36 @@ function hero(Icon: HeroIcon) {
   };
 }
 
+export function Brain({ size = 16, strokeWidth = 1.8, className, style, ...props }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      height={size}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={strokeWidth}
+      style={style}
+      viewBox="0 0 24 24"
+      width={size}
+      {...props}
+    >
+      <path d="M9.5 4.2a3.2 3.2 0 0 0-5.1 3.4 3.5 3.5 0 0 0 .1 6.8A3.3 3.3 0 0 0 9.5 19" />
+      <path d="M14.5 4.2a3.2 3.2 0 0 1 5.1 3.4 3.5 3.5 0 0 1-.1 6.8A3.3 3.3 0 0 1 14.5 19" />
+      <path d="M9.5 4.2V19" />
+      <path d="M14.5 4.2V19" />
+      <path d="M9.5 8H7.8" />
+      <path d="M14.5 8h1.7" />
+      <path d="M9.5 12H7.2" />
+      <path d="M14.5 12h2.3" />
+      <path d="M9.5 16H7.9" />
+      <path d="M14.5 16h1.6" />
+    </svg>
+  );
+}
+
 export type AppIcon = ReturnType<typeof hero>;
 
 export const ArrowDownToLine = hero(HeroIcons.ArrowDownTrayIcon);
@@ -33,7 +63,7 @@ export const Book = hero(HeroIcons.BookOpenIcon);
 export const Bot = hero(HeroIcons.SparklesIcon);
 export const Box = hero(HeroIcons.CubeIcon);
 export const Boxes = hero(HeroIcons.Square2StackIcon);
-export const BrainCog = hero(HeroIcons.Cog6ToothIcon);
+export const BrainCog = Brain;
 export const Bug = hero(HeroIcons.BugAntIcon);
 export const CheckCircle2 = hero(HeroIcons.CheckCircleIcon);
 export const ChevronDown = hero(HeroIcons.ChevronDownIcon);

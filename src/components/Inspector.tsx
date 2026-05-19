@@ -23,7 +23,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Button as HeroButton, ProgressBar, Spinner } from "@heroui/react";
+import { Button as HeroButton, Dropdown, ProgressBar, Spinner } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
 import { useAIHistorySnapshot, type AIHeatmapDay, type AIHistorySessionSummary, type AITimeBucket, type AIUsageBreakdownItem } from "../ai/history";
 import { aiIndexingPresentation, liveSessionTotalTokens } from "../ai/panelPresentation";
@@ -35,6 +35,7 @@ import {
   deleteFile,
   importExternalFiles,
   listFileChildren,
+  revealFile,
   renameFile,
   unwatchProjectFiles,
   watchProjectFiles,
@@ -43,6 +44,7 @@ import {
 } from "../files/api";
 import { useGitStatusSnapshot, type GitCommitAction, type GitCommitSummary, type GitFileStatus, type GitStatusSnapshot } from "../git/status";
 import { Button } from "./Button";
+import { ContextMenu, ContextMenuItem, ContextMenuSeparator, useContextMenu } from "./ContextMenu";
 import {
   DesktopMenu,
   DesktopMenuItem,
@@ -720,25 +722,26 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
               >
                 {commitActionLabel}{snapshot.staged.length > 0 ? ` ${snapshot.staged.length}` : ""}
               </Button>
-              <DesktopMenu
-                ariaLabel={tm("git.commit.options", "Commit Options")}
-                isOpen={commitMenuOpen}
-                onOpenChange={setCommitMenuOpen}
-                trigger={
-                  <button
-                    type="button"
-                    disabled={!canCommit}
-                    className="grid h-[34px] w-8 min-w-8 place-items-center rounded-l-none rounded-r-md bg-brand-blue px-0 text-on-brand disabled:cursor-default disabled:opacity-50"
+              <Dropdown isOpen={commitMenuOpen} onOpenChange={setCommitMenuOpen}>
+                <Dropdown.Trigger
+                  isDisabled={!canCommit}
+                  className="grid h-[34px] w-8 min-w-8 place-items-center rounded-l-none rounded-r-md bg-brand-blue px-0 text-on-brand disabled:cursor-default disabled:opacity-50"
+                  aria-label={tm("git.commit.options", "Commit Options")}
+                >
+                  <ChevronDown size={13} strokeWidth={2.4} />
+                </Dropdown.Trigger>
+                <Dropdown.Popover placement="bottom end" className="min-w-[184px] rounded-[10px] border border-line-strong bg-surface-chrome p-1 shadow-pop backdrop-blur-2xl">
+                  <Dropdown.Menu
                     aria-label={tm("git.commit.options", "Commit Options")}
+                    onAction={(key) => setCommitAction(String(key) as GitCommitAction)}
+                    className="grid gap-0.5"
                   >
-                    <ChevronDown size={13} strokeWidth={2.4} />
-                  </button>
-                }
-              >
-                <DesktopMenuItem label={tm("git.commit.action", "Commit")} onSelect={() => setCommitAction("commit")}>{tm("git.commit.action", "Commit")}</DesktopMenuItem>
-                <DesktopMenuItem label={tm("git.commit.action_push", "Commit and Push")} onSelect={() => setCommitAction("commitAndPush")}>{tm("git.commit.action_push", "Commit and Push")}</DesktopMenuItem>
-                <DesktopMenuItem label={tm("git.commit.action_sync", "Commit and Sync")} onSelect={() => setCommitAction("commitAndSync")}>{tm("git.commit.action_sync", "Commit and Sync")}</DesktopMenuItem>
-              </DesktopMenu>
+                    <Dropdown.Item id="commit" className="menu-item">{tm("git.commit.action", "Commit")}</Dropdown.Item>
+                    <Dropdown.Item id="commitAndPush" className="menu-item">{tm("git.commit.action_push", "Commit and Push")}</Dropdown.Item>
+                    <Dropdown.Item id="commitAndSync" className="menu-item">{tm("git.commit.action_sync", "Commit and Sync")}</Dropdown.Item>
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown>
             </div>
           </div>
 
@@ -975,6 +978,7 @@ function FileRow({
   onIgnore?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const contextMenu = useContextMenu();
   const toneClass =
     tone === "amber"
       ? "text-brand-amber"
@@ -984,6 +988,7 @@ function FileRow({
   return (
     <Tooltip label={path} placement="left" triggerClassName="block w-full">
       <div
+        onContextMenu={contextMenu.openMenu}
         className={`group relative w-full h-[28px] px-3 flex items-center gap-1.5 transition-colors text-xs text-ink-soft ${
           selected ? "bg-brand-blue/12 text-ink" : "hover:bg-fill/[0.04]"
         }`}
@@ -1028,6 +1033,24 @@ function FileRow({
             {onDiscard && <DesktopMenuItem label={tm("git.files.discard_or_delete", "Discard / Delete")} onSelect={onDiscard}>{tm("git.files.discard_or_delete", "Discard / Delete")}</DesktopMenuItem>}
           </DesktopMenu>
         </div>
+        <ContextMenu
+          ariaLabel={formatI18n(tm("git.files.actions_format", "%@ Actions"), path)}
+          menu={contextMenu.menu}
+          onClose={contextMenu.closeMenu}
+        >
+          <ContextMenuItem label={tm("git.files.copy_path", "Copy Path")} onSelect={() => void navigator.clipboard?.writeText(path)}>
+            {tm("git.files.copy_path", "Copy Path")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {onPrimary && primaryLabel && (
+            <ContextMenuItem label={primaryLabel} onSelect={onPrimary}>{primaryLabel}</ContextMenuItem>
+          )}
+          <ContextMenuItem label={tm("git.diff.open", "Open Diff")} onSelect={onSelect}>
+            {tm("git.diff.open", "Open Diff")}
+          </ContextMenuItem>
+          {onIgnore && <ContextMenuItem label={tm("git.ignore.add", "Add to .gitignore")} onSelect={onIgnore}>{tm("git.ignore.add", "Add to .gitignore")}</ContextMenuItem>}
+          {onDiscard && <ContextMenuItem label={tm("git.files.discard_or_delete", "Discard / Delete")} onSelect={onDiscard}>{tm("git.files.discard_or_delete", "Discard / Delete")}</ContextMenuItem>}
+        </ContextMenu>
       </div>
     </Tooltip>
   );
@@ -1312,6 +1335,7 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
   const fileTreeLabels = useMemo<FileTreeLabels>(() => ({
     open: tm("files.panel.open", "Open"),
     copy: tm("files.panel.copy", "Copy"),
+    reveal: tm("files.panel.reveal", "Reveal in File Manager"),
     pasteHere: tm("files.panel.paste_here", "Paste Here"),
     importHere: tm("files.panel.import_here", "Import Files Here"),
     rename: tm("common.rename", "Rename"),
@@ -1666,6 +1690,12 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                   void navigator.clipboard?.writeText(row.entry.path);
                   updateStatus(formatI18n(tm("files.panel.status.copied_format", "Copied %@"), row.entry.name), "success");
                 }}
+                onReveal={() => {
+                  setSelectedPath(row.entry.path);
+                  void revealFile(rootPath, row.entry.path).catch((nextError) => {
+                    handleFileError(nextError);
+                  });
+                }}
                 onPaste={copiedPath ? () => {
                   setSelectedPath(row.entry.path);
                   void copyFile(rootPath, copiedPath, row.entry.isDirectory ? row.entry.path : parentPath(row.entry.path, rootPath))
@@ -1746,6 +1776,7 @@ type FileInlineEdit = (
 type FileTreeLabels = {
   open: string;
   copy: string;
+  reveal: string;
   pasteHere: string;
   importHere: string;
   rename: string;
@@ -1768,6 +1799,7 @@ function FileTreeFragment({
   onRename,
   onDelete,
   onCopy,
+  onReveal,
   onPaste,
   onImport,
 }: {
@@ -1785,6 +1817,7 @@ function FileTreeFragment({
   onRename?: () => void;
   onDelete?: () => void;
   onCopy?: () => void;
+  onReveal?: () => void;
   onPaste?: () => void;
   onImport?: (paths: string[]) => void;
 }) {
@@ -1817,6 +1850,7 @@ function FileTreeFragment({
           onRename={onRename}
           onDelete={onDelete}
           onCopy={onCopy}
+          onReveal={onReveal}
           onPaste={onPaste}
           onImport={onImport}
         />
@@ -1891,6 +1925,7 @@ function FileTreeRow({
   onRename,
   onDelete,
   onCopy,
+  onReveal,
   onPaste,
   onImport,
   labels,
@@ -1904,14 +1939,17 @@ function FileTreeRow({
   onRename?: () => void;
   onDelete?: () => void;
   onCopy?: () => void;
+  onReveal?: () => void;
   onPaste?: () => void;
   onImport?: (paths: string[]) => void;
 }) {
   const entry = row.entry;
   const [menuOpen, setMenuOpen] = useState(false);
+  const contextMenu = useContextMenu();
   return (
     <Tooltip label={entry.relativePath || entry.name} placement="left" triggerClassName="block w-full">
       <div
+        onContextMenu={contextMenu.openMenu}
         className={`group relative w-full h-[26px] flex items-center rounded-md transition-colors ${
           selected ? "bg-fill/[0.075] text-ink" : "text-ink-soft hover:bg-fill/[0.045] hover:text-ink"
         }`}
@@ -1967,6 +2005,7 @@ function FileTreeRow({
           >
             <DesktopMenuItem label={labels.open} onSelect={onOpen}>{labels.open}</DesktopMenuItem>
             <DesktopMenuItem label={labels.copy} onSelect={onCopy}>{labels.copy}</DesktopMenuItem>
+            <DesktopMenuItem label={labels.reveal} onSelect={onReveal}>{labels.reveal}</DesktopMenuItem>
             {onPaste && <DesktopMenuItem label={labels.pasteHere} onSelect={onPaste}>{labels.pasteHere}</DesktopMenuItem>}
             <DesktopMenuItem
               label={labels.importHere}
@@ -1982,6 +2021,25 @@ function FileTreeRow({
             <DesktopMenuItem label={labels.delete} onSelect={onDelete}>{labels.delete}</DesktopMenuItem>
           </DesktopMenu>
         </div>
+        <ContextMenu ariaLabel={`${entry.name} ${labels.actions}`} menu={contextMenu.menu} onClose={contextMenu.closeMenu}>
+          <ContextMenuItem label={labels.open} onSelect={onOpen}>{labels.open}</ContextMenuItem>
+          <ContextMenuItem label={labels.copy} onSelect={onCopy}>{labels.copy}</ContextMenuItem>
+          <ContextMenuItem label={labels.reveal} onSelect={onReveal}>{labels.reveal}</ContextMenuItem>
+          {onPaste && <ContextMenuItem label={labels.pasteHere} onSelect={onPaste}>{labels.pasteHere}</ContextMenuItem>}
+          <ContextMenuItem
+            label={labels.importHere}
+            onSelect={() => {
+              void pickImportFiles().then((paths) => {
+                if (paths.length > 0) onImport?.(paths);
+              });
+            }}
+          >
+            {labels.importHere}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem label={labels.rename} onSelect={onRename}>{labels.rename}</ContextMenuItem>
+          <ContextMenuItem label={labels.delete} onSelect={onDelete}>{labels.delete}</ContextMenuItem>
+        </ContextMenu>
       </div>
     </Tooltip>
   );
