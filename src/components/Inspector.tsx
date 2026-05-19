@@ -1455,24 +1455,10 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     () => rows.filter((row) => pendingDeletePaths.includes(row.entry.path)).map((row) => row.entry),
     [pendingDeletePaths, rows],
   );
-  const filePanelStatus = useMemo(() => {
-    if (pendingDeletePaths.length > 0) {
-      return {
-        tone: "warning" as const,
-        message: formatI18n(tm("files.panel.delete.pending_count_format", "%d item(s) marked for delete"), pendingDeletePaths.length),
-      };
-    }
-    if (error) {
-      return { tone: "danger" as const, message: error };
-    }
-    if (selectedPaths.size > 1) {
-      return {
-        tone: "neutral" as const,
-        message: formatI18n(tm("files.panel.status.selected_count_format", "%d selected"), selectedPaths.size),
-      };
-    }
-    return fileStatus;
-  }, [error, fileStatus, pendingDeletePaths.length, selectedPaths.size]);
+  const pendingDeleteMessage = useMemo(
+    () => formatI18n(tm("files.panel.delete.pending_count_format", "%d item(s) marked for delete"), pendingDeletePaths.length),
+    [pendingDeletePaths.length],
+  );
 
   const refresh = useCallback(() => {
     if (!rootPath) return;
@@ -1781,7 +1767,7 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     if (!selectedEntry) return;
     if (event.key === "Enter") {
       event.preventDefault();
-      openEntry(selectedEntry);
+      void renameEntry();
       return;
     }
     if (event.key === "F2") {
@@ -1946,16 +1932,16 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
           </div>
         )}
       </div>
-      <PanelStatusBar
-        tone={filePanelStatus.tone}
-        leading={
-          <>
-            {loadingPaths.size > 0 ? <Spinner size="sm" color="current" /> : <FileText size={12} />}
-            <span className="truncate">{filePanelStatus.message}</span>
-          </>
-        }
-        trailing={
-          pendingDeletePaths.length > 0 ? (
+      {pendingDeletePaths.length > 0 && (
+        <PanelStatusBar
+          tone="warning"
+          leading={
+            <>
+              <FileText size={12} />
+              <span className="truncate">{pendingDeleteMessage}</span>
+            </>
+          }
+          trailing={
             <div className="flex items-center gap-1">
               <PressableButton
                 className="h-6 rounded-md px-2 text-current/80 hover:bg-fill/10 hover:text-current"
@@ -1970,23 +1956,9 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                 {tm("files.panel.delete.confirm", "Confirm Delete")}
               </PressableButton>
             </div>
-          ) : copiedPath ? (
-            <span className="max-w-[118px] truncate text-current/80">
-              {formatI18n(tm("files.panel.status.clipboard_format", "Clipboard: %@"), fileNameFromPath(copiedPath))}
-            </span>
-          ) : selectedPaths.size > 0 ? (
-            <span className="max-w-[118px] truncate text-current/80">
-              {selectedPaths.size === 1
-                ? fileNameFromPath(selectedPath)
-                : formatI18n(tm("files.panel.status.selected_count_format", "%d selected"), selectedPaths.size)}
-            </span>
-          ) : (
-            <span className="text-current/75">
-              {formatI18n(tm("files.panel.status.file_count_format", "%d files"), rows.length)}
-            </span>
-          )
-        }
-      />
+          }
+        />
+      )}
     </>
   );
 }
