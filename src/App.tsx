@@ -397,6 +397,18 @@ function App() {
     }
   };
 
+  const reviewWorktree = (target: ProjectWorktreeSnapshot) => {
+    selectWorktree(target.id);
+    setMainView("review");
+    setShortcutFocusScope("workspace");
+  };
+
+  const openWorktreeTerminal = (target: ProjectWorktreeSnapshot) => {
+    selectWorktree(target.id);
+    setMainView("terminal");
+    requestTerminalFocus();
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const handled = dispatchShortcut(event, {
@@ -595,6 +607,8 @@ function App() {
                   onSelectWorktree={selectWorktree}
                   onCreateWorktree={createWorktreeForSelectedProject}
                   onRemoveWorktree={removeWorktreeForSelectedProject}
+                  onOpenWorktreeTerminal={openWorktreeTerminal}
+                  onReviewWorktree={reviewWorktree}
                   isBusy={worktree.isLoading}
                   createRequest={taskCreateRequest}
                 />

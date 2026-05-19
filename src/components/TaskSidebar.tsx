@@ -1,9 +1,16 @@
-import { GitBranch, MoreHorizontal, Plus } from "../icons";
-import { useEffect, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { Code2, Folder, GitBranch, ListChecks, MoreHorizontal, Plus, SquareTerminal } from "../icons";
+import { useEffect, useMemo, useState } from "react";
 import { formatI18n, tm } from "../i18n";
-import { DesktopMenu, DesktopMenuItem } from "./DesktopMenu";
+import {
+  listProjectOpenApplications,
+  openProjectInApplication,
+  revealProjectInFileManager,
+  type ProjectOpenApplication,
+} from "../ide";
+import { ContextMenu, ContextMenuItem, ContextMenuSeparator, useContextMenu } from "./ContextMenu";
+import { DesktopMenu, DesktopMenuItem, DesktopMenuSeparator, DesktopSubmenu } from "./DesktopMenu";
 import { PressableButton } from "./PressableButton";
-import { Tooltip } from "./Tooltip";
 import type { WorkspaceProject } from "../types";
 import type { ProjectWorktreeSnapshot, WorktreeTaskSnapshot, WorktreeTaskStatus } from "../worktree/snapshot";
 
@@ -35,6 +42,8 @@ type Props = {
   onSelectWorktree?: (id: string) => void;
   onCreateWorktree?: (input: { branchName: string; taskTitle: string }) => void;
   onRemoveWorktree?: (worktree: ProjectWorktreeSnapshot) => void;
+  onOpenWorktreeTerminal?: (worktree: ProjectWorktreeSnapshot) => void;
+  onReviewWorktree?: (worktree: ProjectWorktreeSnapshot) => void;
   isBusy?: boolean;
   createRequest?: number;
 };
@@ -47,12 +56,15 @@ export function TaskSidebar({
   onSelectWorktree,
   onCreateWorktree,
   onRemoveWorktree,
+  onOpenWorktreeTerminal,
+  onReviewWorktree,
   isBusy,
   createRequest = 0,
 }: Props) {
   const [isCreating, setCreating] = useState(false);
   const [branchName, setBranchName] = useState("");
   const [taskTitle, setTaskTitle] = useState("");
+  const [applications, setApplications] = useState<ProjectOpenApplication[]>([]);
   const taskByWorktree = new Map(tasks.map((task) => [task.worktreeId, task]));
   const defaultWorktree =
     worktrees.find((worktree) => worktree.isDefault) ??
@@ -60,6 +72,18 @@ export function TaskSidebar({
   const taskRows = [defaultWorktree, ...worktrees.filter((worktree) => worktree.id !== defaultWorktree.id)]
     .map((worktree) => toTaskRow(worktree, taskByWorktree.get(worktree.id)));
   const canCreate = branchName.trim().length > 0 && !isBusy;
+
+  useEffect(() => {
+    let cancelled = false;
+    void listProjectOpenApplications()
+      .then((items) => {
+        if (!cancelled) setApplications(items.filter((item) => item.installed));
+      })
+      .catch((error) => console.error("failed to load installed applications", error));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isCreating || branchName) return;
@@ -91,7 +115,11 @@ export function TaskSidebar({
         <span className="text-sm font-semibold tracking-tight">{tm("worktree.sidebar.title", "Tasks")}</span>
         <PressableButton
           className="w-6 h-6 grid place-items-center rounded-md text-ink-mute hover:text-ink hover:bg-fill/8 transition-colors"
-          onPressUp={() => setCreating((value) => !value)}
+          onPressUp={() => {
+            setCreating(true);
+            setBranchName(`task/${timestampSlug()}`);
+            setTaskTitle("");
+          }}
         >
           <Plus size={12} strokeWidth={2.4} />
         </PressableButton>
@@ -99,52 +127,6 @@ export function TaskSidebar({
       <div className="h-px bg-line mx-3 opacity-60" />
 
       <div className="flex-1 overflow-y-auto scrollbar-overlay px-2 pt-3 pb-2.5">
-        {isCreating && (
-          <form
-            className="mb-2 rounded-[8px] border border-line bg-fill/[0.04] p-2.5"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (canCreate) submitCreate();
-            }}
-          >
-            <label className="grid gap-1">
-              <span className="text-[11px] font-semibold text-ink-soft">{tm("worktree.task.branch", "Task Branch")}</span>
-              <input
-                className="h-7 rounded-md border border-line bg-surface-chrome/55 px-2 text-xs text-ink outline-none focus:border-brand-blue/60"
-                value={branchName}
-                onChange={(event) => setBranchName(event.currentTarget.value)}
-                autoFocus
-              />
-            </label>
-            <label className="mt-2 grid gap-1">
-              <span className="text-[11px] font-semibold text-ink-soft">{tm("worktree.task.title", "Task Title")}</span>
-              <input
-                className="h-7 rounded-md border border-line bg-surface-chrome/55 px-2 text-xs text-ink outline-none focus:border-brand-blue/60"
-                value={taskTitle}
-                placeholder={branchTitle(branchName)}
-                onChange={(event) => setTaskTitle(event.currentTarget.value)}
-              />
-            </label>
-            <div className="mt-2 flex justify-end gap-1.5">
-              <PressableButton
-                className="h-6 rounded-md px-2 text-xs font-semibold text-ink-soft hover:bg-fill/8 hover:text-ink"
-                onPressUp={() => {
-                  setCreating(false);
-                  setTaskTitle("");
-                }}
-              >
-                {tm("common.cancel", "Cancel")}
-              </PressableButton>
-              <PressableButton
-                className="h-6 rounded-md bg-brand-blue px-2 text-xs font-semibold text-on-brand disabled:opacity-50"
-                disabled={!canCreate}
-                type="submit"
-              >
-                {tm("common.create", "Create")}
-              </PressableButton>
-            </div>
-          </form>
-        )}
         {taskRows.length > 0 ? (
           taskRows.map((task) => (
             <TaskCard
@@ -153,6 +135,17 @@ export function TaskSidebar({
               isSelected={(selectedWorktreeId ?? taskRows[0]?.id) === task.id}
               onSelect={() => onSelectWorktree?.(task.id)}
               onRemove={task.worktree.isDefault ? undefined : () => onRemoveWorktree?.(task.worktree)}
+              onOpenTerminal={() => {
+                onOpenWorktreeTerminal?.(task.worktree);
+              }}
+              onOpenFolder={() => {
+                if (task.worktree.path) void revealProjectInFileManager(task.worktree.path);
+              }}
+              onReview={() => {
+                onSelectWorktree?.(task.id);
+                onReviewWorktree?.(task.worktree);
+              }}
+              applications={applications}
             />
           ))
         ) : (
@@ -161,6 +154,58 @@ export function TaskSidebar({
           </div>
         )}
       </div>
+      {isCreating && (
+        <div className="fixed inset-0 z-[9000] grid place-items-center bg-black/24 p-4 backdrop-blur-sm">
+          <form
+            className="w-[min(360px,calc(100vw-32px))] rounded-[12px] border border-line-strong bg-surface-chrome p-4 shadow-pop"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (canCreate) submitCreate();
+            }}
+          >
+            <div className="mb-3">
+              <div className="text-sm font-semibold text-ink">{tm("worktree.task.create", "New Task")}</div>
+              <div className="mt-1 text-xs text-ink-faint">{selectedProject?.name ?? selectedProject?.path ?? ""}</div>
+            </div>
+            <label className="grid gap-1.5">
+              <span className="text-[11px] font-semibold text-ink-soft">{tm("worktree.task.branch", "Task Branch")}</span>
+              <input
+                className="h-8 rounded-md border border-line bg-fill/[0.035] px-2.5 text-xs text-ink outline-none focus:border-brand-blue/60"
+                value={branchName}
+                onChange={(event) => setBranchName(event.currentTarget.value)}
+                autoFocus
+              />
+            </label>
+            <label className="mt-3 grid gap-1.5">
+              <span className="text-[11px] font-semibold text-ink-soft">{tm("worktree.task.title", "Task Title")}</span>
+              <input
+                className="h-8 rounded-md border border-line bg-fill/[0.035] px-2.5 text-xs text-ink outline-none focus:border-brand-blue/60"
+                value={taskTitle}
+                placeholder={branchTitle(branchName)}
+                onChange={(event) => setTaskTitle(event.currentTarget.value)}
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <PressableButton
+                className="h-8 rounded-md px-3 text-xs font-semibold text-ink-soft hover:bg-fill/8 hover:text-ink"
+                onPressUp={() => {
+                  setCreating(false);
+                  setTaskTitle("");
+                }}
+              >
+                {tm("common.cancel", "Cancel")}
+              </PressableButton>
+              <PressableButton
+                className="h-8 rounded-md bg-brand-blue px-3 text-xs font-semibold text-on-brand disabled:opacity-50"
+                disabled={!canCreate}
+                type="submit"
+              >
+                {tm("common.create", "Create")}
+              </PressableButton>
+            </div>
+          </form>
+        </div>
+      )}
     </aside>
   );
 }
@@ -170,18 +215,77 @@ function TaskCard({
   isSelected,
   onSelect,
   onRemove,
+  onOpenTerminal,
+  onOpenFolder,
+  onReview,
+  applications,
 }: {
   task: TaskRow;
   isSelected?: boolean;
   onSelect?: () => void;
   onRemove?: () => void;
+  onOpenTerminal?: () => void;
+  onOpenFolder?: () => void;
+  onReview?: () => void;
+  applications: ProjectOpenApplication[];
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const contextMenu = useContextMenu();
+  const ideApplications = useMemo(
+    () => applications.filter((item) => item.id !== "terminal"),
+    [applications],
+  );
   const interactionBg = isSelected ? "bg-brand-blue/14" : "hover:bg-fill/4";
   const borderColor = isSelected ? "border-brand-blue/45" : "border-transparent";
+  const openWithApplication = (application: ProjectOpenApplication) => {
+    if (!task.worktree.path) return;
+    void openProjectInApplication(task.worktree.path, application.id).catch((error) =>
+      console.error("failed to open worktree in application", error),
+    );
+  };
+  const menuItems = (
+    <>
+      <ContextMenuItem label={tm("worktree.menu.open_terminal", "Open Terminal")} onSelect={onOpenTerminal}>
+        <SquareTerminal size={13} />
+        {tm("worktree.menu.open_terminal", "Open Terminal")}
+      </ContextMenuItem>
+      <ContextMenuItem label={tm("worktree.menu.open_folder", "Open Folder")} onSelect={onOpenFolder} disabled={!task.worktree.path}>
+        <Folder size={13} />
+        {tm("worktree.menu.open_folder", "Open Folder")}
+      </ContextMenuItem>
+      <ContextMenuItem label={tm("worktree.menu.review", "Review")} onSelect={onReview}>
+        <ListChecks size={13} />
+        {tm("worktree.menu.review", "Review")}
+      </ContextMenuItem>
+      {ideApplications.length > 0 && (
+        <>
+          <ContextMenuSeparator />
+          {ideApplications.map((application) => (
+            <ContextMenuItem
+              key={application.id}
+              label={formatOpenTitle(application.label)}
+              onSelect={() => openWithApplication(application)}
+              disabled={!task.worktree.path}
+            >
+              <ApplicationIcon application={application} size={13} />
+              {formatOpenTitle(application.label)}
+            </ContextMenuItem>
+          ))}
+        </>
+      )}
+      {onRemove && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem label={tm("worktree.menu.remove", "Remove")} onSelect={onRemove}>
+            {tm("worktree.menu.remove", "Remove")}
+          </ContextMenuItem>
+        </>
+      )}
+    </>
+  );
 
   return (
-    <div className="group relative mb-1.5">
+    <div className="group relative mb-1.5" onContextMenu={contextMenu.openMenu}>
       <PressableButton
         onPressUp={onSelect}
         className={`relative w-full min-h-[52px] rounded-[8px] border ${borderColor} overflow-hidden text-left transition-colors`}
@@ -224,8 +328,7 @@ function TaskCard({
         </div>
       </div>
       </PressableButton>
-      {onRemove && (
-        <div className="absolute right-1 top-1/2 flex -translate-y-1/2 rounded bg-surface-chrome/95 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto">
+      <div className="absolute right-1 top-1/2 flex -translate-y-1/2 rounded bg-surface-chrome/95 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto">
           <DesktopMenu
             ariaLabel={tm("files.panel.actions", "Actions")}
             isOpen={menuOpen}
@@ -240,12 +343,77 @@ function TaskCard({
               </button>
             }
           >
-            <DesktopMenuItem label={tm("worktree.menu.remove", "Remove")} onSelect={onRemove}>{tm("worktree.menu.remove", "Remove")}</DesktopMenuItem>
+            <DesktopMenuItem label={tm("worktree.menu.open_terminal", "Open Terminal")} onSelect={onOpenTerminal}>
+              <span className="inline-flex items-center gap-2"><SquareTerminal size={13} />{tm("worktree.menu.open_terminal", "Open Terminal")}</span>
+            </DesktopMenuItem>
+            <DesktopMenuItem label={tm("worktree.menu.open_folder", "Open Folder")} onSelect={onOpenFolder} disabled={!task.worktree.path}>
+              <span className="inline-flex items-center gap-2"><Folder size={13} />{tm("worktree.menu.open_folder", "Open Folder")}</span>
+            </DesktopMenuItem>
+            <DesktopMenuItem label={tm("worktree.menu.review", "Review")} onSelect={onReview}>
+              <span className="inline-flex items-center gap-2"><ListChecks size={13} />{tm("worktree.menu.review", "Review")}</span>
+            </DesktopMenuItem>
+            {ideApplications.length > 0 && (
+              <DesktopSubmenu label={tm("open.ide", "Open in IDE")}>
+                {ideApplications.map((application) => (
+                  <DesktopMenuItem
+                    key={application.id}
+                    label={formatOpenTitle(application.label)}
+                    onSelect={() => openWithApplication(application)}
+                    disabled={!task.worktree.path}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <ApplicationIcon application={application} size={13} />
+                      {formatOpenTitle(application.label)}
+                    </span>
+                  </DesktopMenuItem>
+                ))}
+              </DesktopSubmenu>
+            )}
+            {onRemove && (
+              <>
+                <DesktopMenuSeparator />
+                <DesktopMenuItem label={tm("worktree.menu.remove", "Remove")} onSelect={onRemove}>{tm("worktree.menu.remove", "Remove")}</DesktopMenuItem>
+              </>
+            )}
           </DesktopMenu>
         </div>
-      )}
+      <ContextMenu
+        ariaLabel={formatI18n(tm("worktree.menu.actions_format", "%@ Actions"), task.title)}
+        menu={contextMenu.menu}
+        onClose={contextMenu.closeMenu}
+      >
+        {menuItems}
+      </ContextMenu>
     </div>
   );
+}
+
+function ApplicationIcon({
+  application,
+  size,
+}: {
+  application: ProjectOpenApplication;
+  size: number;
+}) {
+  if (application.iconPath) {
+    return (
+      <img
+        alt=""
+        className="rounded-[3px] object-contain"
+        height={size}
+        src={convertFileSrc(application.iconPath)}
+        width={size}
+      />
+    );
+  }
+  if (application.id === "terminal" || application.id === "iterm" || application.id === "ghostty") {
+    return <SquareTerminal size={size} className="text-ink-soft" />;
+  }
+  return <Code2 size={size} className="text-ink-soft" />;
+}
+
+function formatOpenTitle(label: string) {
+  return tm("open.application.format", "Open in %@").replace("%@", label);
 }
 
 function fallbackDefaultWorktree(project?: WorkspaceProject): ProjectWorktreeSnapshot {

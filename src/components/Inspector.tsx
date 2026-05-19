@@ -711,13 +711,13 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
               variant="secondary"
               className="h-[78px] resize-none text-sm"
             />
-            <div className="mt-2.5 flex gap-px">
+            <div className="mt-2.5 flex rounded-md shadow-sm">
               <Button
                 variant="primary"
                 size="sm"
                 block
                 disabled={!canCommit}
-                className="h-[34px] rounded-r-none text-sm font-semibold"
+                className="h-[34px] rounded-r-none border-r border-white/15 text-sm font-semibold"
                 onPress={() => void submitCommit()}
               >
                 {commitActionLabel}{snapshot.staged.length > 0 ? ` ${snapshot.staged.length}` : ""}
@@ -725,7 +725,7 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
               <Dropdown isOpen={commitMenuOpen} onOpenChange={setCommitMenuOpen}>
                 <Dropdown.Trigger
                   isDisabled={!canCommit}
-                  className="grid h-[34px] w-8 min-w-8 place-items-center rounded-l-none rounded-r-md bg-brand-blue px-0 text-on-brand disabled:cursor-default disabled:opacity-50"
+                  className="grid h-[34px] w-8 min-w-8 place-items-center rounded-l-none rounded-r-md bg-brand-blue px-0 text-on-brand transition-colors hover:bg-brand-blue/90 disabled:cursor-default disabled:opacity-50"
                   aria-label={tm("git.commit.options", "Commit Options")}
                 >
                   <ChevronDown size={13} strokeWidth={2.4} />
@@ -765,6 +765,7 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 files={snapshot.staged}
                 emptyLabel={tm("git.files.staged.empty", "No staged changes")}
                 kind="staged"
+                rootPath={project?.path}
                 selectedId={selectedFileId}
                 primaryLabel={tm("git.files.unstage", "Unstage")}
                 onPrimary={(file) => void git.unstage([file.path])}
@@ -818,6 +819,7 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 files={snapshot.unstaged}
                 emptyLabel={tm("git.files.changes.empty", "No worktree changes")}
                 kind="unstaged"
+                rootPath={project?.path}
                 selectedId={selectedFileId}
                 primaryLabel={tm("git.files.stage", "Stage")}
                 onPrimary={(file) => void git.stage([file.path])}
@@ -862,6 +864,7 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 files={snapshot.untracked}
                 emptyLabel={tm("git.files.untracked.empty", "No untracked files")}
                 kind="untracked"
+                rootPath={project?.path}
                 selectedId={selectedFileId}
                 primaryLabel={tm("git.files.stage", "Stage")}
                 onPrimary={(file) => void git.stage([file.path])}
@@ -963,12 +966,14 @@ function FileRow({
   onSelect,
   onPrimary,
   primaryLabel,
+  rootPath,
   onDiscard,
   onIgnore,
 }: {
   path: string;
   tag: string;
   tone: "amber" | "green" | "blue";
+  rootPath?: string;
   selected?: boolean;
   primaryIcon?: (props: { size?: number; strokeWidth?: number; className?: string }) => ReactNode;
   onSelect?: () => void;
@@ -1029,6 +1034,7 @@ function FileRow({
             }
           >
             <DesktopMenuItem label={tm("git.files.copy_path", "Copy Path")} onSelect={() => void navigator.clipboard?.writeText(path)}>{tm("git.files.copy_path", "Copy Path")}</DesktopMenuItem>
+            {rootPath && <DesktopMenuItem label={tm("git.files.show_in_finder", "Show in Finder")} onSelect={() => void revealFile(rootPath, path)}>{tm("git.files.show_in_finder", "Show in Finder")}</DesktopMenuItem>}
             {onIgnore && <DesktopMenuItem label={tm("git.ignore.add", "Add to .gitignore")} onSelect={onIgnore}>{tm("git.ignore.add", "Add to .gitignore")}</DesktopMenuItem>}
             {onDiscard && <DesktopMenuItem label={tm("git.files.discard_or_delete", "Discard / Delete")} onSelect={onDiscard}>{tm("git.files.discard_or_delete", "Discard / Delete")}</DesktopMenuItem>}
           </DesktopMenu>
@@ -1041,6 +1047,11 @@ function FileRow({
           <ContextMenuItem label={tm("git.files.copy_path", "Copy Path")} onSelect={() => void navigator.clipboard?.writeText(path)}>
             {tm("git.files.copy_path", "Copy Path")}
           </ContextMenuItem>
+          {rootPath && (
+            <ContextMenuItem label={tm("git.files.show_in_finder", "Show in Finder")} onSelect={() => void revealFile(rootPath, path)}>
+              {tm("git.files.show_in_finder", "Show in Finder")}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           {onPrimary && primaryLabel && (
             <ContextMenuItem label={primaryLabel} onSelect={onPrimary}>{primaryLabel}</ContextMenuItem>
@@ -1060,6 +1071,7 @@ function GitFileSection({
   files,
   emptyLabel,
   kind,
+  rootPath,
   selectedId,
   primaryLabel,
   onSelect,
@@ -1070,6 +1082,7 @@ function GitFileSection({
   files: GitFileStatus[];
   emptyLabel: string;
   kind: "staged" | "unstaged" | "untracked";
+  rootPath?: string;
   selectedId?: string;
   primaryLabel?: string;
   onSelect?: (file: GitFileStatus) => void;
@@ -1092,6 +1105,7 @@ function GitFileSection({
             path={file.path}
             tag={meta.tag}
             tone={meta.tone}
+            rootPath={rootPath}
             selected={selectedId === id}
             primaryIcon={PrimaryIcon}
             primaryLabel={primaryLabel}
@@ -1194,8 +1208,12 @@ function CommitRow({
 }) {
   const head = formatDecorations(commit.decorations);
   const [menuOpen, setMenuOpen] = useState(false);
+  const contextMenu = useContextMenu();
   return (
-    <div className="group relative h-[34px] flex items-center gap-2 px-3.5 hover:bg-fill/[0.03] text-xs">
+    <div
+      className="group relative h-[34px] flex items-center gap-2 px-3.5 hover:bg-fill/[0.03] text-xs"
+      onContextMenu={contextMenu.openMenu}
+    >
       {isHead && (
         <span className="absolute left-1.5 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-brand-blue/85" />
       )}
@@ -1247,10 +1265,31 @@ function CommitRow({
             <DesktopMenuItem label={tm("git.history.create_branch_from_commit", "Create Branch from This Commit")} onSelect={() => onAction("branch")}>{tm("git.history.create_branch_from_commit", "Create Branch from This Commit")}</DesktopMenuItem>
             {isHead && <DesktopMenuItem label={tm("git.history.undo_last_commit", "Undo Last Commit")} onSelect={() => onAction("undo")}>{tm("git.history.undo_last_commit", "Undo Last Commit")}</DesktopMenuItem>}
             {isHead && <DesktopMenuItem label={tm("git.history.edit_last_commit_message", "Edit Last Commit Message")} onSelect={() => onAction("amend")}>{tm("git.history.edit_last_commit_message", "Edit Last Commit Message")}</DesktopMenuItem>}
+            <DesktopMenuSeparator />
             <DesktopMenuItem label={tm("git.history.revert_commit", "Revert This Commit")} onSelect={() => onAction("revert")}>{tm("git.history.revert_commit", "Revert This Commit")}</DesktopMenuItem>
             <DesktopMenuItem label={tm("git.history.restore_local", "Restore Locally")} onSelect={() => onAction("restoreLocal")}>{tm("git.history.restore_local", "Restore Locally")}</DesktopMenuItem>
             <DesktopMenuItem label={tm("git.history.restore_remote", "Restore Remote")} onSelect={() => onAction("restoreRemote")}>{tm("git.history.restore_remote", "Restore Remote")}</DesktopMenuItem>
       </DesktopMenu>
+      <ContextMenu
+        ariaLabel={formatI18n(tm("git.history.commit_actions_format", "%@ Actions"), commit.hash.slice(0, 7))}
+        menu={contextMenu.menu}
+        onClose={contextMenu.closeMenu}
+      >
+        <ContextMenuItem label={tm("git.history.copy_commit_hash", "Copy Commit Hash")} onSelect={() => onAction("copy")}>
+          <span className="inline-flex items-center gap-2">
+            <Copy size={12} />
+            {tm("git.history.copy_commit_hash", "Copy Commit Hash")}
+          </span>
+        </ContextMenuItem>
+        <ContextMenuItem label={tm("git.history.checkout_commit", "Check Out This Commit")} onSelect={() => onAction("checkout")}>{tm("git.history.checkout_commit", "Check Out This Commit")}</ContextMenuItem>
+        <ContextMenuItem label={tm("git.history.create_branch_from_commit", "Create Branch from This Commit")} onSelect={() => onAction("branch")}>{tm("git.history.create_branch_from_commit", "Create Branch from This Commit")}</ContextMenuItem>
+        {isHead && <ContextMenuItem label={tm("git.history.undo_last_commit", "Undo Last Commit")} onSelect={() => onAction("undo")}>{tm("git.history.undo_last_commit", "Undo Last Commit")}</ContextMenuItem>}
+        {isHead && <ContextMenuItem label={tm("git.history.edit_last_commit_message", "Edit Last Commit Message")} onSelect={() => onAction("amend")}>{tm("git.history.edit_last_commit_message", "Edit Last Commit Message")}</ContextMenuItem>}
+        <ContextMenuSeparator />
+        <ContextMenuItem label={tm("git.history.revert_commit", "Revert This Commit")} onSelect={() => onAction("revert")}>{tm("git.history.revert_commit", "Revert This Commit")}</ContextMenuItem>
+        <ContextMenuItem label={tm("git.history.restore_local", "Restore Locally")} onSelect={() => onAction("restoreLocal")}>{tm("git.history.restore_local", "Restore Locally")}</ContextMenuItem>
+        <ContextMenuItem label={tm("git.history.restore_remote", "Restore Remote")} onSelect={() => onAction("restoreRemote")}>{tm("git.history.restore_remote", "Restore Remote")}</ContextMenuItem>
+      </ContextMenu>
     </div>
   );
 }

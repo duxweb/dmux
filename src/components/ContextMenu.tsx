@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 type ContextMenuState = {
@@ -47,16 +48,18 @@ export function ContextMenu({
   children: ReactNode;
 }) {
   if (!menu) return null;
-  return (
+  const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? 768 : window.innerHeight;
+  const content = (
     <div
       role="menu"
       aria-label={ariaLabel}
-      className="fixed z-[1000] min-w-[184px] rounded-[10px] border border-line-strong bg-surface-chrome p-1 shadow-pop backdrop-blur-2xl"
+      className="fixed z-[10000] min-w-[184px] rounded-[10px] border border-line-strong bg-surface-chrome p-1 text-ink shadow-pop backdrop-blur-2xl"
       style={{
         left: menu.x,
         top: menu.y,
         maxWidth: "min(260px, calc(100vw - 16px))",
-        transform: `translate(${menu.x > globalThis.innerWidth - 260 ? "-100%" : "0"}, ${menu.y > globalThis.innerHeight - 220 ? "-100%" : "0"})`,
+        transform: `translate(${menu.x > viewportWidth - 260 ? "-100%" : "0"}, ${menu.y > viewportHeight - 220 ? "-100%" : "0"})`,
       }}
       onContextMenu={(event) => event.preventDefault()}
       onPointerDown={(event) => event.stopPropagation()}
@@ -64,6 +67,7 @@ export function ContextMenu({
       <ContextMenuContext.Provider value={{ close: onClose }}>{children}</ContextMenuContext.Provider>
     </div>
   );
+  return createPortal(content, document.body);
 }
 
 type ContextMenuContextValue = {
