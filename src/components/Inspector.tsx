@@ -1463,10 +1463,10 @@ function CommitRow({
   const contextMenu = useContextMenu();
   return (
     <div
-      className="group relative min-h-[46px] px-2 py-1.5 hover:bg-fill/[0.03] text-xs"
+      className="group relative min-h-[46px] py-1.5 pl-px pr-3 hover:bg-fill/[0.03] text-xs"
       onContextMenu={contextMenu.openMenu}
     >
-      <div className="grid min-h-[34px] grid-cols-[22px_minmax(0,1fr)] items-center gap-1">
+      <div className="grid min-h-[34px] grid-cols-[14px_minmax(0,1fr)] items-center gap-1.5">
         <GitGraphPrefix prefix={commit.graphPrefix || (isHead ? "*" : "|")} />
         <Tooltip
           placement="top"
@@ -1531,10 +1531,10 @@ function CommitRow({
 function GitGraphPrefix({ prefix }: { prefix: string }) {
   const chars = Array.from(prefix || "*");
   const columnWidth = 8;
-  const width = 22;
+  const width = 14;
   const startX = Math.max(0, width - chars.length * columnWidth);
   return (
-    <div className="relative h-full min-h-[34px] w-[22px]" aria-hidden="true">
+    <div className="relative h-full min-h-[34px] w-[14px]" aria-hidden="true">
       {chars.map((char, index) => (
         <GitGraphToken
           key={`${char}:${index}`}
