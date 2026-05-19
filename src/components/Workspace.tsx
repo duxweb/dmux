@@ -1652,6 +1652,8 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
   const totalAdditions = snapshot.files.reduce((sum, file) => sum + file.additions, 0);
   const totalDeletions = snapshot.files.reduce((sum, file) => sum + file.deletions, 0);
   const language = languageForPath(selectedFile?.path ?? "");
+  const addedReviewLineHighlights = useMemo(() => addedLineHighlights(content), [content]);
+  const deletedReviewLineHighlights = useMemo(() => deletedLineHighlights(content), [content]);
 
   useEffect(() => {
     reviewTreeInitializedRef.current = false;
@@ -1804,7 +1806,7 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
                 subtitle={snapshot.mode === "taskBranch" ? snapshot.baseBranch ?? tm("worktree.task.base_branch", "Base Branch") : "HEAD"}
                 value={snapshot.mode === "taskBranch" ? content?.baseContent ?? "" : content?.headContent ?? ""}
                 language={language}
-                lineHighlights={deletedLineHighlights(content)}
+                lineHighlights={deletedReviewLineHighlights}
                 scrollTop={reviewScrollTop}
                 scrollSource={reviewScrollSourceRef.current}
                 onScroll={handleReviewColumnScroll}
@@ -1815,7 +1817,7 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
                 subtitle={content?.indexContent != null ? tm("git.files.staged", "Staged") : tm("worktree.review.audit_working_tree", "Working Tree")}
                 value={content?.indexContent ?? content?.worktreeContent ?? ""}
                 language={language}
-                lineHighlights={addedLineHighlights(content)}
+                lineHighlights={addedReviewLineHighlights}
                 scrollTop={reviewScrollTop}
                 scrollSource={reviewScrollSourceRef.current}
                 onScroll={handleReviewColumnScroll}
@@ -1826,7 +1828,7 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
                 subtitle={tm("worktree.review.audit_working_tree", "Working Tree")}
                 value={content?.worktreeContent ?? ""}
                 language={language}
-                lineHighlights={addedLineHighlights(content)}
+                lineHighlights={addedReviewLineHighlights}
                 scrollTop={reviewScrollTop}
                 scrollSource={reviewScrollSourceRef.current}
                 onScroll={handleReviewColumnScroll}
@@ -1838,7 +1840,7 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
                   subtitle={project?.branch ?? "HEAD"}
                   value={content?.headContent ?? ""}
                   language={language}
-                  lineHighlights={addedLineHighlights(content)}
+                  lineHighlights={addedReviewLineHighlights}
                   scrollTop={reviewScrollTop}
                   scrollSource={reviewScrollSourceRef.current}
                   onScroll={handleReviewColumnScroll}
