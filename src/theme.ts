@@ -1,5 +1,5 @@
 import { Effect, EffectState, getCurrentWindow, type Effects, type Theme } from "@tauri-apps/api/window";
-import { readAppSettings, subscribeAppSettings, type AppSettings } from "./settings";
+import { readAppSettings, type AppSettings } from "./settings";
 
 export type AppTheme = "light" | "dark" | "graphite" | "midnight";
 
@@ -680,22 +680,20 @@ export function initSystemTheme() {
   }
 
   const media = window.matchMedia("(prefers-color-scheme: dark)");
-  const sync = () => applyConfiguredTheme(readAppSettings(), media.matches ? "dark" : "light");
-  const unsubscribeSettings = subscribeAppSettings(() => sync());
+  const startupSettings = readAppSettings();
+  const sync = () => applyConfiguredTheme(startupSettings, media.matches ? "dark" : "light");
   sync();
 
   if (typeof media.addEventListener === "function") {
     media.addEventListener("change", sync);
     return () => {
       media.removeEventListener("change", sync);
-      unsubscribeSettings();
     };
   }
 
   media.addListener(sync);
   return () => {
     media.removeListener(sync);
-    unsubscribeSettings();
   };
 }
 
@@ -811,7 +809,7 @@ function applyNativeWindowTheme(settings: AppSettings, appTheme: AppTheme) {
   if (!window.__TAURI_INTERNALS__) return;
 
   const route = window.location.hash.replace(/^#/, "");
-  if (route || route.startsWith("/terminal")) return;
+  if (route) return;
 
   const currentWindow = getCurrentWindow();
   const nativeTheme: Theme | null = resolveTerminalThemeProfile(settings.theme).appTheme === "system" ? null : appTheme === "light" ? "light" : "dark";

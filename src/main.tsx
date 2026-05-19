@@ -4,7 +4,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { installDesktopBrowserBehavior } from "./desktopBehavior";
 import { lockRuntimeLocale, syncI18nBundleFromRust } from "./i18n";
 import { syncAppSettingsFromRust } from "./settings";
-import { initSystemTheme } from "./theme";
+import { applyConfiguredTheme, initSystemTheme } from "./theme";
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 
@@ -90,6 +90,9 @@ void loadRoot()
     render();
 
     void Promise.all([syncAppSettingsFromRust(), syncI18nBundleFromRust()])
+      .then(([settings]) => {
+        applyConfiguredTheme(settings);
+      })
       .catch((error) => {
         console.error("failed to bootstrap app state", error);
       })
