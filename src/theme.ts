@@ -29,6 +29,7 @@ type ManagedThemeVariable =
   | "--terminal-bright-cyan"
   | "--terminal-bright-white"
   | "--surface-window-tint"
+  | "--surface-window-glass"
   | "--surface-editor"
   | "--color-surface-glass"
   | "--color-surface-chrome"
@@ -136,6 +137,7 @@ const managedThemeVariables: ManagedThemeVariable[] = [
   "--terminal-bright-cyan",
   "--terminal-bright-white",
   "--surface-window-tint",
+  "--surface-window-glass",
   "--surface-editor",
   "--color-surface-glass",
   "--color-surface-chrome",
@@ -766,13 +768,22 @@ function resolveTerminalThemeProfile(theme: string): TerminalThemeProfile {
 
 function applyBackgroundOverride(root: HTMLElement, background: string) {
   const option = backgroundColorOptions.find((item) => normalizeThemeName(item.label) === normalizeThemeName(background));
-  if (!option || normalizeThemeName(option.label) === "auto") return;
+  const appTheme = root.dataset.theme === "light" ? "light" : "dark";
+  if (!option || normalizeThemeName(option.label) === "auto") {
+    const base = appTheme === "light" ? "rgb(246 249 253)" : "rgb(34 38 46)";
+    root.style.setProperty("--surface-window-tint", `color-mix(in oklab, ${base} ${appTheme === "light" ? "88%" : "82%"}, transparent)`);
+    root.style.setProperty("--surface-window-glass", `color-mix(in oklab, var(--surface-window-tint) ${appTheme === "light" ? "82%" : "76%"}, transparent)`);
+    return;
+  }
   const color = option.color;
-  root.style.setProperty("--surface-window-tint", color);
-  root.style.setProperty("--color-surface-glass", `color-mix(in oklab, ${color} 78%, var(--terminal-bg) 22%)`);
-  root.style.setProperty("--color-surface-chrome", `color-mix(in oklab, ${color} 58%, var(--terminal-bg) 42%)`);
-  root.style.setProperty("--color-surface-panel", `color-mix(in oklab, ${color} 36%, var(--terminal-bg) 64%)`);
-  root.style.setProperty("--color-surface-card", `color-mix(in oklab, ${color} 24%, var(--terminal-bg) 76%)`);
+  const anchor = appTheme === "light" ? "rgb(255 255 255)" : "var(--terminal-bg)";
+  const tintStrength = appTheme === "light" ? "34%" : "46%";
+  root.style.setProperty("--surface-window-tint", `color-mix(in oklab, ${color} ${tintStrength}, ${anchor})`);
+  root.style.setProperty("--surface-window-glass", "color-mix(in oklab, var(--surface-window-tint) 76%, transparent)");
+  root.style.setProperty("--color-surface-glass", `color-mix(in oklab, ${color} ${appTheme === "light" ? "24%" : "58%"}, ${anchor})`);
+  root.style.setProperty("--color-surface-chrome", `color-mix(in oklab, ${color} ${appTheme === "light" ? "18%" : "42%"}, ${anchor})`);
+  root.style.setProperty("--color-surface-panel", `color-mix(in oklab, ${color} ${appTheme === "light" ? "12%" : "30%"}, ${anchor})`);
+  root.style.setProperty("--color-surface-card", `color-mix(in oklab, ${color} ${appTheme === "light" ? "8%" : "20%"}, ${anchor})`);
   root.style.setProperty("--color-surface-terminal", "var(--terminal-bg)");
   root.style.setProperty("--color-surface-editor", "var(--terminal-bg)");
   root.style.setProperty("--surface-editor", "var(--terminal-bg)");

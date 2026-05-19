@@ -20,9 +20,9 @@ export function WindowFrame({
   const titleInsetClass = isMacPlatform() ? "pl-[86px] pr-5" : "px-5";
 
   return (
-    <div className="h-screen overflow-hidden bg-surface-chrome/92 text-ink flex flex-col">
+    <div className="app-shell h-screen overflow-hidden text-ink flex flex-col">
       <header
-        className="h-10 flex flex-shrink-0 items-start border-b border-line/45 bg-surface-chrome/92 pt-[12px] drag-region"
+        className="h-10 flex flex-shrink-0 items-start border-b border-line/45 bg-surface-chrome/70 pt-[12px] drag-region"
         data-tauri-drag-region
       >
         <div className={`min-w-0 w-full drag-region ${titleInsetClass}`} data-tauri-drag-region>
@@ -37,7 +37,7 @@ export function WindowFrame({
       </main>
 
       {footer !== undefined && (
-        <footer className="min-h-[62px] flex-shrink-0 px-5 py-2.5 flex items-center justify-end gap-2 border-t border-line/45 bg-surface-chrome/92 no-drag">
+        <footer className="min-h-[62px] flex-shrink-0 px-5 py-2.5 flex items-center justify-end gap-2 border-t border-line/45 bg-surface-chrome/70 no-drag">
           {footer}
         </footer>
       )}

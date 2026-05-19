@@ -533,7 +533,7 @@ function App() {
   );
 
   return (
-    <main className="relative w-screen h-screen overflow-hidden text-ink">
+    <main className="app-shell relative w-screen h-screen overflow-hidden text-ink">
       <Titlebar
         projects={projectsWithAIState}
         mainView={mainView}
@@ -573,7 +573,7 @@ function App() {
         />
 
         <div className="flex-1 min-w-0 flex">
-          <div className="flex-1 min-w-0 flex rounded-tl-workspace overflow-hidden border-t border-l border-line-strong bg-surface-terminal">
+          <div className="flex-1 min-w-0 flex rounded-tl-workspace overflow-hidden border-t border-l border-line-strong bg-surface-terminal/95">
             {isTaskSidebarExpanded && (
               <aside
                 className="w-[216px] flex-shrink-0 border-r border-line bg-fill/[0.025]"

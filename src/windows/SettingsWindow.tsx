@@ -195,8 +195,8 @@ export function SettingsWindow() {
   };
 
   return (
-    <div className="h-screen grid grid-cols-[200px_minmax(0,1fr)] bg-surface-chrome/92 text-ink">
-      <aside className="min-h-0 border-r border-line bg-fill/[0.02] flex flex-col">
+    <div className="app-shell h-screen grid grid-cols-[200px_minmax(0,1fr)] text-ink">
+      <aside className="min-h-0 border-r border-line bg-surface-chrome/45 flex flex-col">
         <div className="h-14 flex-shrink-0 drag-region" data-tauri-drag-region />
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 no-drag">
           <div className="grid gap-1.5">
