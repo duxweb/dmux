@@ -256,19 +256,7 @@ function ProjectRow({
             }}
           >
             {project.aiState !== "idle" && (
-              project.aiState === "running" ? (
-                <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-surface-chrome ring-2 ring-surface-chrome">
-                  <RefreshCw size={10} className="animate-spin text-brand-amber" />
-                </span>
-              ) : (
-                <span
-                  className={`absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full ring-2 ring-surface-chrome ${
-                    project.aiState === "review"
-                      ? "bg-brand-blue"
-                      : "bg-brand-green"
-                  }`}
-                />
-              )
+              <ProjectActivityBadge state={project.aiState} />
             )}
             {BadgeIcon ? (
               <BadgeIcon size={isExpanded ? 17 : 16} className="text-on-brand" />
@@ -344,6 +332,27 @@ function ProjectRow({
     );
   }
   return body;
+}
+
+function ProjectActivityBadge({ state }: { state: WorkspaceProject["aiState"] }) {
+  if (state === "idle") return null;
+
+  if (state === "running") {
+    return (
+      <span className="absolute -right-1 -top-1 h-4 w-4 rounded-full bg-black/30 shadow-[0_0_0_1px_rgba(255,255,255,0.22)]">
+        <span className="absolute inset-[2.5px] rounded-full border border-white/20" />
+        <span className="absolute inset-[2.5px] rounded-full border-[1.6px] border-transparent border-r-white border-t-white motion-safe:animate-spin" />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`absolute -right-1 -top-1 h-3 w-3 rounded-full shadow-[0_0_0_1px_rgba(255,255,255,0.72)] ${
+        state === "review" ? "bg-brand-amber" : "bg-brand-green"
+      }`}
+    />
+  );
 }
 
 function FooterButton({
