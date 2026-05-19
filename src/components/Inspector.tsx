@@ -1553,6 +1553,33 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     setPendingDeletePaths(entries.map((entry) => entry.path));
   };
 
+  const entriesForContextAction = (entry: FileEntry) => (
+    selectedPaths.has(entry.path) && selectedEntries.length > 1 ? selectedEntries : [entry]
+  );
+
+  const focusContextEntry = (entry: FileEntry) => {
+    setPendingDeletePaths([]);
+    if (selectedPaths.has(entry.path)) {
+      setSelectedPath(entry.path);
+      setSelectionAnchorPath(entry.path);
+      return;
+    }
+    setSelectedPath(entry.path);
+    setSelectedPaths(new Set([entry.path]));
+    setSelectionAnchorPath(entry.path);
+  };
+
+  const copyEntryPaths = (entries: FileEntry[]) => {
+    if (entries.length === 0) return;
+    void navigator.clipboard?.writeText(entries.map((entry) => entry.path).join("\n"));
+    updateStatus(
+      entries.length === 1
+        ? formatI18n(tm("files.panel.status.copied_format", "Copied %@"), entries[0].name)
+        : formatI18n(tm("files.panel.status.copied_paths_count_format", "Copied %d paths"), entries.length),
+      "success",
+    );
+  };
+
   const confirmDeleteEntries = async () => {
     if (!rootPath || pendingDeleteEntries.length === 0) return;
     const targets = pendingDeleteEntries;
@@ -1837,6 +1864,7 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                 rootPath={rootPath}
                 inlineEdit={inlineEdit}
                 selected={selectedPaths.has(row.entry.path)}
+                contextSelectionCount={selectedPaths.has(row.entry.path) ? selectedEntries.length : 1}
                 expanded={expandedPaths.has(row.entry.path)}
                 loading={loadingPaths.has(row.entry.path)}
                 labels={fileTreeLabels}
@@ -1844,26 +1872,28 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                 onInlineCancel={() => setInlineEdit(null)}
                 onInlineSubmit={() => void submitInlineEdit()}
                 onSelect={(modifiers) => selectEntry(row.entry, modifiers)}
+                onContextMenuOpen={() => focusContextEntry(row.entry)}
                 onOpen={() => openEntry(row.entry)}
                 onEdit={() => {
                   setSelectedPath(row.entry.path);
                   openEntry(row.entry);
                 }}
                 onInsertPathIntoTerminal={() => {
+                  const targets = entriesForContextAction(row.entry);
                   setSelectedPath(row.entry.path);
-                  setSelectedPaths(new Set([row.entry.path]));
+                  setSelectedPaths(new Set(targets.map((entry) => entry.path)));
                   setSelectionAnchorPath(row.entry.path);
                   broadcastWorkspaceCommand({
                     type: "insert-terminal-text",
-                    text: shellQuote(row.entry.path),
+                    text: targets.map((entry) => shellQuote(entry.path)).join(" "),
                   });
                 }}
                 onCopyPath={() => {
+                  const targets = entriesForContextAction(row.entry);
                   setSelectedPath(row.entry.path);
-                  setSelectedPaths(new Set([row.entry.path]));
+                  setSelectedPaths(new Set(targets.map((entry) => entry.path)));
                   setSelectionAnchorPath(row.entry.path);
-                  void navigator.clipboard?.writeText(row.entry.path);
-                  updateStatus(formatI18n(tm("files.panel.status.copied_format", "Copied %@"), row.entry.name), "success");
+                  copyEntryPaths(targets);
                 }}
                 onRename={() => {
                   setSelectedPath(row.entry.path);
@@ -1872,7 +1902,7 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                   void renameEntry(row.entry);
                 }}
                 onDelete={() => {
-                  const targets = selectedPaths.has(row.entry.path) && selectedEntries.length > 1 ? selectedEntries : [row.entry];
+                  const targets = entriesForContextAction(row.entry);
                   setSelectedPath(row.entry.path);
                   setSelectedPaths(new Set(targets.map((entry) => entry.path)));
                   setSelectionAnchorPath(row.entry.path);
@@ -1888,11 +1918,10 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                 }}
                 onReveal={() => {
                   setSelectedPath(row.entry.path);
-                  setSelectedPaths(new Set([row.entry.path]));
+                  const targets = entriesForContextAction(row.entry);
+                  setSelectedPaths(new Set(targets.map((entry) => entry.path)));
                   setSelectionAnchorPath(row.entry.path);
-                  void revealFile(rootPath, row.entry.path).catch((nextError) => {
-                    handleFileError(nextError);
-                  });
+                  void Promise.all(targets.map((entry) => revealFile(rootPath, entry.path))).catch(handleFileError);
                 }}
                 onPaste={copiedPath ? () => {
                   setSelectedPath(row.entry.path);
@@ -2007,6 +2036,7 @@ function FileTreeFragment({
   rootPath,
   inlineEdit,
   selected,
+  contextSelectionCount,
   expanded,
   loading,
   labels,
@@ -2014,6 +2044,7 @@ function FileTreeFragment({
   onInlineCancel,
   onInlineSubmit,
   onSelect,
+  onContextMenuOpen,
   onOpen,
   onEdit,
   onInsertPathIntoTerminal,
@@ -2028,6 +2059,7 @@ function FileTreeFragment({
   rootPath: string;
   inlineEdit: FileInlineEdit | null;
   selected: boolean;
+  contextSelectionCount: number;
   expanded: boolean;
   loading: boolean;
   labels: FileTreeLabels;
@@ -2035,6 +2067,7 @@ function FileTreeFragment({
   onInlineCancel: () => void;
   onInlineSubmit: () => void;
   onSelect: (modifiers: FileSelectionModifiers) => void;
+  onContextMenuOpen?: () => void;
   onOpen: () => void;
   onEdit?: () => void;
   onInsertPathIntoTerminal?: () => void;
@@ -2067,10 +2100,12 @@ function FileTreeFragment({
         <FileTreeRow
           row={row}
           selected={selected}
+          contextSelectionCount={contextSelectionCount}
           expanded={expanded}
           loading={loading}
           labels={labels}
           onSelect={onSelect}
+          onContextMenuOpen={onContextMenuOpen}
           onOpen={onOpen}
           onEdit={onEdit}
           onInsertPathIntoTerminal={onInsertPathIntoTerminal}
@@ -2146,9 +2181,11 @@ function FileInlineEditRow({
 function FileTreeRow({
   row,
   selected,
+  contextSelectionCount,
   expanded,
   loading,
   onSelect,
+  onContextMenuOpen,
   onOpen,
   onEdit,
   onInsertPathIntoTerminal,
@@ -2162,10 +2199,12 @@ function FileTreeRow({
 }: {
   row: FileRowModel;
   selected: boolean;
+  contextSelectionCount: number;
   expanded: boolean;
   loading: boolean;
   labels: FileTreeLabels;
   onSelect: (modifiers: FileSelectionModifiers) => void;
+  onContextMenuOpen?: () => void;
   onOpen: () => void;
   onEdit?: () => void;
   onInsertPathIntoTerminal?: () => void;
@@ -2179,10 +2218,14 @@ function FileTreeRow({
   const entry = row.entry;
   const contextMenu = useContextMenu();
   const selectionModifiersRef = useRef<FileSelectionModifiers>({ extend: false, toggle: false });
+  const isMultiContext = contextSelectionCount > 1;
   return (
     <Tooltip label={entry.relativePath || entry.name} placement="left" triggerClassName="block w-full">
       <div
-        onContextMenu={contextMenu.openMenu}
+        onContextMenu={(event) => {
+          onContextMenuOpen?.();
+          contextMenu.openMenu(event);
+        }}
         className={`group relative w-full h-[26px] flex items-center rounded-md transition-colors ${
           selected ? "bg-fill/[0.075] text-ink" : "text-ink-soft hover:bg-fill/[0.045] hover:text-ink"
         }`}
@@ -2230,13 +2273,13 @@ function FileTreeRow({
           </PressableButton>
         </div>
         <ContextMenu ariaLabel={`${entry.name} ${labels.actions}`} menu={contextMenu.menu} onClose={contextMenu.closeMenu}>
-          <ContextMenuItem label={labels.open} disabled={entry.isDirectory} onSelect={onOpen}>{labels.open}</ContextMenuItem>
-          <ContextMenuItem label={labels.edit} disabled={entry.isDirectory} onSelect={onEdit}>{labels.edit}</ContextMenuItem>
+          <ContextMenuItem label={labels.open} disabled={entry.isDirectory || isMultiContext} onSelect={onOpen}>{labels.open}</ContextMenuItem>
+          <ContextMenuItem label={labels.edit} disabled={entry.isDirectory || isMultiContext} onSelect={onEdit}>{labels.edit}</ContextMenuItem>
           <ContextMenuItem label={labels.insertPathTerminal} onSelect={onInsertPathIntoTerminal}>{labels.insertPathTerminal}</ContextMenuItem>
           <ContextMenuItem label={labels.copyPath} onSelect={onCopyPath}>{labels.copyPath}</ContextMenuItem>
-          <ContextMenuItem label={labels.copy} onSelect={onCopy}>{labels.copy}</ContextMenuItem>
+          <ContextMenuItem label={labels.copy} disabled={isMultiContext} onSelect={onCopy}>{labels.copy}</ContextMenuItem>
           <ContextMenuItem label={labels.cut} disabled>{labels.cut}</ContextMenuItem>
-          <ContextMenuItem label={labels.rename} onSelect={onRename}>{labels.rename}</ContextMenuItem>
+          <ContextMenuItem label={labels.rename} disabled={isMultiContext} onSelect={onRename}>{labels.rename}</ContextMenuItem>
           <ContextMenuItem label={labels.paste} disabled={!onPaste} onSelect={onPaste}>{labels.paste}</ContextMenuItem>
           <ContextMenuItem label={labels.reveal} onSelect={onReveal}>{labels.reveal}</ContextMenuItem>
           <ContextMenuSeparator />

@@ -91,7 +91,8 @@
       "files.panel.paste": "Einfügen",
       "files.panel.status.selected_count_format": "%d ausgewählt",
       "files.panel.status.file_count_format": "%d Dateien",
-      "files.panel.status.trashed_count_format": "%d Element(e) in den Papierkorb gelegt"
+      "files.panel.status.trashed_count_format": "%d Element(e) in den Papierkorb gelegt",
+      "files.panel.status.copied_paths_count_format": "%d Pfade kopiert"
     },
     "en": {
       "files.panel.title": "Files",
@@ -184,7 +185,8 @@
       "files.panel.paste": "Paste",
       "files.panel.status.selected_count_format": "%d selected",
       "files.panel.status.file_count_format": "%d files",
-      "files.panel.status.trashed_count_format": "Moved %d item(s) to Trash"
+      "files.panel.status.trashed_count_format": "Moved %d item(s) to Trash",
+      "files.panel.status.copied_paths_count_format": "Copied %d paths"
     },
     "es": {
       "files.panel.title": "Archivos",
@@ -277,7 +279,8 @@
       "files.panel.paste": "Pegar",
       "files.panel.status.selected_count_format": "%d seleccionado(s)",
       "files.panel.status.file_count_format": "%d archivos",
-      "files.panel.status.trashed_count_format": "%d elemento(s) movidos a la papelera"
+      "files.panel.status.trashed_count_format": "%d elemento(s) movidos a la papelera",
+      "files.panel.status.copied_paths_count_format": "%d rutas copiadas"
     },
     "fr": {
       "files.panel.title": "Fichiers",
@@ -370,7 +373,8 @@
       "files.panel.paste": "Coller",
       "files.panel.status.selected_count_format": "%d sélectionné(s)",
       "files.panel.status.file_count_format": "%d fichiers",
-      "files.panel.status.trashed_count_format": "%d élément(s) placés dans la corbeille"
+      "files.panel.status.trashed_count_format": "%d élément(s) placés dans la corbeille",
+      "files.panel.status.copied_paths_count_format": "%d chemins copiés"
     },
     "ja": {
       "files.panel.title": "ファイル",
@@ -463,7 +467,8 @@
       "files.panel.paste": "貼り付け",
       "files.panel.status.selected_count_format": "%d 件選択中",
       "files.panel.status.file_count_format": "%d 件のファイル",
-      "files.panel.status.trashed_count_format": "%d 件をゴミ箱に移動しました"
+      "files.panel.status.trashed_count_format": "%d 件をゴミ箱に移動しました",
+      "files.panel.status.copied_paths_count_format": "%d 件のパスをコピーしました"
     },
     "ko": {
       "files.panel.title": "파일",
@@ -556,7 +561,8 @@
       "files.panel.paste": "붙여넣기",
       "files.panel.status.selected_count_format": "%d개 선택됨",
       "files.panel.status.file_count_format": "%d개 파일",
-      "files.panel.status.trashed_count_format": "%d개 항목을 휴지통으로 이동함"
+      "files.panel.status.trashed_count_format": "%d개 항목을 휴지통으로 이동함",
+      "files.panel.status.copied_paths_count_format": "%d개 경로 복사됨"
     },
     "pt-BR": {
       "files.panel.title": "Arquivos",
@@ -649,7 +655,8 @@
       "files.panel.paste": "Colar",
       "files.panel.status.selected_count_format": "%d selecionado(s)",
       "files.panel.status.file_count_format": "%d arquivos",
-      "files.panel.status.trashed_count_format": "%d item(ns) movidos para o Lixo"
+      "files.panel.status.trashed_count_format": "%d item(ns) movidos para o Lixo",
+      "files.panel.status.copied_paths_count_format": "%d caminhos copiados"
     },
     "ru": {
       "files.panel.title": "Файлы",
@@ -742,7 +749,8 @@
       "files.panel.paste": "Вставить",
       "files.panel.status.selected_count_format": "Выбрано: %d",
       "files.panel.status.file_count_format": "Файлов: %d",
-      "files.panel.status.trashed_count_format": "%d элем. перемещено в корзину"
+      "files.panel.status.trashed_count_format": "%d элем. перемещено в корзину",
+      "files.panel.status.copied_paths_count_format": "Скопировано путей: %d"
     },
     "zh-Hans": {
       "files.panel.title": "文件",
@@ -835,7 +843,8 @@
       "files.panel.paste": "粘贴",
       "files.panel.status.selected_count_format": "已选择 %d 项",
       "files.panel.status.file_count_format": "%d 个文件",
-      "files.panel.status.trashed_count_format": "已将 %d 项移到废纸篓"
+      "files.panel.status.trashed_count_format": "已将 %d 项移到废纸篓",
+      "files.panel.status.copied_paths_count_format": "已复制 %d 个路径"
     },
     "zh-Hant": {
       "files.panel.title": "檔案",
@@ -928,7 +937,8 @@
       "files.panel.paste": "貼上",
       "files.panel.status.selected_count_format": "已選擇 %d 項",
       "files.panel.status.file_count_format": "%d 個檔案",
-      "files.panel.status.trashed_count_format": "已將 %d 項移到垃圾桶"
+      "files.panel.status.trashed_count_format": "已將 %d 項移到垃圾桶",
+      "files.panel.status.copied_paths_count_format": "已複製 %d 個路徑"
     }
   }
 }
