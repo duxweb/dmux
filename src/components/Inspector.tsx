@@ -732,8 +732,8 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
       {!snapshot.isRepository ? (
         <PanelEmptyState
           icon={Folder}
-          title={tm("git.empty.not_repository", "Current Directory Is Not a Git Repository")}
-          description={git.error ?? snapshot.error ?? tm("git.empty.description", "Initialize a repository or clone a remote repository to view commits, diffs, and branches here.")}
+          title={tm("git.empty.no_repository", "No Repository")}
+          description={tm("git.empty.description", "Initialize a repository or clone a remote repository to view commits, diffs, and branches here.")}
           tone="warning"
           action={
             <div className="flex items-center gap-2">

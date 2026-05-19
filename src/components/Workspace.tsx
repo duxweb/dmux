@@ -1744,7 +1744,9 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
             ))
           ) : (
             <div className="rounded-md border border-line bg-fill/[0.025] px-3 py-3 text-sm text-ink-faint">
-              {snapshot.error || review.error || tm("worktree.review.no_changes", "No changes relative to the base branch.")}
+              {!snapshot.isRepository
+                ? tm("worktree.review.no_repository", "No Git repository.")
+                : snapshot.error || review.error || tm("worktree.review.no_changes", "No changes relative to the base branch.")}
             </div>
           )}
         </div>

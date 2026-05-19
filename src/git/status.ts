@@ -86,6 +86,17 @@ const emptySnapshot: GitStatusSnapshot = {
   error: null,
 };
 
+export function sanitizeGitRepositorySnapshot<T extends { isRepository: boolean; error?: string | null }>(snapshot: T): T {
+  if (snapshot.isRepository) return snapshot;
+  if (!snapshot.error || isGitNotRepositoryError(snapshot.error)) {
+    return {
+      ...snapshot,
+      error: null,
+    };
+  }
+  return snapshot;
+}
+
 export function normalizeGitEventPath(value: string) {
   return value.replace(/\\/g, "/").replace(/\/+$/, "");
 }
@@ -135,8 +146,9 @@ export function useGitStatusSnapshot(project?: WorkspaceProject) {
         projectPath: requestPath,
       });
       if (projectPathRef.current !== requestPath) return;
-      setSnapshot(next);
-      setError(next.error ?? null);
+      const normalized = sanitizeGitRepositorySnapshot(next);
+      setSnapshot(normalized);
+      setError(normalized.error ?? null);
     } catch (nextError) {
       if (projectPathRef.current !== requestPath) return;
       const message = nextError instanceof Error ? nextError.message : String(nextError);
@@ -156,9 +168,10 @@ export function useGitStatusSnapshot(project?: WorkspaceProject) {
       setLoading(true);
       try {
         const next = await invoke<GitStatusSnapshot>(command, payload);
-        setSnapshot(next);
-        setError(next.error ?? null);
-        return next;
+        const normalized = sanitizeGitRepositorySnapshot(next);
+        setSnapshot(normalized);
+        setError(normalized.error ?? null);
+        return normalized;
       } catch (nextError) {
         const message = nextError instanceof Error ? nextError.message : String(nextError);
         setError(message);
@@ -630,4 +643,8 @@ export function useGitStatusSnapshot(project?: WorkspaceProject) {
     branches,
     diffFile,
   };
+}
+
+function isGitNotRepositoryError(message: string) {
+  return /not a git repository|GIT_DISCOVERY_ACROSS_FILESYSTEM|must be run in a work tree/i.test(message);
 }

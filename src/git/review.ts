@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
+import { sanitizeGitRepositorySnapshot } from "./status";
 
 export interface GitReviewFile {
   path: string;
@@ -52,8 +53,9 @@ export function useGitReviewSnapshot(projectPath?: string, baseBranch?: string |
         projectPath,
         baseBranch,
       });
-      setSnapshot(next);
-      setError(next.error ?? null);
+      const normalized = sanitizeGitRepositorySnapshot(next);
+      setSnapshot(normalized);
+      setError(normalized.error ?? null);
     } catch (nextError) {
       const message = nextError instanceof Error ? nextError.message : String(nextError);
       setError(message);
