@@ -36,7 +36,8 @@ export function DesktopMenu({
         {renderMenuTrigger(trigger, ariaLabel)}
         <Dropdown.Popover
           placement={toHeroPlacement(placement)}
-          className="w-[240px] rounded-[10px] border border-line-strong bg-surface-chrome/95 p-1 text-ink shadow-pop backdrop-blur-xl"
+          offset={6}
+          className="desktop-menu-popover w-[240px] rounded-[10px] border border-line-strong bg-surface-chrome/95 p-1 text-ink shadow-pop backdrop-blur-xl"
           style={{ width }}
         >
           <Dropdown.Menu aria-label={ariaLabel} className="grid gap-0.5" shouldCloseOnSelect={false}>
@@ -109,7 +110,8 @@ export function DesktopSubmenu({
         </Dropdown.Item>
         <Dropdown.Popover
           placement="right top"
-          className="w-[240px] rounded-[10px] border border-line-strong bg-surface-chrome/95 p-1 text-ink shadow-pop backdrop-blur-xl"
+          offset={6}
+          className="desktop-menu-popover w-[240px] rounded-[10px] border border-line-strong bg-surface-chrome/95 p-1 text-ink shadow-pop backdrop-blur-xl"
           style={{ width: "min(240px, calc(100vw - 24px))" }}
         >
           <Dropdown.Menu aria-label={label} className="grid gap-0.5" shouldCloseOnSelect={false}>
@@ -143,6 +145,10 @@ export function DesktopMenuSeparator() {
 type HeroPlacement = NonNullable<ComponentProps<typeof Dropdown.Popover>["placement"]>;
 
 function toHeroPlacement(placement: FloatingPlacement): HeroPlacement {
+  if (placement === "right-start") return "right top";
+  if (placement === "right-end") return "right bottom";
+  if (placement === "left-start") return "left top";
+  if (placement === "left-end") return "left bottom";
   return placement.replace("-", " ") as HeroPlacement;
 }
 

@@ -623,3 +623,9 @@ html.standalone-window:not(.terminal-window) .app-shell::after {
 .minimap-stripes {
   background: var(--minimap-stripes);
 }
+
+.desktop-menu-popover {
+  animation: none !important;
+  transition: none !important;
+  will-change: auto !important;
+}

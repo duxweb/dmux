@@ -429,7 +429,7 @@ function HelpMenuButton({
       ariaLabel={tm("sidebar.footer.help", "Help")}
       isOpen={isOpen}
       onOpenChange={setOpen}
-      placement={isExpanded ? "top-start" : "right-end"}
+      placement={isExpanded ? "top-start" : "right-start"}
       trigger={trigger}
     >
       <DesktopMenuItem label={tm("menu.app.about_format", "About %@").replace("%@", "Codux")} onSelect={() => void showAbout()}>
