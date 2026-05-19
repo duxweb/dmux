@@ -441,6 +441,10 @@
     background: var(--surface-window-tint);
   }
 
+  html.transparent-window body {
+    background: transparent;
+  }
+
   html.terminal-window body {
     background: var(--terminal-bg);
   }
