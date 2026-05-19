@@ -68,7 +68,7 @@ const windowConfig: Record<AppWindowKind, WindowConfig> = {
     height: 218,
     minWidth: 220,
     minHeight: 140,
-    route: "/desktop-pet",
+    route: "desktop-pet.html",
   },
   "pet-claim": {
     label: "pet-claim",
@@ -134,7 +134,7 @@ export async function openAppWindow(kind: AppWindowKind) {
 
   const appWindow = new WebviewWindow(config.label, {
     title: tm(config.titleKey, config.titleFallback),
-    url: `/#${config.route}`,
+    url: kind === "desktop-pet" ? config.route : `/#${config.route}`,
     width: config.width,
     height: config.height,
     minWidth: config.minWidth,

@@ -1,0 +1,315 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import voidcatUrl from "./assets/pets/voidcat/spritesheet.png?url";
+import dolphinUrl from "./assets/pets/dolphin/spritesheet.png?url";
+import rusthoundUrl from "./assets/pets/rusthound/spritesheet.png?url";
+import penguinUrl from "./assets/pets/penguin/spritesheet.png?url";
+import sheepUrl from "./assets/pets/sheep/spritesheet.png?url";
+import pandaUrl from "./assets/pets/panda/spritesheet.png?url";
+import phoenixUrl from "./assets/pets/phoenix/spritesheet.png?url";
+import oxUrl from "./assets/pets/ox/spritesheet.png?url";
+import codeUrl from "./assets/pets/code/spritesheet.png?url";
+import dragonUrl from "./assets/pets/dragon/spritesheet.png?url";
+import chaosspriteUrl from "./assets/pets/chaossprite/spritesheet.png?url";
+import gooseUrl from "./assets/pets/goose/spritesheet.png?url";
+import "./desktopPet.css";
+
+type PetAnimationState = "idle" | "running" | "waiting" | "review";
+type DesktopPetSide = "left" | "right";
+
+type AppSettings = {
+  pet: {
+    staticMode: boolean;
+    enabled: boolean;
+    desktopWidget: boolean;
+  };
+};
+
+type PetSnapshot = {
+  claimedAt?: number | null;
+  species: string;
+  customPet?: {
+    displayName?: string | null;
+    spritesheetDataUrl?: string | null;
+  } | null;
+  customName?: string | null;
+  dailyExperienceTokens: number;
+};
+
+type AISessionSnapshot = {
+  state: "idle" | "responding" | "needsInput";
+  tool: string;
+  updatedAt: number;
+  hasCompletedTurn: boolean;
+  wasInterrupted: boolean;
+  notificationType?: string | null;
+  targetToolName?: string | null;
+  message?: string | null;
+  latestAssistantPreview?: string | null;
+};
+
+type AIRuntimeStateSnapshot = {
+  sessions: AISessionSnapshot[];
+};
+
+type PlacementSnapshot = {
+  side: DesktopPetSide;
+};
+
+const DESKTOP_PET_COMPLETED_STATUS_SECONDS = 8;
+const atlas = { columns: 8, rows: 9, cellWidth: 192, cellHeight: 208 };
+const spriteSize = 128;
+const visibleWidth = (atlas.cellWidth * spriteSize) / atlas.cellHeight;
+const spriteUrls: Record<string, string> = {
+  voidcat: voidcatUrl,
+  dolphin: dolphinUrl,
+  rusthound: rusthoundUrl,
+  penguin: penguinUrl,
+  sheep: sheepUrl,
+  panda: pandaUrl,
+  phoenix: phoenixUrl,
+  ox: oxUrl,
+  code: codeUrl,
+  dragon: dragonUrl,
+  chaossprite: chaosspriteUrl,
+  goose: gooseUrl,
+};
+const animations: Record<PetAnimationState, { row: number; frameDurationsMs: number[] }> = {
+  idle: { row: 0, frameDurationsMs: [280, 110, 110, 140, 140, 320] },
+  running: { row: 7, frameDurationsMs: [120, 120, 120, 120, 120, 220] },
+  waiting: { row: 6, frameDurationsMs: [150, 150, 150, 150, 150, 260] },
+  review: { row: 8, frameDurationsMs: [150, 150, 150, 150, 150, 280] },
+};
+
+const root = document.getElementById("pet-root") as HTMLDivElement;
+const spriteHotspot = document.getElementById("sprite-hotspot") as HTMLDivElement;
+const sprite = document.getElementById("pet-sprite") as HTMLDivElement;
+const bubble = document.getElementById("speech-bubble") as HTMLDivElement;
+const bubbleText = document.getElementById("speech-text") as HTMLDivElement;
+const appWindow = getCurrentWindow();
+
+let settings: AppSettings | null = null;
+let pet: PetSnapshot | null = null;
+let runtime: AIRuntimeStateSnapshot = { sessions: [] };
+let side: DesktopPetSide = "left";
+let frameTimer: number | null = null;
+let activityTimer: number | null = null;
+let currentFrame = 0;
+let currentState: PetAnimationState = "idle";
+let lastBubbleText = "";
+let lastBubbleVisible = false;
+
+void boot();
+
+async function boot() {
+  installWindowEvents();
+  await Promise.all([loadSettings(), loadPet(), loadRuntime()]);
+  await loadPlacement();
+  renderAll();
+  if (shouldDisplayPet()) {
+    await appWindow.show().catch(() => undefined);
+  }
+}
+
+function installWindowEvents() {
+  spriteHotspot.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void invoke("desktop_pet_start_drag").catch(() => undefined);
+  });
+  spriteHotspot.addEventListener("contextmenu", openContextMenu);
+  bubble.addEventListener("contextmenu", openContextMenu);
+
+  void listen<AppSettings>("settings:updated", (event) => {
+    settings = event.payload;
+    renderAll();
+  });
+  void listen<PetSnapshot>("pet:updated", (event) => {
+    pet = event.payload;
+    renderAll();
+  });
+  void listen<AIRuntimeStateSnapshot>("ai-runtime:state", (event) => {
+    runtime = event.payload;
+    renderAll();
+  });
+  void appWindow.listen<PlacementSnapshot>("desktop-pet:placement", (event) => {
+    side = event.payload.side === "right" ? "right" : "left";
+    applySide();
+  });
+  void appWindow.listen("desktop-pet:skip-line", () => setBubbleText(""));
+}
+
+function openContextMenu(event: MouseEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+  void invoke("desktop_pet_show_context_menu").catch(() => undefined);
+}
+
+async function loadSettings() {
+  settings = await invoke<AppSettings>("app_settings_get").catch(() => null);
+}
+
+async function loadPet() {
+  pet = await invoke<PetSnapshot>("pet_snapshot").catch(() => null);
+}
+
+async function loadRuntime() {
+  runtime = await invoke<AIRuntimeStateSnapshot>("ai_runtime_state_snapshot").catch(() => ({ sessions: [] }));
+}
+
+async function loadPlacement() {
+  const placement = await invoke<PlacementSnapshot>("desktop_pet_placement").catch(() => null);
+  side = placement?.side === "right" ? "right" : "left";
+}
+
+function renderAll() {
+  if (!shouldDisplayPet()) {
+    stopFrameTimer();
+    if (activityTimer != null) {
+      window.clearTimeout(activityTimer);
+      activityTimer = null;
+    }
+    void appWindow.hide().catch(() => undefined);
+    return;
+  }
+  applySide();
+  updateSpriteSource();
+  updateSpriteAnimation();
+  updateActivityLine();
+}
+
+function shouldDisplayPet() {
+  return Boolean(settings?.pet.enabled && settings.pet.desktopWidget && pet?.claimedAt);
+}
+
+function applySide() {
+  root.dataset.side = side;
+  bubble.classList.toggle("speech-bubble--left-tail", side === "right");
+  bubble.classList.toggle("speech-bubble--right-tail", side !== "right");
+}
+
+function updateSpriteSource() {
+  const source = pet?.customPet?.spritesheetDataUrl || spriteUrls[pet?.species || ""] || voidcatUrl;
+  sprite.style.width = `${visibleWidth}px`;
+  sprite.style.height = `${spriteSize}px`;
+  sprite.style.backgroundImage = `url("${source}")`;
+  sprite.style.backgroundSize = `${atlas.columns * visibleWidth}px ${atlas.rows * spriteSize}px`;
+  spriteHotspot.style.width = `${spriteSize}px`;
+  spriteHotspot.style.height = `${spriteSize}px`;
+}
+
+function updateSpriteAnimation() {
+  const nextState: PetAnimationState = pet?.claimedAt ? (pet.dailyExperienceTokens > 0 ? "running" : "idle") : "waiting";
+  if (nextState === currentState && frameTimer != null) return;
+  currentState = nextState;
+  currentFrame = 0;
+  stopFrameTimer();
+  applyFrame();
+  if (settings?.pet.staticMode) return;
+  scheduleFrame();
+}
+
+function scheduleFrame() {
+  const animation = animations[currentState] ?? animations.idle;
+  const delay = frameDelay(animation.frameDurationsMs[currentFrame % animation.frameDurationsMs.length] ?? 180, currentState);
+  frameTimer = window.setTimeout(() => {
+    currentFrame = (currentFrame + 1) % animation.frameDurationsMs.length;
+    applyFrame();
+    scheduleFrame();
+  }, delay);
+}
+
+function stopFrameTimer() {
+  if (frameTimer != null) {
+    window.clearTimeout(frameTimer);
+    frameTimer = null;
+  }
+}
+
+function applyFrame() {
+  const animation = animations[currentState] ?? animations.idle;
+  sprite.style.backgroundPosition = `-${currentFrame * visibleWidth}px -${animation.row * spriteSize}px`;
+}
+
+function updateActivityLine() {
+  const now = Date.now() / 1000;
+  const text = desktopPetActivityLine(runtime.sessions, now);
+  setBubbleText(text);
+  if (activityTimer != null) window.clearTimeout(activityTimer);
+  const refreshMs = nextDesktopPetActivityRefreshMs(runtime.sessions, now);
+  activityTimer = refreshMs == null ? null : window.setTimeout(updateActivityLine, refreshMs);
+}
+
+function setBubbleText(text: string) {
+  const nextText = text.trim();
+  const isVisible = nextText.length > 0;
+  if (nextText === lastBubbleText && isVisible === lastBubbleVisible) return;
+  lastBubbleText = nextText;
+  lastBubbleVisible = isVisible;
+  bubble.hidden = !isVisible;
+  bubble.style.display = isVisible ? "grid" : "none";
+  bubbleText.textContent = nextText;
+  void invoke("desktop_pet_set_bubble_visible", { visible: isVisible }).catch(() => undefined);
+}
+
+function desktopPetActivityLine(sessions: AISessionSnapshot[], now: number) {
+  const visibleSessions = sessions.filter((session) => {
+    if (session.state === "responding" || session.state === "needsInput") return true;
+    return session.hasCompletedTurn && now - session.updatedAt <= DESKTOP_PET_COMPLETED_STATUS_SECONDS;
+  });
+  if (!visibleSessions.length) return "";
+  const permission = visibleSessions
+    .filter((session) => session.state === "needsInput" && isPermissionRequestNotificationType(session.notificationType))
+    .sort(compareUpdatedDesc)[0];
+  if (permission) {
+    return permission.targetToolName
+      ? `${permission.tool} needs permission for ${permission.targetToolName}`
+      : `${permission.tool} needs permission`;
+  }
+  const needsInput = visibleSessions.filter((session) => session.state === "needsInput").sort(compareUpdatedDesc)[0];
+  if (needsInput) {
+    return normalizedPreview(needsInput.latestAssistantPreview) || normalizedPreview(needsInput.message) || `${needsInput.tool} needs input`;
+  }
+  const running = visibleSessions.filter((session) => session.state === "responding").sort(compareUpdatedDesc)[0];
+  if (running) {
+    return normalizedPreview(running.latestAssistantPreview) || `${running.tool} is running`;
+  }
+  const completed = visibleSessions.filter((session) => session.hasCompletedTurn).sort(compareUpdatedDesc)[0];
+  if (completed) return completed.wasInterrupted ? `${completed.tool} failed` : `${completed.tool} completed`;
+  return "";
+}
+
+function nextDesktopPetActivityRefreshMs(sessions: AISessionSnapshot[], now: number) {
+  const nextExpiry = sessions
+    .filter((session) => session.hasCompletedTurn && session.state !== "responding" && session.state !== "needsInput")
+    .map((session) => session.updatedAt + DESKTOP_PET_COMPLETED_STATUS_SECONDS)
+    .filter((expiresAt) => expiresAt > now)
+    .sort((left, right) => left - right)[0];
+  return nextExpiry ? Math.max(250, Math.ceil((nextExpiry - now) * 1000)) : null;
+}
+
+function compareUpdatedDesc(left: AISessionSnapshot, right: AISessionSnapshot) {
+  return right.updatedAt - left.updatedAt;
+}
+
+function isPermissionRequestNotificationType(value?: string | null) {
+  return value === "PermissionRequest" || value === "permission-request" || value === "permission_request";
+}
+
+function normalizedPreview(value?: string | null) {
+  return (value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("\n")
+    .trim();
+}
+
+function frameDelay(delayMs: number, state: PetAnimationState) {
+  const leadingHold = state === "idle" || state === "waiting" || state === "review" ? 1.85 : 1.35;
+  return Math.max(80, Math.round(delayMs * leadingHold));
+}

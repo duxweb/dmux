@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Smile } from "../icons";
 import { readAppSettings, subscribeAppSettings } from "../settings";
 
@@ -70,7 +70,7 @@ export const PetSprite = memo(function PetSprite({
   staticMode,
   className,
 }: Props) {
-  const [frame, setFrame] = useState(0);
+  const spriteRef = useRef<HTMLDivElement | null>(null);
   const [settings, setSettings] = useState(() => staticMode === undefined ? readAppSettings() : null);
   const animation = animations[state] ?? animations.idle;
   const frameDurations = animation.frameDurationsMs;
@@ -88,17 +88,18 @@ export const PetSprite = memo(function PetSprite({
   }, [staticMode]);
 
   useEffect(() => {
-    setFrame(0);
-    if (!usesJsSpriteAnimation(src) || resolvedStaticMode || frameCount <= 1) return;
+    const sprite = spriteRef.current;
+    let currentFrame = 0;
+    applySpriteFrame(sprite, currentFrame, visibleWidth, animation.row, size);
+    if (resolvedStaticMode || frameCount <= 1) return;
     let cancelled = false;
     let timer: number | null = null;
-    let currentFrame = 0;
     const tick = () => {
       const delay = frameDelay(frameDurations[currentFrame % frameCount] ?? 180, state);
       timer = window.setTimeout(() => {
         if (cancelled) return;
         currentFrame = (currentFrame + 1) % frameCount;
-        setFrame(currentFrame);
+        applySpriteFrame(sprite, currentFrame, visibleWidth, animation.row, size);
         tick();
       }, delay);
     };
@@ -107,30 +108,18 @@ export const PetSprite = memo(function PetSprite({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [frameCount, frameDurations, resolvedStaticMode, state]);
+  }, [animation.row, frameCount, frameDurations, resolvedStaticMode, size, state, visibleWidth]);
 
   const style = useMemo<CSSProperties | undefined>(() => {
     if (!spriteUrl) return undefined;
-    if (!usesJsSpriteAnimation(src)) {
-      return {
-        width: `${visibleWidth}px`,
-        height: `${size}px`,
-        "--pet-sheet-width": `${atlas.columns * visibleWidth}px`,
-        "--pet-sheet-height": `${atlas.rows * size}px`,
-        "--pet-frame-width": `${visibleWidth}px`,
-        "--pet-row-offset": `-${animation.row * size}px`,
-        "--pet-frame-count": frameCount,
-        "--pet-duration": `${cssAnimationDuration(frameDurations, state)}ms`,
-      };
-    }
     return {
       width: `${visibleWidth}px`,
       height: `${size}px`,
       backgroundImage: `url("${spriteUrl}")`,
       backgroundSize: `${atlas.columns * visibleWidth}px ${atlas.rows * size}px`,
-      backgroundPosition: `-${Math.min(frame, frameCount - 1) * visibleWidth}px -${animation.row * size}px`,
+      backgroundPosition: `0px -${animation.row * size}px`,
     };
-  }, [animation.row, frame, frameCount, frameDurations, size, spriteUrl, src, state, visibleWidth]);
+  }, [animation.row, size, spriteUrl, visibleWidth]);
 
   if (!spriteUrl) {
     return (
@@ -148,25 +137,12 @@ export const PetSprite = memo(function PetSprite({
       className={`overflow-hidden ${className ?? ""}`}
       style={{ width: size, height: size }}
     >
-      {usesJsSpriteAnimation(src) || resolvedStaticMode || frameCount <= 1 ? (
-        <div
-          aria-hidden="true"
-          className="bg-no-repeat [image-rendering:auto]"
-          style={style}
-        />
-      ) : (
-        <div aria-hidden="true" className="[image-rendering:auto]" style={style}>
-          <div
-            className="h-full bg-no-repeat motion-safe:animate-[pet-sprite-play_var(--pet-duration)_steps(var(--pet-frame-count))_infinite]"
-            style={{
-              width: `calc(var(--pet-frame-width) * var(--pet-frame-count))`,
-              backgroundImage: `url("${spriteUrl}")`,
-              backgroundSize: "var(--pet-sheet-width) var(--pet-sheet-height)",
-              backgroundPosition: `0 var(--pet-row-offset)`,
-            }}
-          />
-        </div>
-      )}
+      <div
+        ref={spriteRef}
+        aria-hidden="true"
+        className="bg-no-repeat [image-rendering:auto]"
+        style={style}
+      />
     </div>
   );
 });
@@ -176,10 +152,13 @@ function frameDelay(delayMs: number, state: PetAnimationState) {
   return Math.max(80, Math.round(delayMs * leadingHold));
 }
 
-function cssAnimationDuration(frameDurations: number[], state: PetAnimationState) {
-  return frameDurations.reduce((total, delay) => total + frameDelay(delay, state), 0);
-}
-
-function usesJsSpriteAnimation(src?: string | null) {
-  return Boolean(src);
+function applySpriteFrame(
+  sprite: HTMLDivElement | null,
+  frame: number,
+  visibleWidth: number,
+  row: number,
+  size: number,
+) {
+  if (!sprite) return;
+  sprite.style.backgroundPosition = `-${frame * visibleWidth}px -${row * size}px`;
 }

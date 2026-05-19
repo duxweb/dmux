@@ -1,6 +1,7 @@
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+import { resolve } from "node:path";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -19,5 +20,11 @@ export default defineConfig({
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
     minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        desktopPet: resolve(__dirname, "desktop-pet.html"),
+      },
+    },
   },
 });

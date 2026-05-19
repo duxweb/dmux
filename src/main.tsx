@@ -14,7 +14,6 @@ const route = window.location.hash.replace(/^#/, "");
 const isStandalone =
   route === "/settings" ||
   route === "/project-create" ||
-  route === "/desktop-pet" ||
   route === "/pet-claim" ||
   route === "/pet-dex" ||
   route === "/pet-custom-install" ||
@@ -23,9 +22,6 @@ const isStandalone =
   route.startsWith("/git-diff");
 if (isStandalone) {
   document.documentElement.classList.add("standalone-window");
-}
-if (route === "/desktop-pet") {
-  document.documentElement.classList.add("desktop-pet-window");
 }
 if (route.startsWith("/terminal")) {
   document.documentElement.classList.add("terminal-window");
@@ -39,10 +35,6 @@ async function loadRoot() {
   if (route === "/project-create") {
     const { ProjectCreateWindow } = await import("./windows/ProjectCreateWindow");
     return ProjectCreateWindow;
-  }
-  if (route === "/desktop-pet") {
-    const { DesktopPetWindow } = await import("./windows/DesktopPetWindow");
-    return DesktopPetWindow;
   }
   if (route === "/pet-claim") {
     const { PetClaimWindow } = await import("./windows/PetClaimWindow");

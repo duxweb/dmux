@@ -1,0 +1,200 @@
+html,
+body,
+#pet-root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    "PingFang SC",
+    "Segoe UI",
+    ui-sans-serif,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+.pet-root {
+  position: relative;
+  pointer-events: none;
+}
+
+.sprite-hotspot {
+  position: absolute;
+  bottom: 8px;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.sprite-hotspot:active {
+  cursor: grabbing;
+}
+
+.pet-root[data-side="left"] .sprite-hotspot {
+  right: 24px;
+}
+
+.pet-root[data-side="right"] .sprite-hotspot {
+  left: 24px;
+}
+
+.pet-sprite {
+  background-repeat: no-repeat;
+  image-rendering: auto;
+}
+
+.speech-bubble {
+  --pixel-bubble-fill: rgb(41 43 54);
+  --pixel-bubble-stroke: rgb(255 255 255);
+  --pixel-bubble-text: rgb(240 237 225);
+  --pixel-bubble-tail-y: 50%;
+  position: absolute;
+  top: 56px;
+  display: grid;
+  width: 214px;
+  min-height: 58px;
+  box-sizing: border-box;
+  place-items: center;
+  padding: 12px 24px 12px 15px;
+  color: var(--pixel-bubble-text);
+  pointer-events: auto;
+}
+
+.speech-bubble[hidden] {
+  display: none !important;
+}
+
+.pet-root[data-side="left"] .speech-bubble {
+  left: 8px;
+}
+
+.pet-root[data-side="right"] .speech-bubble {
+  right: 8px;
+}
+
+.speech-bubble::before,
+.speech-bubble::after {
+  content: "";
+  position: absolute;
+  inset: 0 9px 0 0;
+  pointer-events: none;
+}
+
+.speech-bubble::before {
+  background: var(--pixel-bubble-stroke);
+}
+
+.speech-bubble::after {
+  inset: 3px 12px 3px 3px;
+  background: var(--pixel-bubble-fill);
+}
+
+.speech-bubble--right-tail::before,
+.speech-bubble--right-tail::after {
+  clip-path: polygon(
+    0 6px,
+    3px 6px,
+    3px 3px,
+    6px 3px,
+    6px 0,
+    calc(100% - 15px) 0,
+    calc(100% - 15px) 3px,
+    calc(100% - 12px) 3px,
+    calc(100% - 12px) 6px,
+    calc(100% - 9px) 6px,
+    calc(100% - 9px) calc(var(--pixel-bubble-tail-y) - 9px),
+    calc(100% - 6px) calc(var(--pixel-bubble-tail-y) - 9px),
+    calc(100% - 6px) calc(var(--pixel-bubble-tail-y) - 6px),
+    calc(100% - 3px) calc(var(--pixel-bubble-tail-y) - 6px),
+    calc(100% - 3px) calc(var(--pixel-bubble-tail-y) - 3px),
+    100% calc(var(--pixel-bubble-tail-y) - 3px),
+    100% calc(var(--pixel-bubble-tail-y) + 3px),
+    calc(100% - 3px) calc(var(--pixel-bubble-tail-y) + 3px),
+    calc(100% - 3px) calc(var(--pixel-bubble-tail-y) + 6px),
+    calc(100% - 6px) calc(var(--pixel-bubble-tail-y) + 6px),
+    calc(100% - 6px) calc(var(--pixel-bubble-tail-y) + 9px),
+    calc(100% - 9px) calc(var(--pixel-bubble-tail-y) + 9px),
+    calc(100% - 9px) calc(100% - 6px),
+    calc(100% - 12px) calc(100% - 6px),
+    calc(100% - 12px) calc(100% - 3px),
+    calc(100% - 15px) calc(100% - 3px),
+    calc(100% - 15px) 100%,
+    6px 100%,
+    6px calc(100% - 3px),
+    3px calc(100% - 3px),
+    3px calc(100% - 6px),
+    0 calc(100% - 6px)
+  );
+}
+
+.speech-bubble--left-tail {
+  padding: 12px 15px 12px 24px;
+}
+
+.speech-bubble--left-tail::before,
+.speech-bubble--left-tail::after {
+  inset: 0 0 0 9px;
+  clip-path: polygon(
+    0 calc(var(--pixel-bubble-tail-y) - 3px),
+    3px calc(var(--pixel-bubble-tail-y) - 3px),
+    3px calc(var(--pixel-bubble-tail-y) - 6px),
+    6px calc(var(--pixel-bubble-tail-y) - 6px),
+    6px calc(var(--pixel-bubble-tail-y) - 9px),
+    9px calc(var(--pixel-bubble-tail-y) - 9px),
+    9px 6px,
+    12px 6px,
+    12px 3px,
+    15px 3px,
+    15px 0,
+    calc(100% - 6px) 0,
+    calc(100% - 6px) 3px,
+    calc(100% - 3px) 3px,
+    calc(100% - 3px) 6px,
+    100% 6px,
+    100% calc(100% - 6px),
+    calc(100% - 3px) calc(100% - 6px),
+    calc(100% - 3px) calc(100% - 3px),
+    calc(100% - 6px) calc(100% - 3px),
+    calc(100% - 6px) 100%,
+    15px 100%,
+    15px calc(100% - 3px),
+    12px calc(100% - 3px),
+    12px calc(100% - 6px),
+    9px calc(100% - 6px),
+    9px calc(var(--pixel-bubble-tail-y) + 9px),
+    6px calc(var(--pixel-bubble-tail-y) + 9px),
+    6px calc(var(--pixel-bubble-tail-y) + 6px),
+    3px calc(var(--pixel-bubble-tail-y) + 6px),
+    3px calc(var(--pixel-bubble-tail-y) + 3px),
+    0 calc(var(--pixel-bubble-tail-y) + 3px)
+  );
+}
+
+.speech-bubble--left-tail::after {
+  inset: 3px 3px 3px 12px;
+}
+
+.speech-bubble__text {
+  position: relative;
+  z-index: 1;
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  font-family: "SF Mono", "Cascadia Mono", "Menlo", "Consolas", ui-monospace, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.22;
+  text-align: center;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}

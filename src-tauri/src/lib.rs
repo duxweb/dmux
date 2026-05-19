@@ -440,6 +440,7 @@ struct AppState {
 #[derive(Default)]
 struct DesktopPetHitState {
     has_bubble: AtomicBool,
+    hit_test_running: AtomicBool,
 }
 
 const DESKTOP_PET_LABEL: &str = "desktop-pet";
@@ -467,7 +468,8 @@ fn sync_desktop_pet_window(app: &tauri::AppHandle, settings: &AppSettings, pet: 
         settings.pet.enabled && settings.pet.desktop_widget && pet.claimed_at.is_some();
     if !should_show {
         if let Some(window) = app.get_webview_window(DESKTOP_PET_LABEL) {
-            let _ = window.destroy();
+            let _ = window.set_ignore_cursor_events(true);
+            let _ = window.hide();
         }
         return;
     }
@@ -514,7 +516,7 @@ fn show_desktop_pet_window(app: &tauri::AppHandle, settings: &AppSettings) -> ta
     let builder = WebviewWindowBuilder::new(
         app,
         DESKTOP_PET_LABEL,
-        WebviewUrl::App("index.html#/desktop-pet".into()),
+        WebviewUrl::App("desktop-pet.html".into()),
     )
     .title(title)
     .inner_size(width, height)
@@ -554,18 +556,29 @@ fn show_desktop_pet_window(app: &tauri::AppHandle, settings: &AppSettings) -> ta
 }
 
 fn start_desktop_pet_hit_test_loop(app: tauri::AppHandle) {
+    let Some(hit_state) = app
+        .try_state::<AppState>()
+        .map(|state| Arc::clone(&state.desktop_pet_hit_state))
+    else {
+        return;
+    };
+    if hit_state
+        .hit_test_running
+        .swap(true, Ordering::AcqRel)
+    {
+        return;
+    }
+
     thread::spawn(move || {
         let mut last_click_through = true;
         loop {
             let Some(window) = app.get_webview_window(DESKTOP_PET_LABEL) else {
                 break;
             };
-            let hit_state = app
-                .try_state::<AppState>()
-                .map(|state| Arc::clone(&state.desktop_pet_hit_state));
-            let has_bubble = hit_state
-                .as_ref()
-                .is_some_and(|state| state.has_bubble.load(Ordering::Relaxed));
+            if !window.is_visible().unwrap_or(false) {
+                break;
+            }
+            let has_bubble = hit_state.has_bubble.load(Ordering::Relaxed);
             let click_through = desktop_pet_should_click_through(&window, has_bubble);
             if click_through != last_click_through {
                 let _ = window.set_ignore_cursor_events(click_through);
@@ -573,6 +586,7 @@ fn start_desktop_pet_hit_test_loop(app: tauri::AppHandle) {
             }
             thread::sleep(Duration::from_millis(if click_through { 220 } else { 80 }));
         }
+        hit_state.hit_test_running.store(false, Ordering::Release);
     });
 }
 
