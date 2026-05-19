@@ -57,6 +57,9 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "icon": [],
+    "resources": {
+      "./infoplist/": ""
+    },
     "macOS": {
       "infoPlist": "Info.plist"
     }
