@@ -63,7 +63,7 @@ export function TextInput(props: ComponentProps<typeof HInput>) {
 }
 
 export function Textarea(props: ComponentProps<typeof HTextArea>) {
-  return <HTextArea {...props} />;
+  return <HTextArea fullWidth className="block w-full" {...props} />;
 }
 
 export function Select({
