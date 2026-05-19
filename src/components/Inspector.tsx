@@ -23,7 +23,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button as HeroButton, Dropdown, ProgressBar, Spinner } from "@heroui/react";
-import { useCallback, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Key, type ReactNode } from "react";
 import { useAIHistorySnapshot, type AIHeatmapDay, type AIHistorySessionSummary, type AITimeBucket, type AIUsageBreakdownItem } from "../ai/history";
 import { aiIndexingPresentation, liveSessionTotalTokens } from "../ai/panelPresentation";
 import { useAIRuntimeSnapshot, type AISessionSnapshot } from "../ai/runtime";
@@ -1188,50 +1188,50 @@ function CommitRow({
   const contextMenu = useContextMenu();
   return (
     <div
-      className="group relative min-h-[46px] px-3.5 py-1.5 hover:bg-fill/[0.03] text-xs"
+      className="group relative min-h-[46px] px-2 py-1.5 hover:bg-fill/[0.03] text-xs"
       onContextMenu={contextMenu.openMenu}
     >
-      {isHead && (
-        <span className="absolute left-1.5 top-[15px] h-1.5 w-1.5 rounded-full bg-brand-blue/85" />
-      )}
-      <Tooltip
-        placement="top"
-        triggerClassName="block min-w-0"
-        contentClassName="max-w-[360px] px-2.5 py-2 text-left"
-        label={
-          <div className="grid gap-1">
-            <div className="font-semibold leading-snug text-ink">{commit.title}</div>
-            <div className="font-mono text-[10.5px] text-ink-faint">{commit.hash}</div>
-            <div className="text-ink-mute">{commit.author} · {commit.relativeTime}</div>
-            {decorations.length > 0 && <div className="text-brand-blue">{decorations.join(" · ")}</div>}
-          </div>
-        }
-      >
-        <div className={`${isHead ? "pl-1" : ""}`}>
-          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-            <span className="min-w-[9ch] flex-1 truncate text-[12.5px] font-medium leading-4 text-ink-soft">
-              {commit.title}
-            </span>
-            <div className="min-w-0 flex-none max-w-[48%] overflow-hidden">
-              <div className="flex min-w-0 items-center justify-end gap-1 overflow-hidden">
-                {decorations.map((decoration) => (
-                  <span
-                    key={decoration}
-                    className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 h-[18px] inline-flex flex-shrink items-center text-xs font-semibold rounded-sm bg-brand-blue/18 text-brand-blue"
-                  >
-                    {decoration}
-                  </span>
-                ))}
+      <div className="grid min-h-[34px] grid-cols-[34px_minmax(0,1fr)] items-center gap-1.5">
+        <GitGraphPrefix prefix={commit.graphPrefix || (isHead ? "*" : "|")} />
+        <Tooltip
+          placement="top"
+          triggerClassName="block min-w-0"
+          contentClassName="max-w-[360px] px-2.5 py-2 text-left"
+          label={
+            <div className="grid gap-1">
+              <div className="font-semibold leading-snug text-ink">{commit.title}</div>
+              <div className="font-mono text-[10.5px] text-ink-faint">{commit.hash}</div>
+              <div className="text-ink-mute">{commit.author} · {commit.relativeTime}</div>
+              {decorations.length > 0 && <div className="text-brand-blue">{decorations.join(" · ")}</div>}
+            </div>
+          }
+        >
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+              <span className="min-w-[9ch] flex-1 truncate text-[12.5px] font-medium leading-4 text-ink-soft">
+                {commit.title}
+              </span>
+              <div className="min-w-0 flex-none max-w-[48%] overflow-hidden">
+                <div className="flex min-w-0 items-center justify-end gap-1 overflow-hidden">
+                  {decorations.map((decoration) => (
+                    <span
+                      key={decoration}
+                      className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-1.5 h-[18px] inline-flex flex-shrink items-center text-xs font-semibold rounded-sm bg-brand-blue/18 text-brand-blue"
+                    >
+                      {decoration}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-4 text-ink-faint">
+              <span className="min-w-0 truncate">{commit.author}</span>
+              <span className="text-ink-faint/70">·</span>
+              <span className="flex-shrink-0 whitespace-nowrap">{commit.relativeTime}</span>
+            </div>
           </div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-4 text-ink-faint">
-            <span className="min-w-0 truncate">{commit.author}</span>
-            <span className="text-ink-faint/70">·</span>
-            <span className="flex-shrink-0 whitespace-nowrap">{commit.relativeTime}</span>
-          </div>
-        </div>
-      </Tooltip>
+        </Tooltip>
+      </div>
       <ContextMenu
         ariaLabel={formatI18n(tm("git.history.commit_actions_format", "%@ Actions"), commit.hash.slice(0, 7))}
         menu={contextMenu.menu}
@@ -1251,6 +1251,73 @@ function CommitRow({
       </ContextMenu>
     </div>
   );
+}
+
+function GitGraphPrefix({ prefix }: { prefix: string }) {
+  const chars = Array.from(prefix || "*");
+  const columnWidth = 8;
+  const startX = Math.max(0, 34 - chars.length * columnWidth);
+  return (
+    <div className="relative h-full min-h-[34px] w-[34px]" aria-hidden="true">
+      {chars.map((char, index) => (
+        <GitGraphToken
+          key={`${char}:${index}`}
+          char={char}
+          index={index}
+          centerX={startX + index * columnWidth + columnWidth / 2}
+        />
+      ))}
+    </div>
+  );
+}
+
+function GitGraphToken({
+  char,
+  index,
+  centerX,
+}: {
+  char: string;
+  index: number;
+  centerX: number;
+}) {
+  const tone = graphTone(index);
+  const centerStyle: CSSProperties = { left: centerX };
+  if (char === "|" || char === "*" || char === "o") {
+    return (
+      <>
+        <span
+          className={`absolute top-[-8px] bottom-[-8px] w-px ${char === "|" ? tone.line : tone.lineSoft}`}
+          style={centerStyle}
+        />
+        {(char === "*" || char === "o") && (
+          <span
+            className={`absolute top-1/2 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full ${tone.node}`}
+            style={centerStyle}
+          />
+        )}
+      </>
+    );
+  }
+  if (char === "/" || char === "\\") {
+    return (
+      <span
+        className={`absolute top-[-8px] h-[calc(100%+16px)] w-px origin-center ${char === "/" ? "rotate-[14deg]" : "-rotate-[14deg]"} ${tone.line}`}
+        style={centerStyle}
+      />
+    );
+  }
+  return null;
+}
+
+function graphTone(index: number) {
+  const tones = [
+    { line: "bg-brand-blue/70", lineSoft: "bg-brand-blue/35", node: "bg-brand-blue" },
+    { line: "bg-brand-green/70", lineSoft: "bg-brand-green/35", node: "bg-brand-green" },
+    { line: "bg-brand-amber/70", lineSoft: "bg-brand-amber/35", node: "bg-brand-amber" },
+    { line: "bg-brand-pink/70", lineSoft: "bg-brand-pink/35", node: "bg-brand-pink" },
+    { line: "bg-brand-red/70", lineSoft: "bg-brand-red/35", node: "bg-brand-red" },
+  ];
+  return tones[index % tones.length];
 }
 
 function FilesPanel({ project }: { project?: WorkspaceProject }) {
