@@ -1250,13 +1250,15 @@ fn build_snapshot_from_rows(
             bucket.cached_input_tokens,
             bucket.request_count,
         );
-        accumulate_breakdown(
-            &mut model_breakdown,
-            bucket.model.as_deref().unwrap_or("unknown"),
-            bucket.total_tokens,
-            bucket.cached_input_tokens,
-            bucket.request_count,
-        );
+        if let Some(model) = displayable_model_name(bucket.model.as_deref()) {
+            accumulate_breakdown(
+                &mut model_breakdown,
+                model,
+                bucket.total_tokens,
+                bucket.cached_input_tokens,
+                bucket.request_count,
+            );
+        }
 
         let day = local_day_start_seconds(bucket.bucket_start);
         let heatmap_day = heatmap.entry(day as i64).or_insert(AIHeatmapDay {
@@ -1470,6 +1472,14 @@ fn preferred_string(left: Option<&str>, right: Option<&str>) -> Option<String> {
 fn normalized_optional_string(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
+}
+
+fn displayable_model_name(value: Option<&str>) -> Option<&str> {
+    let value = value?.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("unknown") {
+        return None;
+    }
+    Some(value)
 }
 
 fn same_timestamp(left: f64, right: f64) -> bool {

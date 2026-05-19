@@ -490,12 +490,14 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
             total_tokens,
             entry.cached_input_tokens,
         );
-        accumulate_breakdown(
-            &mut model_breakdown,
-            entry.model.as_deref().unwrap_or("unknown"),
-            total_tokens,
-            entry.cached_input_tokens,
-        );
+        if let Some(model) = displayable_model_name(entry.model.as_deref()) {
+            accumulate_breakdown(
+                &mut model_breakdown,
+                model,
+                total_tokens,
+                entry.cached_input_tokens,
+            );
+        }
 
         let day = local_day_start_seconds(entry.timestamp);
         let day_key = day as i64;
@@ -1849,6 +1851,14 @@ fn paths_equivalent(left: Option<&str>, right: &str) -> bool {
 fn normalized_string(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
+}
+
+fn displayable_model_name(value: Option<&str>) -> Option<&str> {
+    let value = value?.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("unknown") {
+        return None;
+    }
+    Some(value)
 }
 
 fn json_i64(value: Option<&Value>) -> i64 {

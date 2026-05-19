@@ -67,7 +67,7 @@ import type { RightPanelKind, WorkspaceProject } from "../types";
 import { broadcastWorkspaceCommand } from "../workspaceCommands";
 import { openGitDiffWindow } from "../windowing";
 import { systemConfirm } from "../systemDialog";
-import { formatI18n, tm } from "../i18n";
+import { formatI18n, localeFromSettings, tm } from "../i18n";
 
 type Props = {
   panel: RightPanelKind;
@@ -2099,6 +2099,7 @@ function AIPanel({ project }: { project?: WorkspaceProject }) {
   const todayTotalTokens = historySnapshot.projectSummary.todayTotalTokens + liveTodayTokens;
   const toolRankingRows = toolRows(sessions, historySnapshot.toolBreakdown);
   const modelRankingRows = modelRows(sessions, historySnapshot.modelBreakdown);
+  const recentHistorySessions = historySnapshot.sessions.slice(0, MAX_VISIBLE_AI_SESSIONS);
   const refreshAIHistory = useCallback(async () => {
     manualRefreshStartedAtRef.current = Date.now();
     setManualRefreshFeedbackVisible(true);
@@ -2213,30 +2214,19 @@ function AIPanel({ project }: { project?: WorkspaceProject }) {
           title={
             <span>
               {tm("ai.sessions.history", "Session History")}{" "}
-              <span className="text-ink-faint font-normal ml-1">Recent 20</span>
+              {historySnapshot.sessions.length > MAX_VISIBLE_AI_SESSIONS && (
+                <span className="text-ink-faint font-normal ml-1">
+                  {formatI18n(tm("ai.sessions.recent_limit_format", "Recent %d"), MAX_VISIBLE_AI_SESSIONS)}
+                </span>
+              )}
             </span>
           }
           bodyPadding={false}
         >
-          {sessions.slice(0, 20).map((session) => (
-            <SessionRow
-              key={session.terminalId}
-              query={session.sessionTitle}
-              tool={session.tool}
-              right={sessionRightLabel(session)}
-              sub={formatTokens(sessionDeltaTokens(session))}
-            />
+          {recentHistorySessions.map((session) => (
+            <HistorySessionRow key={session.sessionId} session={session} />
           ))}
-          {historySnapshot.sessions.slice(0, Math.max(0, 20 - sessions.length)).map((session) => (
-            <SessionRow
-              key={session.sessionId}
-              query={session.sessionTitle}
-              tool={session.lastTool ?? "unknown"}
-              right={historySessionRightLabel(session)}
-              sub={formatTokens(session.totalTokens)}
-            />
-          ))}
-          {sessions.length === 0 && historySnapshot.sessions.length === 0 && (
+          {recentHistorySessions.length === 0 && (
             <div className="px-3 py-3 text-xs text-ink-faint">
               {history.isLoading
                 ? tm("ai.indexing.reading_sources", "Reading index.")
@@ -2368,20 +2358,22 @@ function toolRows(sessions: AISessionSnapshot[], historyRows: AIUsageBreakdownIt
 }
 
 function modelRows(sessions: AISessionSnapshot[], historyRows: AIUsageBreakdownItem[]) {
-  return rankRows(sessions, historyRows, (session) => session.model || "unknown");
+  return rankRows(sessions, historyRows, (session) => normalizeRankModelName(session.model));
 }
 
 function rankRows(
   sessions: AISessionSnapshot[],
   historyRows: AIUsageBreakdownItem[],
-  keyOf: (session: AISessionSnapshot) => string,
+  keyOf: (session: AISessionSnapshot) => string | null,
 ) {
   const totals = new Map<string, number>();
   for (const row of historyRows) {
+    if (!isDisplayableModelOrToolKey(row.key)) continue;
     totals.set(row.key, (totals.get(row.key) ?? 0) + row.totalTokens);
   }
   for (const session of sessions) {
     const key = keyOf(session);
+    if (!key || !isDisplayableModelOrToolKey(key)) continue;
     const value = sessionDeltaTokens(session);
     totals.set(key, (totals.get(key) ?? 0) + value);
   }
@@ -2396,6 +2388,18 @@ function rankRows(
     }));
 }
 
+const MAX_VISIBLE_AI_SESSIONS = 20;
+
+function normalizeRankModelName(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.toLowerCase() === "unknown") return null;
+  return trimmed;
+}
+
+function isDisplayableModelOrToolKey(value: string) {
+  return value.trim().length > 0 && value.trim().toLowerCase() !== "unknown";
+}
+
 function formatTokens(value: number) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
@@ -2404,19 +2408,6 @@ function formatTokens(value: number) {
 
 function sessionDeltaTokens(session: AISessionSnapshot) {
   return Math.max(0, session.totalTokens - session.baselineTotalTokens);
-}
-
-function sessionRightLabel(session: AISessionSnapshot) {
-  if (session.state === "responding") return tm("agent.status.running", "Running");
-  if (session.state === "needsInput") return tm("project.activity.input_required", "Action required");
-  if (session.wasInterrupted) return tm("ai.notification.task_interrupted", "Task interrupted");
-  if (session.hasCompletedTurn) return tm("agent.status.completed", "Completed");
-  return tm("ai.session.status.idle", "Idle");
-}
-
-function historySessionRightLabel(session: AIHistorySessionSummary) {
-  if (session.requestCount > 0) return formatI18n(tm("common.requests_format", "Requests %@"), session.requestCount);
-  return tm("ai.sessions.history", "Session History");
 }
 
 function BarsRow({ sessions, buckets }: { sessions: AISessionSnapshot[]; buckets: AITimeBucket[] }) {
@@ -2689,29 +2680,56 @@ function RankRow({
   return body;
 }
 
-function SessionRow({
-  query,
-  tool,
-  right,
-  sub,
-}: {
-  query: string;
-  tool: string;
-  right: string;
-  sub: string;
-}) {
+function HistorySessionRow({ session }: { session: AIHistorySessionSummary }) {
+  const tool = session.lastTool || "-";
+  const model = normalizeRankModelName(session.lastModel) ?? "-";
+  const lastSeenLabel = sessionTimeLabel(session.lastSeenAt);
+  const todayLabel = formatI18n(tm("common.today_format", "Today %@"), formatTokens(session.todayTokens));
+
   return (
-    <div className="px-3 py-2 flex items-center justify-between text-xs border-b border-line last:border-b-0 hover:bg-fill/[0.03]">
-      <div className="min-w-0">
-        <div className="text-ink truncate">{query}</div>
-        <div className="text-xs text-ink-faint mt-0.5">{tool}</div>
+    <div className="px-3 py-2.5 flex items-start justify-between gap-3 text-xs border-b border-line last:border-b-0 hover:bg-fill/[0.03]">
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-semibold text-ink truncate">{session.sessionTitle}</div>
+        <div className="mt-1 grid gap-0.5">
+          <div className="text-xs font-medium text-ink-soft truncate">{tool}</div>
+          <div className="text-[11px] font-medium text-ink-faint truncate">{model}</div>
+        </div>
       </div>
-      <div className="text-right ml-3">
-        <div className="text-xs text-ink-faint">{right}</div>
-        {sub && <div className="text-xs text-ink-mute mt-0.5 tabular-nums">{sub}</div>}
+      <div className="flex-shrink-0 text-right">
+        <div className="text-[11px] font-medium text-ink-soft whitespace-nowrap">{lastSeenLabel}</div>
+        <div className="mt-1 text-sm font-medium tabular-nums text-ink">{formatTokens(session.totalTokens)}</div>
+        <div className="mt-0.5 text-[11px] font-medium text-ink-faint whitespace-nowrap">{todayLabel}</div>
       </div>
     </div>
   );
+}
+
+function sessionTimeLabel(timestamp: number) {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "-";
+  return formatI18n(tm("common.last_format", "Last %@"), relativeSessionTime(new Date(timestamp * 1000)));
+}
+
+function relativeSessionTime(date: Date) {
+  const formatter = new Intl.RelativeTimeFormat(localeFromSettings(), {
+    numeric: "auto",
+    style: "short",
+  });
+  const diffSeconds = Math.round((date.getTime() - Date.now()) / 1000);
+  const divisions: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ["year", 60 * 60 * 24 * 365],
+    ["month", 60 * 60 * 24 * 30],
+    ["week", 60 * 60 * 24 * 7],
+    ["day", 60 * 60 * 24],
+    ["hour", 60 * 60],
+    ["minute", 60],
+    ["second", 1],
+  ];
+  for (const [unit, seconds] of divisions) {
+    if (Math.abs(diffSeconds) >= seconds || unit === "second") {
+      return formatter.format(Math.round(diffSeconds / seconds), unit);
+    }
+  }
+  return formatter.format(0, "second");
 }
 
 type SSHCredentialKind = "none" | "password" | "privateKey";
