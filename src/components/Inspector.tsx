@@ -982,7 +982,6 @@ function FileRow({
   onDiscard?: () => void;
   onIgnore?: () => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const contextMenu = useContextMenu();
   const toneClass =
     tone === "amber"
@@ -1019,25 +1018,6 @@ function FileRow({
               </HeroButton>
             </Tooltip>
           )}
-          <DesktopMenu
-            ariaLabel={formatI18n(tm("git.files.actions_format", "%@ Actions"), path)}
-            isOpen={menuOpen}
-            onOpenChange={setMenuOpen}
-            trigger={
-              <button
-                type="button"
-                className="grid h-5 w-5 place-items-center rounded text-ink-faint hover:bg-fill/8 hover:text-ink"
-                aria-label={formatI18n(tm("git.files.actions_format", "%@ Actions"), path)}
-              >
-                <MoreHorizontal size={12} />
-              </button>
-            }
-          >
-            <DesktopMenuItem label={tm("git.files.copy_path", "Copy Path")} onSelect={() => void navigator.clipboard?.writeText(path)}>{tm("git.files.copy_path", "Copy Path")}</DesktopMenuItem>
-            {rootPath && <DesktopMenuItem label={tm("git.files.show_in_finder", "Show in Finder")} onSelect={() => void revealFile(rootPath, path)}>{tm("git.files.show_in_finder", "Show in Finder")}</DesktopMenuItem>}
-            {onIgnore && <DesktopMenuItem label={tm("git.ignore.add", "Add to .gitignore")} onSelect={onIgnore}>{tm("git.ignore.add", "Add to .gitignore")}</DesktopMenuItem>}
-            {onDiscard && <DesktopMenuItem label={tm("git.files.discard_or_delete", "Discard / Delete")} onSelect={onDiscard}>{tm("git.files.discard_or_delete", "Discard / Delete")}</DesktopMenuItem>}
-          </DesktopMenu>
         </div>
         <ContextMenu
           ariaLabel={formatI18n(tm("git.files.actions_format", "%@ Actions"), path)}
@@ -1207,7 +1187,6 @@ function CommitRow({
   onAction: (key: Key) => void;
 }) {
   const head = formatDecorations(commit.decorations);
-  const [menuOpen, setMenuOpen] = useState(false);
   const contextMenu = useContextMenu();
   return (
     <div
@@ -1241,35 +1220,6 @@ function CommitRow({
       )}
       <span className="hidden max-w-[58px] flex-shrink truncate text-xs text-ink-faint sm:inline">{commit.author}</span>
       <span className="flex-shrink-0 text-xs text-ink-faint whitespace-nowrap">{commit.relativeTime}</span>
-      <DesktopMenu
-        ariaLabel={tm("git.history.actions", "Commit History Actions")}
-        isOpen={menuOpen}
-        onOpenChange={setMenuOpen}
-        trigger={
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded bg-surface-chrome/90 text-ink-faint opacity-0 pointer-events-none transition-opacity hover:bg-fill/8 hover:text-ink group-hover:opacity-100 group-hover:pointer-events-auto data-[pressed]:opacity-100"
-            aria-label={formatI18n(tm("git.history.commit_actions_format", "%@ Actions"), commit.hash.slice(0, 7))}
-          >
-            <MoreHorizontal size={12} />
-          </button>
-        }
-      >
-            <DesktopMenuItem label={tm("git.history.copy_commit_hash", "Copy Commit Hash")} onSelect={() => onAction("copy")}>
-              <span className="inline-flex items-center gap-2">
-                <Copy size={12} />
-                {tm("git.history.copy_commit_hash", "Copy Commit Hash")}
-              </span>
-            </DesktopMenuItem>
-            <DesktopMenuItem label={tm("git.history.checkout_commit", "Check Out This Commit")} onSelect={() => onAction("checkout")}>{tm("git.history.checkout_commit", "Check Out This Commit")}</DesktopMenuItem>
-            <DesktopMenuItem label={tm("git.history.create_branch_from_commit", "Create Branch from This Commit")} onSelect={() => onAction("branch")}>{tm("git.history.create_branch_from_commit", "Create Branch from This Commit")}</DesktopMenuItem>
-            {isHead && <DesktopMenuItem label={tm("git.history.undo_last_commit", "Undo Last Commit")} onSelect={() => onAction("undo")}>{tm("git.history.undo_last_commit", "Undo Last Commit")}</DesktopMenuItem>}
-            {isHead && <DesktopMenuItem label={tm("git.history.edit_last_commit_message", "Edit Last Commit Message")} onSelect={() => onAction("amend")}>{tm("git.history.edit_last_commit_message", "Edit Last Commit Message")}</DesktopMenuItem>}
-            <DesktopMenuSeparator />
-            <DesktopMenuItem label={tm("git.history.revert_commit", "Revert This Commit")} onSelect={() => onAction("revert")}>{tm("git.history.revert_commit", "Revert This Commit")}</DesktopMenuItem>
-            <DesktopMenuItem label={tm("git.history.restore_local", "Restore Locally")} onSelect={() => onAction("restoreLocal")}>{tm("git.history.restore_local", "Restore Locally")}</DesktopMenuItem>
-            <DesktopMenuItem label={tm("git.history.restore_remote", "Restore Remote")} onSelect={() => onAction("restoreRemote")}>{tm("git.history.restore_remote", "Restore Remote")}</DesktopMenuItem>
-      </DesktopMenu>
       <ContextMenu
         ariaLabel={formatI18n(tm("git.history.commit_actions_format", "%@ Actions"), commit.hash.slice(0, 7))}
         menu={contextMenu.menu}
@@ -1983,7 +1933,6 @@ function FileTreeRow({
   onImport?: (paths: string[]) => void;
 }) {
   const entry = row.entry;
-  const [menuOpen, setMenuOpen] = useState(false);
   const contextMenu = useContextMenu();
   return (
     <Tooltip label={entry.relativePath || entry.name} placement="left" triggerClassName="block w-full">
@@ -2028,37 +1977,6 @@ function FileTreeRow({
           >
             <PencilSquare size={11} />
           </PressableButton>
-          <DesktopMenu
-            ariaLabel={`${entry.name} ${labels.actions}`}
-            isOpen={menuOpen}
-            onOpenChange={setMenuOpen}
-            trigger={
-              <button
-                type="button"
-                className="grid h-5 w-5 place-items-center rounded text-ink-faint hover:bg-fill/8 hover:text-ink"
-                aria-label={`${entry.name} ${labels.actions}`}
-              >
-                <MoreHorizontal size={12} />
-              </button>
-            }
-          >
-            <DesktopMenuItem label={labels.open} onSelect={onOpen}>{labels.open}</DesktopMenuItem>
-            <DesktopMenuItem label={labels.copy} onSelect={onCopy}>{labels.copy}</DesktopMenuItem>
-            <DesktopMenuItem label={labels.reveal} onSelect={onReveal}>{labels.reveal}</DesktopMenuItem>
-            {onPaste && <DesktopMenuItem label={labels.pasteHere} onSelect={onPaste}>{labels.pasteHere}</DesktopMenuItem>}
-            <DesktopMenuItem
-              label={labels.importHere}
-              onSelect={() => {
-                void pickImportFiles().then((paths) => {
-                  if (paths.length > 0) onImport?.(paths);
-                });
-              }}
-            >
-              {labels.importHere}
-            </DesktopMenuItem>
-            <DesktopMenuItem label={labels.rename} onSelect={onRename}>{labels.rename}</DesktopMenuItem>
-            <DesktopMenuItem label={labels.delete} onSelect={onDelete}>{labels.delete}</DesktopMenuItem>
-          </DesktopMenu>
         </div>
         <ContextMenu ariaLabel={`${entry.name} ${labels.actions}`} menu={contextMenu.menu} onClose={contextMenu.closeMenu}>
           <ContextMenuItem label={labels.open} onSelect={onOpen}>{labels.open}</ContextMenuItem>

@@ -1,5 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Code2, Folder, GitBranch, ListChecks, MoreHorizontal, Plus, SquareTerminal } from "../icons";
+import { Code2, Folder, GitBranch, ListChecks, Plus, SquareTerminal } from "../icons";
 import { useEffect, useMemo, useState } from "react";
 import { formatI18n, tm } from "../i18n";
 import {
@@ -9,7 +9,6 @@ import {
   type ProjectOpenApplication,
 } from "../ide";
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator, useContextMenu } from "./ContextMenu";
-import { DesktopMenu, DesktopMenuItem, DesktopMenuSeparator, DesktopSubmenu } from "./DesktopMenu";
 import { PressableButton } from "./PressableButton";
 import type { WorkspaceProject } from "../types";
 import type { ProjectWorktreeSnapshot, WorktreeTaskSnapshot, WorktreeTaskStatus } from "../worktree/snapshot";
@@ -229,7 +228,6 @@ function TaskCard({
   onReview?: () => void;
   applications: ProjectOpenApplication[];
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const contextMenu = useContextMenu();
   const ideApplications = useMemo(
     () => applications.filter((item) => item.id !== "terminal"),
@@ -328,55 +326,6 @@ function TaskCard({
         </div>
       </div>
       </PressableButton>
-      <div className="absolute right-1 top-1/2 flex -translate-y-1/2 rounded bg-surface-chrome/95 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto">
-          <DesktopMenu
-            ariaLabel={tm("files.panel.actions", "Actions")}
-            isOpen={menuOpen}
-            onOpenChange={setMenuOpen}
-            trigger={
-              <button
-                type="button"
-                className="grid h-6 w-6 place-items-center rounded text-ink-faint hover:bg-fill/8 hover:text-ink"
-                aria-label={tm("files.panel.actions", "Actions")}
-              >
-                <MoreHorizontal size={13} />
-              </button>
-            }
-          >
-            <DesktopMenuItem label={tm("worktree.menu.open_terminal", "Open Terminal")} onSelect={onOpenTerminal}>
-              <span className="inline-flex items-center gap-2"><SquareTerminal size={13} />{tm("worktree.menu.open_terminal", "Open Terminal")}</span>
-            </DesktopMenuItem>
-            <DesktopMenuItem label={tm("worktree.menu.open_folder", "Open Folder")} onSelect={onOpenFolder} disabled={!task.worktree.path}>
-              <span className="inline-flex items-center gap-2"><Folder size={13} />{tm("worktree.menu.open_folder", "Open Folder")}</span>
-            </DesktopMenuItem>
-            <DesktopMenuItem label={tm("worktree.menu.review", "Review")} onSelect={onReview}>
-              <span className="inline-flex items-center gap-2"><ListChecks size={13} />{tm("worktree.menu.review", "Review")}</span>
-            </DesktopMenuItem>
-            {ideApplications.length > 0 && (
-              <DesktopSubmenu label={tm("open.ide", "Open in IDE")}>
-                {ideApplications.map((application) => (
-                  <DesktopMenuItem
-                    key={application.id}
-                    label={formatOpenTitle(application.label)}
-                    onSelect={() => openWithApplication(application)}
-                    disabled={!task.worktree.path}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <ApplicationIcon application={application} size={13} />
-                      {formatOpenTitle(application.label)}
-                    </span>
-                  </DesktopMenuItem>
-                ))}
-              </DesktopSubmenu>
-            )}
-            {onRemove && (
-              <>
-                <DesktopMenuSeparator />
-                <DesktopMenuItem label={tm("worktree.menu.remove", "Remove")} onSelect={onRemove}>{tm("worktree.menu.remove", "Remove")}</DesktopMenuItem>
-              </>
-            )}
-          </DesktopMenu>
-        </div>
       <ContextMenu
         ariaLabel={formatI18n(tm("worktree.menu.actions_format", "%@ Actions"), task.title)}
         menu={contextMenu.menu}
