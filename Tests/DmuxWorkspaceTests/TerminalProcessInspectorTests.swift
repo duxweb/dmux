@@ -75,6 +75,61 @@ final class TerminalProcessInspectorTests: XCTestCase {
         XCTAssertEqual(inspector.managedSessionObservation().liveInstanceIDs, ["instance-a"])
     }
 
+    func testKiroCliDetectedAsOrphanWhenSessionInstanceStale() {
+        let inspector = TerminalProcessInspector(
+            snapshotProvider: {
+                [
+                    .init(
+                        pid: 301,
+                        ppid: 1,
+                        pgid: 301,
+                        command: "/bin/zsh /Applications/Codux.app/.../tool-wrapper.sh kiro-cli DMUX_SESSION_INSTANCE_ID=stale-kiro DMUX_SESSION_ID=CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC DMUX_PROJECT_PATH=/Volumes/Web/kiro DMUX_RUNTIME_SOCKET=/tmp/dmux-runtime-events.sock TERM_PROGRAM=dmux DMUX_ACTIVE_AI_TOOL=kiro-cli"
+                    ),
+                    .init(
+                        pid: 302,
+                        ppid: 301,
+                        pgid: 301,
+                        command: "/Users/test/.kiro/bin/kiro-cli DMUX_SESSION_INSTANCE_ID=stale-kiro DMUX_RUNTIME_SOCKET=/tmp/dmux-runtime-events.sock TERM_PROGRAM=dmux"
+                    ),
+                ]
+            }
+        )
+
+        let groups = inspector.orphanedManagedAIProcessGroups(
+            activeSessionInstanceIDs: []
+        )
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.tool, "kiro-cli")
+        XCTAssertEqual(groups.first?.sessionInstanceID, "stale-kiro")
+        XCTAssertEqual(groups.first?.projectPath, "/Volumes/Web/kiro")
+    }
+
+    func testKiroDetectedAsLiveWhenSessionInstanceActive() {
+        let inspector = TerminalProcessInspector(
+            snapshotProvider: {
+                [
+                    .init(
+                        pid: 301,
+                        ppid: 1,
+                        pgid: 301,
+                        command: "/bin/zsh /Applications/Codux.app/.../tool-wrapper.sh kiro-cli DMUX_SESSION_INSTANCE_ID=live-kiro DMUX_SESSION_ID=CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC DMUX_PROJECT_PATH=/Volumes/Web/kiro DMUX_RUNTIME_SOCKET=/tmp/dmux-runtime-events.sock TERM_PROGRAM=dmux DMUX_ACTIVE_AI_TOOL=kiro-cli"
+                    ),
+                    .init(
+                        pid: 302,
+                        ppid: 301,
+                        pgid: 301,
+                        command: "/Users/test/.kiro/bin/kiro-cli DMUX_SESSION_INSTANCE_ID=live-kiro DMUX_RUNTIME_SOCKET=/tmp/dmux-runtime-events.sock TERM_PROGRAM=dmux"
+                    ),
+                ]
+            }
+        )
+
+        let observation = inspector.managedSessionObservation()
+        XCTAssertTrue(observation.liveInstanceIDs.contains("live-kiro"))
+        XCTAssertTrue(observation.hasManagedProcessCandidates)
+    }
+
     func testManagedSessionObservationTreatsWrapperWithoutEnvAsCandidate() {
         let inspector = TerminalProcessInspector(
             snapshotProvider: {

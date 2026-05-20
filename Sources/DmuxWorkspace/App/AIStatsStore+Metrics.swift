@@ -496,6 +496,7 @@ extension AIStatsStore {
         if normalized.contains("codex") { return "codex" }
         if normalized.contains("gemini") { return "gemini" }
         if normalized.contains("opencode") { return "opencode" }
+        if normalized.contains("kiro") { return "kiro" }
         return nil
     }
 }

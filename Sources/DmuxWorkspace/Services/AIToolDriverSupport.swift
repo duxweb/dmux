@@ -69,3 +69,13 @@ func executeSQLite(db: OpaquePointer, sql: String, bindings: [SQLiteBindingValue
 func shellQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
+
+func jsonIntValue(_ value: Any?) -> Int {
+    switch value {
+    case let v as NSNumber: return v.intValue
+    case let v as Int: return v
+    case let v as Double: return Int(v)
+    case let v as String: return Int(v) ?? 0
+    default: return 0
+    }
+}

@@ -211,7 +211,7 @@ struct TerminalProcessInspector: Sendable {
             return nil
         }
 
-        for tool in ["claude-code", "claude", "codex", "opencode", "gemini"] {
+        for tool in ["claude-code", "claude", "codex", "opencode", "gemini", "kiro-cli", "kiro"] {
             if normalized.contains("/\(tool)")
                 || normalized.contains(" \(tool)")
                 || normalized.contains(" \"\(tool)\"")
@@ -251,6 +251,7 @@ struct TerminalProcessInspector: Sendable {
         if normalized.contains("codex") { return "codex" }
         if normalized.contains("gemini") { return "gemini" }
         if normalized.contains("opencode") { return "opencode" }
+        if normalized.contains("kiro") { return "kiro" }
         return normalized
     }
 

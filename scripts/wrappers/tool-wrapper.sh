@@ -79,6 +79,9 @@ find_real_binary() {
     claude-code)
       candidate_names=("claude-code" "claude")
       ;;
+    kiro-cli)
+      candidate_names=("kiro-cli" "kiro")
+      ;;
     *)
       candidate_names=("$tool_name")
       ;;
@@ -164,6 +167,9 @@ tool_memory_file_name() {
     gemini)
       print -r -- "GEMINI.md"
       ;;
+    kiro-cli)
+      print -r -- "KIRO.md"
+      ;;
     codex|opencode)
       print -r -- "AGENTS.md"
       ;;
@@ -213,6 +219,9 @@ configured_permission_mode() {
     opencode)
       config_key="opencode"
       ;;
+    kiro-cli)
+      config_key="kiro"
+      ;;
     *)
       return 0
       ;;
@@ -259,6 +268,9 @@ configured_tool_model() {
     opencode)
       config_key="opencodeModel"
       ;;
+    kiro-cli)
+      config_key="kiroModel"
+      ;;
     *)
       return 0
       ;;
@@ -301,7 +313,7 @@ apply_configured_model_arg() {
     codex)
       launch_args=("--model=${configured_model}" "${launch_args[@]}")
       ;;
-    claude|claude-code|gemini|opencode)
+    claude|claude-code|gemini|opencode|kiro-cli)
       launch_args=(--model "${configured_model}" "${launch_args[@]}")
       ;;
   esac
@@ -562,6 +574,26 @@ if [[ "$tool_name" == "opencode" ]]; then
   log_line "launch managed tool=${tool_name} session=${DMUX_SESSION_ID:-nil} project=${DMUX_PROJECT_ID:-nil} binary=${real_bin} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil} resume=${resume_target:-nil} configDir=${opencode_config_dir}"
   run_wrapped_command "${resume_target}" "${launch_model}" "${launch_dir}" env PATH="$search_path" OPENCODE_CONFIG_DIR="${opencode_config_dir}" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
   exit $?
+fi
+
+if [[ "$tool_name" == "kiro-cli" ]]; then
+  helper_script="${wrapper_dir}/dmux-ai-state.sh"
+  launch_args=("$@")
+  apply_configured_model_arg
+  launch_model="$(extract_model_target "${launch_args[@]}" || true)"
+  resume_target=""
+  resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
+  launch_dir="$(resolved_memory_launch_dir || true)"
+  log_line "launch managed tool=${tool_name} session=${DMUX_SESSION_ID:-nil} project=${DMUX_PROJECT_ID:-nil} binary=${real_bin} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil} resume=${resume_target:-nil}"
+  if [[ -x "${helper_script}" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_SOCKET:-}" ]]; then
+    print -r -- "" | "${helper_script}" "kiro-session-start" "kiro-cli"
+  fi
+  run_wrapped_command "${resume_target}" "${launch_model}" "${launch_dir}" env PATH="$search_path" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
+  kiro_exit_code=$?
+  if [[ -x "${helper_script}" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_SOCKET:-}" ]]; then
+    print -r -- "" | "${helper_script}" "kiro-session-end" "kiro-cli"
+  fi
+  exit "${kiro_exit_code}"
 fi
 
 exec env PATH="$search_path" "$real_bin" "$@"

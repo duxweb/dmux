@@ -673,6 +673,13 @@ actor MemoryCoordinator {
             ) {
                 return transcript
             }
+        case "kiro":
+            let files = AIRuntimeSourceLocator.kiroSessionFileURLs()
+            if let matching = files.first(where: { $0.deletingPathExtension().lastPathComponent == task.sessionID }),
+               let transcript = readTranscriptFile(at: matching.path)
+            {
+                return transcript
+            }
         default:
             break
         }
@@ -729,6 +736,16 @@ actor MemoryCoordinator {
             let databasePath = AIRuntimeSourceLocator.opencodeDatabaseURL().path
             return transcriptSourceIfReadable(
                 path: databasePath, tool: tool, sessionID: sessionID, allowDatabase: true)
+
+        case "kiro":
+            let files = AIRuntimeSourceLocator.kiroSessionFileURLs()
+            if let aiSessionID = normalizedNonEmptyString(session.aiSessionID),
+               let matching = files.first(where: { $0.deletingPathExtension().lastPathComponent == aiSessionID })
+            {
+                return transcriptSourceIfReadable(path: matching.path, tool: tool, sessionID: aiSessionID)
+            }
+            guard let latest = files.first else { return nil }
+            return transcriptSourceIfReadable(path: latest.path, tool: tool, sessionID: sessionID)
 
         default:
             return nil

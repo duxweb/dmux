@@ -160,6 +160,30 @@ struct AIRuntimeSourceLocator {
         return nil
     }
 
+    static func kiroSessionsDirectoryURL(homeURL: URL? = nil) -> URL {
+        let homeURL = homeURL ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        return homeURL.appendingPathComponent(".kiro/sessions", isDirectory: true)
+    }
+
+    static func kiroSessionFileURLs(homeURL: URL? = nil) -> [URL] {
+        let sessionsURL = kiroSessionsDirectoryURL(homeURL: homeURL)
+        let enumerator = FileManager.default.enumerator(
+            at: sessionsURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+        var urls: [URL] = []
+        while let next = enumerator?.nextObject() as? URL {
+            guard next.pathExtension == "json" else { continue }
+            urls.append(next)
+        }
+        return urls.sorted { lhs, rhs in
+            let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return lhsDate > rhsDate
+        }
+    }
+
     static func opencodeDatabaseURL(homeURL: URL? = nil) -> URL {
         let homeURL = homeURL ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
         return homeURL.appendingPathComponent(".local/share/opencode/opencode.db", isDirectory: false)

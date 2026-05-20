@@ -56,7 +56,7 @@ if value:
 PY
 )"
     ;;
-  session-start|prompt-submit|before-agent|permission-request|permission-denied|elicitation|elicitation-result|stop|stop-failure|session-end|idle|after-agent|codex-session-start|codex-prompt-submit|codex-pre-tool-use|codex-post-tool-use|codex-permission-request|codex-stop|codex-session-end)
+  session-start|prompt-submit|before-agent|permission-request|permission-denied|elicitation|elicitation-result|stop|stop-failure|session-end|idle|after-agent|codex-session-start|codex-prompt-submit|codex-pre-tool-use|codex-post-tool-use|codex-permission-request|codex-stop|codex-session-end|kiro-session-start|kiro-session-end)
     ;;
   *)
     exit 0
@@ -851,6 +851,39 @@ if [[ "${tool_name}" == "gemini" ]]; then
         "" \
         "$(extract_first_hook_field reason)"
       log_line "gemini hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
+      ;;
+  esac
+fi
+
+if [[ "${tool_name}" == "kiro-cli" || "${tool_name}" == "kiro" ]]; then
+  case "${action}" in
+    kiro-session-start)
+      write_ai_hook_event \
+        "sessionStarted" \
+        "" \
+        "${DMUX_ACTIVE_AI_MODEL:-}" \
+        "" \
+        "" \
+        "" \
+        "" \
+        "" \
+        "${DMUX_PROJECT_PATH:-}"
+      log_line "kiro hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
+      exit 0
+      ;;
+    kiro-session-end)
+      write_ai_hook_event \
+        "sessionEnded" \
+        "" \
+        "" \
+        "" \
+        "" \
+        "" \
+        "" \
+        "" \
+        "${DMUX_PROJECT_PATH:-}"
+      log_line "kiro hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
+      exit 0
       ;;
   esac
 fi

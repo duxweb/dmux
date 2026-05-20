@@ -51,25 +51,31 @@ struct AIProjectHistoryService: Sendable {
         let codex: [AIExternalFileSummary]
         let gemini: [AIExternalFileSummary]
         let opencode: [AIExternalFileSummary]
+        let kiro: [AIExternalFileSummary]
 
         if indexingProfile.sourceConcurrency <= 1 {
             claude = await loadClaudeFileSummaries(project: project, indexingProfile: indexingProfile)
             logger.log("history-refresh", "project-sources source=claude summary files=\(claude.count) requests=\(totalRequestCount(in: claude)) sessions=\(totalSessionCount(in: claude)) tokens=\(totalTokenCount(in: claude)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
-            await onProgress(.indexing(progress: 0.38, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
+            await onProgress(.indexing(progress: 0.32, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
             try Task.checkCancellation()
 
             codex = await loadCodexFileSummaries(project: project, indexingProfile: indexingProfile)
             logger.log("history-refresh", "project-sources source=codex summary files=\(codex.count) requests=\(totalRequestCount(in: codex)) sessions=\(totalSessionCount(in: codex)) tokens=\(totalTokenCount(in: codex)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
-            await onProgress(.indexing(progress: 0.58, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
+            await onProgress(.indexing(progress: 0.50, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
             try Task.checkCancellation()
 
             gemini = await loadGeminiFileSummaries(project: project, indexingProfile: indexingProfile)
             logger.log("history-refresh", "project-sources source=gemini summary files=\(gemini.count) requests=\(totalRequestCount(in: gemini)) sessions=\(totalSessionCount(in: gemini)) tokens=\(totalTokenCount(in: gemini)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
-            await onProgress(.indexing(progress: 0.74, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
+            await onProgress(.indexing(progress: 0.65, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
             try Task.checkCancellation()
 
             opencode = await loadOpenCodeFileSummaries(project: project, indexingProfile: indexingProfile)
             logger.log("history-refresh", "project-sources source=opencode summary files=\(opencode.count) requests=\(totalRequestCount(in: opencode)) sessions=\(totalSessionCount(in: opencode)) tokens=\(totalTokenCount(in: opencode)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
+            await onProgress(.indexing(progress: 0.78, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
+            try Task.checkCancellation()
+
+            kiro = await loadKiroFileSummaries(project: project, indexingProfile: indexingProfile)
+            logger.log("history-refresh", "project-sources source=kiro summary files=\(kiro.count) requests=\(totalRequestCount(in: kiro)) sessions=\(totalSessionCount(in: kiro)) tokens=\(totalTokenCount(in: kiro)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
             await onProgress(.indexing(progress: 0.88, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
             try Task.checkCancellation()
         } else {
@@ -77,6 +83,7 @@ struct AIProjectHistoryService: Sendable {
             async let codexTask = loadCodexFileSummaries(project: project, indexingProfile: indexingProfile)
             async let geminiTask = loadGeminiFileSummaries(project: project, indexingProfile: indexingProfile)
             async let opencodeTask = loadOpenCodeFileSummaries(project: project, indexingProfile: indexingProfile)
+            async let kiroTask = loadKiroFileSummaries(project: project, indexingProfile: indexingProfile)
 
             claude = await claudeTask
             logger.log("history-refresh", "project-sources source=claude summary files=\(claude.count) requests=\(totalRequestCount(in: claude)) sessions=\(totalSessionCount(in: claude)) tokens=\(totalTokenCount(in: claude)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
@@ -85,27 +92,33 @@ struct AIProjectHistoryService: Sendable {
 
             codex = await codexTask
             logger.log("history-refresh", "project-sources source=codex summary files=\(codex.count) requests=\(totalRequestCount(in: codex)) sessions=\(totalSessionCount(in: codex)) tokens=\(totalTokenCount(in: codex)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
-            await onProgress(.indexing(progress: 0.58, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
+            await onProgress(.indexing(progress: 0.55, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
             try Task.checkCancellation()
 
             gemini = await geminiTask
             logger.log("history-refresh", "project-sources source=gemini summary files=\(gemini.count) requests=\(totalRequestCount(in: gemini)) sessions=\(totalSessionCount(in: gemini)) tokens=\(totalTokenCount(in: gemini)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
-            await onProgress(.indexing(progress: 0.74, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
+            await onProgress(.indexing(progress: 0.68, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
             try Task.checkCancellation()
 
             opencode = await opencodeTask
             logger.log("history-refresh", "project-sources source=opencode summary files=\(opencode.count) requests=\(totalRequestCount(in: opencode)) sessions=\(totalSessionCount(in: opencode)) tokens=\(totalTokenCount(in: opencode)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
+            await onProgress(.indexing(progress: 0.80, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
+            try Task.checkCancellation()
+
+            kiro = await kiroTask
+            logger.log("history-refresh", "project-sources source=kiro summary files=\(kiro.count) requests=\(totalRequestCount(in: kiro)) sessions=\(totalSessionCount(in: kiro)) tokens=\(totalTokenCount(in: kiro)) elapsedMs=\(elapsedMilliseconds(since: startedAt))")
             await onProgress(.indexing(progress: 0.88, detail: String(localized: "ai.indexing.reading_sources", defaultValue: "Reading index.", bundle: .module)))
             try Task.checkCancellation()
         }
 
+        let allFileSummaries = claude + codex + gemini + opencode + kiro
         let summary = aggregator.buildProjectSummary(
             project: project,
-            fileSummaries: claude + codex + gemini + opencode
+            fileSummaries: allFileSummaries
         )
         logger.log(
             "history-refresh",
-            "project-sources finish project=\(project.name) files=\(claude.count + codex.count + gemini.count + opencode.count) requests=\(totalRequestCount(in: claude + codex + gemini + opencode)) sessions=\(totalSessionCount(in: claude + codex + gemini + opencode)) tokens=\(totalTokenCount(in: claude + codex + gemini + opencode)) elapsedMs=\(elapsedMilliseconds(since: startedAt))"
+            "project-sources finish project=\(project.name) files=\(allFileSummaries.count) requests=\(totalRequestCount(in: allFileSummaries)) sessions=\(totalSessionCount(in: allFileSummaries)) tokens=\(totalTokenCount(in: allFileSummaries)) elapsedMs=\(elapsedMilliseconds(since: startedAt))"
         )
         return summary
     }

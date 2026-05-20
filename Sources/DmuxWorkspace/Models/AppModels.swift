@@ -425,6 +425,7 @@ enum AgentToolKind: String, CaseIterable, Codable, Hashable, Sendable, Identifia
     case codex
     case claude
     case opencode
+    case kiro
 
     var id: String { rawValue }
 
@@ -436,6 +437,8 @@ enum AgentToolKind: String, CaseIterable, Codable, Hashable, Sendable, Identifia
             return "Claude Code"
         case .opencode:
             return "OpenCode"
+        case .kiro:
+            return "Kiro"
         }
     }
 
@@ -447,6 +450,8 @@ enum AgentToolKind: String, CaseIterable, Codable, Hashable, Sendable, Identifia
             return "wand.and.stars"
         case .opencode:
             return "curlybraces"
+        case .kiro:
+            return "k.circle"
         }
     }
 
@@ -458,6 +463,8 @@ enum AgentToolKind: String, CaseIterable, Codable, Hashable, Sendable, Identifia
             return .claudeCode
         case .opencode:
             return .opencode
+        case .kiro:
+            return .kiro
         }
     }
 
@@ -468,6 +475,8 @@ enum AgentToolKind: String, CaseIterable, Codable, Hashable, Sendable, Identifia
         case .claude:
             return ["sonnet", "opus", "haiku"]
         case .opencode:
+            return []
+        case .kiro:
             return []
         }
     }

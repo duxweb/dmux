@@ -14,6 +14,8 @@ struct AIToolEnvironmentService {
         "CODEX_HOME",
         "OPENCODE_API_KEY",
         "OPENCODE_BASE_URL",
+        "KIRO_API_KEY",
+        "KIRO_MODEL",
         "HTTPS_PROXY",
         "HTTP_PROXY",
         "ALL_PROXY",
@@ -68,6 +70,7 @@ struct AIToolEnvironmentService {
             homeDirectory.appendingPathComponent(".bun/bin", isDirectory: true).path,
             homeDirectory.appendingPathComponent(".cargo/bin", isDirectory: true).path,
             homeDirectory.appendingPathComponent(".opencode/bin", isDirectory: true).path,
+            homeDirectory.appendingPathComponent(".kiro/bin", isDirectory: true).path,
         ]
         let excludedPaths = includeBundledWrappers ? Set<String>() : [bundledWrapperPath]
         let loginShellPaths = resolvedLoginShellPathComponents(excluding: excludedPaths)
@@ -163,6 +166,7 @@ struct AIToolEnvironmentService {
             homeDirectory.appendingPathComponent(".codex/.env", isDirectory: false),
             homeDirectory.appendingPathComponent(".opencode/.env", isDirectory: false),
             homeDirectory.appendingPathComponent(".config/opencode/.env", isDirectory: false),
+            homeDirectory.appendingPathComponent(".kiro/.env", isDirectory: false),
         ]
     }
 

@@ -53,10 +53,12 @@ struct AppAIToolPermissionSettings: Codable, Equatable, Sendable {
     var claudeCode: AppAIToolPermissionMode = .default
     var gemini: AppAIToolPermissionMode = .default
     var opencode: AppAIToolPermissionMode = .default
+    var kiro: AppAIToolPermissionMode = .default
     var codexModel: String = ""
     var claudeCodeModel: String = ""
     var geminiModel: String = ""
     var opencodeModel: String = ""
+    var kiroModel: String = ""
     var codexEffort: AppAICodexReasoningEffort = .medium
 
     init() {}
@@ -66,10 +68,12 @@ struct AppAIToolPermissionSettings: Codable, Equatable, Sendable {
         case claudeCode
         case gemini
         case opencode
+        case kiro
         case codexModel
         case claudeCodeModel
         case geminiModel
         case opencodeModel
+        case kiroModel
         case codexEffort
     }
 
@@ -79,10 +83,12 @@ struct AppAIToolPermissionSettings: Codable, Equatable, Sendable {
         claudeCode = try container.decodeIfPresent(AppAIToolPermissionMode.self, forKey: .claudeCode) ?? .default
         gemini = try container.decodeIfPresent(AppAIToolPermissionMode.self, forKey: .gemini) ?? .default
         opencode = try container.decodeIfPresent(AppAIToolPermissionMode.self, forKey: .opencode) ?? .default
+        kiro = try container.decodeIfPresent(AppAIToolPermissionMode.self, forKey: .kiro) ?? .default
         codexModel = try container.decodeIfPresent(String.self, forKey: .codexModel) ?? ""
         claudeCodeModel = try container.decodeIfPresent(String.self, forKey: .claudeCodeModel) ?? ""
         geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? ""
         opencodeModel = try container.decodeIfPresent(String.self, forKey: .opencodeModel) ?? ""
+        kiroModel = try container.decodeIfPresent(String.self, forKey: .kiroModel) ?? ""
         codexEffort = try container.decodeIfPresent(AppAICodexReasoningEffort.self, forKey: .codexEffort) ?? .medium
     }
 
@@ -96,6 +102,8 @@ struct AppAIToolPermissionSettings: Codable, Equatable, Sendable {
             return geminiModel
         case .opencode:
             return opencodeModel
+        case .kiro:
+            return kiroModel
         }
     }
 }
@@ -298,6 +306,7 @@ enum AppSupportedAITool: CaseIterable, Identifiable {
     case claudeCode
     case gemini
     case opencode
+    case kiro
 
     var id: String { rawValue }
 
@@ -311,6 +320,8 @@ enum AppSupportedAITool: CaseIterable, Identifiable {
             return "gemini"
         case .opencode:
             return "opencode"
+        case .kiro:
+            return "kiro"
         }
     }
 
@@ -324,6 +335,8 @@ enum AppSupportedAITool: CaseIterable, Identifiable {
             return "Gemini"
         case .opencode:
             return "OpenCode"
+        case .kiro:
+            return "Kiro"
         }
     }
 
@@ -337,6 +350,8 @@ enum AppSupportedAITool: CaseIterable, Identifiable {
             return "diamond"
         case .opencode:
             return "curlybraces"
+        case .kiro:
+            return "k.circle"
         }
     }
 
@@ -350,6 +365,8 @@ enum AppSupportedAITool: CaseIterable, Identifiable {
             return settings.gemini
         case .opencode:
             return settings.opencode
+        case .kiro:
+            return settings.kiro
         }
     }
 }

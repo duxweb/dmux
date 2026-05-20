@@ -77,6 +77,8 @@ extension AppModel {
             settings.ai.runtimeTools.gemini = mode
         case .opencode:
             settings.ai.runtimeTools.opencode = mode
+        case .kiro:
+            settings.ai.runtimeTools.kiro = mode
         }
         appSettings = settings
         toolPermissionSettingsService.sync(settings.ai.runtimeTools)
@@ -95,6 +97,8 @@ extension AppModel {
             settings.ai.runtimeTools.geminiModel = trimmedModel
         case .opencode:
             settings.ai.runtimeTools.opencodeModel = trimmedModel
+        case .kiro:
+            settings.ai.runtimeTools.kiroModel = trimmedModel
         }
         appSettings = settings
         toolPermissionSettingsService.sync(settings.ai.runtimeTools)

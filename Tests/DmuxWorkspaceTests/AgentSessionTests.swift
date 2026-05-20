@@ -42,6 +42,7 @@ final class AgentSessionTests: XCTestCase {
         XCTAssertEqual(try factory.driver(for: .codex).tool, .codex)
         XCTAssertEqual(try factory.driver(for: .claude).tool, .claude)
         XCTAssertEqual(try factory.driver(for: .opencode).tool, .opencode)
+        XCTAssertEqual(try factory.driver(for: .kiro).tool, .kiro)
     }
 
     func testAgentDriversUseStructuredTransportsWithoutPTY() throws {
@@ -58,15 +59,18 @@ final class AgentSessionTests: XCTestCase {
         let codex = CodexAgentDriver()
         let claude = ClaudeAgentDriver()
         let opencode = OpenCodeAgentDriver()
+        let kiro = KiroAgentDriver()
 
         XCTAssertEqual(codex.transport, .codexAppServerJSONRPC)
         XCTAssertEqual(claude.transport, .claudeStreamJSON)
         XCTAssertEqual(opencode.transport, .openCodeACP)
+        XCTAssertEqual(kiro.transport, .kiro)
 
         let codexInvocation = codex.invocation(for: request)
         XCTAssertEqual(Array(codexInvocation.arguments.suffix(3)), ["app-server", "--listen", "stdio://"])
         XCTAssertTrue(claude.invocation(for: request).arguments.contains("--output-format=stream-json"))
         XCTAssertEqual(opencode.invocation(for: request).arguments, ["opencode", "acp", "--cwd", "/tmp/project-agent"])
+        XCTAssertEqual(kiro.invocation(for: request).arguments, ["kiro-cli", "--cwd", "/tmp/project-agent"])
     }
 
     func testCodexReasoningEffortDecodesWithLegacySettings() throws {

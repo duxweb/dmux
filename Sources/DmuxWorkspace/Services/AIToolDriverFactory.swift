@@ -129,6 +129,7 @@ struct AIToolDriverFactory: Sendable {
         CodexToolDriver(),
         OpenCodeToolDriver(),
         GeminiToolDriver(),
+        KiroToolDriver(),
     ]) {
         self.drivers = drivers
     }

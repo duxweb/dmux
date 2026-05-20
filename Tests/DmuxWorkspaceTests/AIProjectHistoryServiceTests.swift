@@ -260,6 +260,107 @@ final class AIProjectHistoryServiceTests: XCTestCase {
         XCTAssertEqual(session.requestCount, 1)
     }
 
+    func testKiroHistoryReadsProjectSessionsWithinScopedHome() async throws {
+        let temporaryDirectoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
+
+        let project = makeProject(path: "/tmp/kiro-project-\(UUID().uuidString)")
+        let store = AIUsageStore(databaseURL: temporaryDirectoryURL.appendingPathComponent("kiro-ai-usage.sqlite3"))
+        let service = AIProjectHistoryService(usageStore: store, runtimeHomeURL: temporaryDirectoryURL)
+
+        let sessionsURL = AIRuntimeSourceLocator.kiroSessionsDirectoryURL(homeURL: temporaryDirectoryURL)
+        let sessionDirURL = sessionsURL.appendingPathComponent("cli", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirURL, withIntermediateDirectories: true)
+
+        let sessionID = "test-session-\(UUID().uuidString)"
+        let sessionFileURL = sessionDirURL.appendingPathComponent("\(sessionID).json", isDirectory: false)
+        try """
+        {
+          "session_id": "\(sessionID)",
+          "cwd": "\(project.path)",
+          "created_at": "2026-05-03T23:56:28.153776Z",
+          "updated_at": "2026-05-04T00:08:36.133209Z",
+          "title": "Kiro test session",
+          "session_state": {
+            "version": "v1",
+            "conversation_metadata": {
+              "user_turn_metadatas": [
+                {
+                  "result": {"Ok": {"id": "msg-1", "role": "assistant", "content": [], "meta": {"timestamp": 1777852674}}},
+                  "end_timestamp": "2026-05-03T23:57:54.483825Z",
+                  "input_token_count": 150,
+                  "output_token_count": 80,
+                  "total_request_count": 3
+                },
+                {
+                  "result": {"Ok": {"id": "msg-2", "role": "assistant", "content": [], "meta": {"timestamp": 1777852900}}},
+                  "end_timestamp": "2026-05-04T00:08:36.133209Z",
+                  "input_token_count": 200,
+                  "output_token_count": 120,
+                  "total_request_count": 4
+                }
+              ]
+            },
+            "rts_model_state": {
+              "conversation_id": "\(sessionID)",
+              "model_info": {
+                "model_name": "claude-sonnet-4-5",
+                "model_id": "claude-sonnet-4-5",
+                "context_window_tokens": 200000
+              }
+            }
+          }
+        }
+        """.write(to: sessionFileURL, atomically: true, encoding: .utf8)
+
+        let summary = try await service.loadProjectSummary(project: project) { _ in }
+        let session = try XCTUnwrap(summary.sessions.first(where: { $0.externalSessionID == sessionID }))
+
+        XCTAssertEqual(session.lastTool, "kiro")
+        XCTAssertEqual(session.lastModel, "claude-sonnet-4-5")
+        XCTAssertEqual(session.totalInputTokens, 350)
+        XCTAssertEqual(session.totalOutputTokens, 200)
+        XCTAssertEqual(session.totalTokens, 550)
+        XCTAssertEqual(session.requestCount, 2)
+        XCTAssertEqual(session.sessionTitle, "Kiro test session")
+
+        let secondSummary = try await service.loadProjectSummary(project: project) { _ in }
+        let secondSession = try XCTUnwrap(secondSummary.sessions.first(where: { $0.externalSessionID == sessionID }))
+        XCTAssertEqual(secondSession.totalTokens, 550)
+        XCTAssertEqual(secondSession.requestCount, 2)
+    }
+
+    func testKiroHistorySkipsSessionsWithMismatchedCwd() async throws {
+        let temporaryDirectoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
+
+        let project = makeProject(path: "/tmp/kiro-project-\(UUID().uuidString)")
+        let store = AIUsageStore(databaseURL: temporaryDirectoryURL.appendingPathComponent("kiro-mismatch-ai-usage.sqlite3"))
+        let service = AIProjectHistoryService(usageStore: store, runtimeHomeURL: temporaryDirectoryURL)
+
+        let sessionsURL = AIRuntimeSourceLocator.kiroSessionsDirectoryURL(homeURL: temporaryDirectoryURL)
+        let sessionDirURL = sessionsURL.appendingPathComponent("cli", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirURL, withIntermediateDirectories: true)
+
+        let sessionID = "other-session-\(UUID().uuidString)"
+        let sessionFileURL = sessionDirURL.appendingPathComponent("\(sessionID).json", isDirectory: false)
+        try """
+        {
+          "session_id": "\(sessionID)",
+          "cwd": "/tmp/some-other-project",
+          "title": "Other project session",
+          "session_state": {
+            "version": "v1",
+            "conversation_metadata": {"user_turn_metadatas": []},
+            "rts_model_state": {"conversation_id": "\(sessionID)", "model_info": {"model_name": "claude-sonnet-4-5", "model_id": "claude-sonnet-4-5", "context_window_tokens": 200000}}
+          }
+        }
+        """.write(to: sessionFileURL, atomically: true, encoding: .utf8)
+
+        let summary = try await service.loadProjectSummary(project: project) { _ in }
+        XCTAssertNil(summary.sessions.first(where: { $0.externalSessionID == sessionID }))
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("dmux-history-tests-\(UUID().uuidString)", isDirectory: true)

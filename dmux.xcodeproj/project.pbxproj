@@ -163,6 +163,8 @@
 		B10000000000000000000047 /* PetPopoverViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000047 /* PetPopoverViews.swift */; };
 		B10000000000000000000048 /* ProjectActivityNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000048 /* ProjectActivityNotifications.swift */; };
 		B10000000000000000000049 /* AIProjectHistoryService+OpenCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000049 /* AIProjectHistoryService+OpenCode.swift */; };
+		B10000000000000000000067 /* KiroToolDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000070 /* KiroToolDriver.swift */; };
+		B10000000000000000000068 /* AIProjectHistoryService+Kiro.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000071 /* AIProjectHistoryService+Kiro.swift */; };
 		B10000000000000000000050 /* AppTerminalGhosttyThemes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000050 /* AppTerminalGhosttyThemes.swift */; };
 		B10000000000000000000051 /* AIProjectHistoryIndexingProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000051 /* AIProjectHistoryIndexingProfile.swift */; };
 		B10000000000000000000052 /* AIProjectHistoryService+Concurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000052 /* AIProjectHistoryService+Concurrency.swift */; };
@@ -323,6 +325,8 @@
 		C10000000000000000000047 /* PetPopoverViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetPopoverViews.swift; sourceTree = "<group>"; };
 		C10000000000000000000048 /* ProjectActivityNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectActivityNotifications.swift; sourceTree = "<group>"; };
 		C10000000000000000000049 /* AIProjectHistoryService+OpenCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIProjectHistoryService+OpenCode.swift"; sourceTree = "<group>"; };
+		C10000000000000000000070 /* KiroToolDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KiroToolDriver.swift; sourceTree = "<group>"; };
+		C10000000000000000000071 /* AIProjectHistoryService+Kiro.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIProjectHistoryService+Kiro.swift"; sourceTree = "<group>"; };
 		C10000000000000000000050 /* AppTerminalGhosttyThemes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTerminalGhosttyThemes.swift; sourceTree = "<group>"; };
 		C10000000000000000000051 /* AIProjectHistoryIndexingProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProjectHistoryIndexingProfile.swift; sourceTree = "<group>"; };
 		C10000000000000000000052 /* AIProjectHistoryService+Concurrency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIProjectHistoryService+Concurrency.swift"; sourceTree = "<group>"; };
@@ -712,6 +716,7 @@
 				C10000000000000000000052 /* AIProjectHistoryService+Concurrency.swift */,
 				C10000000000000000000045 /* AIProjectHistoryService+Sources.swift */,
 				C10000000000000000000049 /* AIProjectHistoryService+OpenCode.swift */,
+				C10000000000000000000071 /* AIProjectHistoryService+Kiro.swift */,
 				A13F1B0C9D8E7F6051423347 /* JSONLLineReader.swift */,
 				320478127BE80D1F255F229E /* AIToolDriverFactory.swift */,
 				DADA00000000000000000001 /* AgentDriverService.swift */,
@@ -720,6 +725,7 @@
 				21A2B3C4D5E6F708192A3B55 /* CodexToolDriver.swift */,
 				21A2B3C4D5E6F708192A3B59 /* GeminiToolDriver.swift */,
 				21A2B3C4D5E6F708192A3B57 /* OpenCodeToolDriver.swift */,
+				C10000000000000000000070 /* KiroToolDriver.swift */,
 				210000000000000000000004 /* AIProviderService.swift */,
 				220000000000000000000001 /* AIProviderTypes.swift */,
 				220000000000000000000002 /* AIProviderFactory.swift */,
@@ -909,6 +915,8 @@
 				A13F1B0C9D8E7F6051423348 /* JSONLLineReader.swift in Sources */,
 				B10000000000000000000045 /* AIProjectHistoryService+Sources.swift in Sources */,
 				B10000000000000000000049 /* AIProjectHistoryService+OpenCode.swift in Sources */,
+				B10000000000000000000068 /* AIProjectHistoryService+Kiro.swift in Sources */,
+				B10000000000000000000067 /* KiroToolDriver.swift in Sources */,
 				B10000000000000000000051 /* AIProjectHistoryIndexingProfile.swift in Sources */,
 				B10000000000000000000052 /* AIProjectHistoryService+Concurrency.swift in Sources */,
 				A91F0A7E1B2C3D4E5F607183 /* AISessionStore.swift in Sources */,
