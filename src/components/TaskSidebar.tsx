@@ -1,5 +1,7 @@
-import { Folder, GitBranch, ListChecks, Plus, SquareTerminal } from "../icons";
-import { useEffect, useMemo, useState } from "react";
+import { Folder, ListChecks, Plus, RefreshCw, SquareTerminal } from "../icons";
+import { invoke } from "@tauri-apps/api/core";
+import { Input as HeroInput, ListBox, Modal, Select as HeroSelect } from "@heroui/react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { formatI18n, tm } from "../i18n";
 import {
   listProjectOpenApplications,
@@ -7,41 +9,40 @@ import {
   revealProjectInFileManager,
   type ProjectOpenApplication,
 } from "../ide";
+import { Button } from "./Button";
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator, useContextMenu } from "./ContextMenu";
 import { PressableButton } from "./PressableButton";
+import type { GitBranchesSnapshot } from "../git/status";
 import type { WorkspaceProject } from "../types";
-import type { ProjectWorktreeSnapshot, WorktreeTaskSnapshot, WorktreeTaskStatus } from "../worktree/snapshot";
+import { gitBranchNamesFromSnapshot, worktreeBranchOptions } from "../worktree/branches";
+import type { ProjectWorktreeSnapshot, WorktreeTaskStatus } from "../worktree/snapshot";
 
-type TaskRow = {
+type WorktreeAIState = WorkspaceProject["aiState"];
+
+type WorktreeRow = {
   id: string;
   title: string;
   branch: string;
   changes?: number;
   outgoing?: number;
   incoming?: number;
-  watermark?: { letter: string; tone: "running" | "review" | "ready" | "done" | "todo" };
+  additions?: number;
+  deletions?: number;
   status: WorktreeTaskStatus;
   worktree: ProjectWorktreeSnapshot;
-};
-
-const watermarkTone: Record<NonNullable<TaskRow["watermark"]>["tone"], string> = {
-  running: "text-brand-amber/12",
-  review: "text-brand-blue/14",
-  ready: "text-brand-amber/12",
-  done: "text-brand-green/12",
-  todo: "text-ink-faint/12",
 };
 
 type Props = {
   selectedProject?: WorkspaceProject;
   worktrees?: ProjectWorktreeSnapshot[];
-  tasks?: WorktreeTaskSnapshot[];
   selectedWorktreeId?: string;
+  aiStateByWorktreeId?: Record<string, WorktreeAIState>;
   onSelectWorktree?: (id: string) => void;
-  onCreateWorktree?: (input: { branchName: string; taskTitle: string }) => void;
+  onCreateWorktree?: (input: { branchName: string; baseBranch?: string | null }) => void;
   onRemoveWorktree?: (worktree: ProjectWorktreeSnapshot) => void;
   onOpenWorktreeTerminal?: (worktree: ProjectWorktreeSnapshot) => void;
   onReviewWorktree?: (worktree: ProjectWorktreeSnapshot) => void;
+  onRefreshWorktrees?: () => void;
   isBusy?: boolean;
   createRequest?: number;
 };
@@ -49,27 +50,52 @@ type Props = {
 export function TaskSidebar({
   selectedProject,
   worktrees = [],
-  tasks = [],
   selectedWorktreeId,
+  aiStateByWorktreeId = {},
   onSelectWorktree,
   onCreateWorktree,
   onRemoveWorktree,
   onOpenWorktreeTerminal,
   onReviewWorktree,
+  onRefreshWorktrees,
   isBusy,
   createRequest = 0,
 }: Props) {
   const [isCreating, setCreating] = useState(false);
-  const [branchName, setBranchName] = useState("");
-  const [taskTitle, setTaskTitle] = useState("");
+  const [worktreeName, setWorktreeName] = useState("");
+  const [baseBranch, setBaseBranch] = useState("");
+  const [gitBranchNames, setGitBranchNames] = useState<string[]>([]);
+  const [isLoadingBranches, setLoadingBranches] = useState(false);
+  const [createError, setCreateError] = useState("");
   const [applications, setApplications] = useState<ProjectOpenApplication[]>([]);
-  const taskByWorktree = new Map(tasks.map((task) => [task.worktreeId, task]));
-  const defaultWorktree =
-    worktrees.find((worktree) => worktree.isDefault) ??
-    fallbackDefaultWorktree(selectedProject);
-  const taskRows = [defaultWorktree, ...worktrees.filter((worktree) => worktree.id !== defaultWorktree.id)]
-    .map((worktree) => toTaskRow(worktree, taskByWorktree.get(worktree.id)));
-  const canCreate = branchName.trim().length > 0 && !isBusy;
+  const [optimisticSelectedId, setOptimisticSelectedId] = useState("");
+  const defaultWorktree = worktrees.find((worktree) => worktree.isDefault) ?? fallbackDefaultWorktree(selectedProject);
+  const worktreeRows = useMemo(
+    () =>
+      [defaultWorktree, ...worktrees.filter((worktree) => worktree.id !== defaultWorktree.id)].map((worktree) =>
+        toWorktreeRow(worktree),
+      ),
+    [defaultWorktree, worktrees],
+  );
+  const branchOptions = useMemo(() => worktreeBranchOptions(gitBranchNames), [gitBranchNames]);
+  const canCreate = worktreeName.trim().length > 0 && baseBranch.trim().length > 0 && !isBusy;
+  const optimisticRowExists = optimisticSelectedId
+    ? worktreeRows.some((worktree) => worktree.id === optimisticSelectedId)
+    : false;
+  const selectedRowId = (optimisticRowExists ? optimisticSelectedId : "") || selectedWorktreeId || worktreeRows[0]?.id;
+
+  const selectWorktree = useCallback(
+    (id: string) => {
+      if (selectedRowId === id) return;
+      setOptimisticSelectedId(id);
+      onSelectWorktree?.(id);
+    },
+    [onSelectWorktree, selectedRowId],
+  );
+
+  useEffect(() => {
+    setOptimisticSelectedId(selectedWorktreeId ?? "");
+  }, [selectedWorktreeId, selectedProject?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,133 +109,219 @@ export function TaskSidebar({
     };
   }, []);
 
-  useEffect(() => {
-    if (!isCreating || branchName) return;
-    setBranchName(`task/${timestampSlug()}`);
-  }, [branchName, isCreating]);
+  const loadGitBranchesForCreate = useCallback(async () => {
+    if (!selectedProject?.path) return;
+    if (!window.__TAURI_INTERNALS__) {
+      return;
+    }
+    setLoadingBranches(true);
+    try {
+      const snapshot = await invoke<GitBranchesSnapshot>("git_branches", {
+        projectPath: selectedProject.path,
+      });
+      const nextBranches = gitBranchNamesFromSnapshot(snapshot);
+      setGitBranchNames(nextBranches);
+      setBaseBranch((current) => {
+        if (current && nextBranches.includes(current)) return current;
+        return nextBranches.includes(snapshot.current) ? snapshot.current : nextBranches[0] || "";
+      });
+    } catch (error) {
+      console.error("failed to load git branches for worktree create", error);
+      setGitBranchNames([]);
+      setBaseBranch("");
+    } finally {
+      setLoadingBranches(false);
+    }
+  }, [selectedProject?.path]);
+
+  const openCreateModal = useCallback(() => {
+    setCreating(true);
+    setWorktreeName(timestampSlug());
+    setBaseBranch("");
+    setGitBranchNames([]);
+    setCreateError("");
+    void loadGitBranchesForCreate();
+  }, [loadGitBranchesForCreate]);
 
   useEffect(() => {
     if (createRequest <= 0) return;
-    setCreating(true);
-    setBranchName(`task/${timestampSlug()}`);
-    setTaskTitle("");
-  }, [createRequest]);
+    openCreateModal();
+  }, [createRequest, openCreateModal]);
 
   const submitCreate = () => {
-    const nextBranch = branchName.trim();
-    if (!nextBranch) return;
-    onCreateWorktree?.({
-      branchName: nextBranch,
-      taskTitle: taskTitle.trim() || branchTitle(nextBranch),
-    });
-    setCreating(false);
-    setBranchName("");
-    setTaskTitle("");
+    const nextName = worktreeName.trim();
+    const nextBaseBranch = baseBranch.trim();
+    if (!nextName || !nextBaseBranch) return;
+    setCreateError("");
+    Promise.resolve(
+      onCreateWorktree?.({
+        branchName: nextName,
+        baseBranch: nextBaseBranch,
+      }),
+    )
+      .then(() => {
+        setCreating(false);
+        setWorktreeName("");
+      })
+      .catch((error) => {
+        setCreateError(error instanceof Error ? error.message : String(error));
+      });
+  };
+
+  const handleCreatePress = () => {
+    if (canCreate) submitCreate();
   };
 
   return (
     <aside className="h-full flex flex-col">
       <div className="h-[42px] px-3.5 flex items-center justify-between flex-shrink-0">
-        <span className="text-sm font-semibold tracking-tight">{tm("worktree.sidebar.title", "Tasks")}</span>
-        <PressableButton
-          className="w-6 h-6 grid place-items-center rounded-md text-ink-mute hover:text-ink hover:bg-fill/8 transition-colors"
-          onPressUp={() => {
-            setCreating(true);
-            setBranchName(`task/${timestampSlug()}`);
-            setTaskTitle("");
-          }}
-        >
-          <Plus size={12} strokeWidth={2.4} />
-        </PressableButton>
+        <span className="text-sm font-semibold tracking-tight">{tm("worktree.sidebar.title", "Worktree")}</span>
+        <div className="flex items-center gap-1">
+          <PressableButton
+            className="w-6 h-6 grid place-items-center rounded-md text-ink-mute hover:text-ink hover:bg-fill/8 transition-colors disabled:opacity-50"
+            disabled={isBusy || !onRefreshWorktrees}
+            aria-label={tm("common.refresh", "Refresh")}
+            onPressUp={onRefreshWorktrees}
+          >
+            <RefreshCw size={12} strokeWidth={2.4} className={isBusy ? "animate-spin" : ""} />
+          </PressableButton>
+          <PressableButton
+            className="w-6 h-6 grid place-items-center rounded-md text-ink-mute hover:text-ink hover:bg-fill/8 transition-colors disabled:opacity-50"
+            disabled={isBusy}
+            aria-label={tm("worktree.create.title", "New Worktree")}
+            onPressUp={openCreateModal}
+          >
+            <Plus size={12} strokeWidth={2.4} />
+          </PressableButton>
+        </div>
       </div>
       <div className="h-px bg-line mx-3 opacity-60" />
 
       <div className="flex-1 overflow-y-auto scrollbar-overlay px-2 pt-3 pb-2.5">
-        {taskRows.length > 0 ? (
-          taskRows.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              isSelected={(selectedWorktreeId ?? taskRows[0]?.id) === task.id}
-              onSelect={() => onSelectWorktree?.(task.id)}
-              onRemove={task.worktree.isDefault ? undefined : () => onRemoveWorktree?.(task.worktree)}
+        {worktreeRows.length > 0 ? (
+          worktreeRows.map((worktree) => (
+            <WorktreeCard
+              key={worktree.id}
+              worktree={worktree}
+              aiState={aiStateByWorktreeId[worktree.id] ?? "idle"}
+              isSelected={selectedRowId === worktree.id}
+              onSelect={() => selectWorktree(worktree.id)}
+              onRemove={worktree.worktree.isDefault ? undefined : () => onRemoveWorktree?.(worktree.worktree)}
               onOpenTerminal={() => {
-                onOpenWorktreeTerminal?.(task.worktree);
+                onOpenWorktreeTerminal?.(worktree.worktree);
               }}
               onOpenFolder={() => {
-                if (task.worktree.path) void revealProjectInFileManager(task.worktree.path);
+                if (worktree.worktree.path) void revealProjectInFileManager(worktree.worktree.path);
               }}
               onReview={() => {
-                onSelectWorktree?.(task.id);
-                onReviewWorktree?.(task.worktree);
+                onSelectWorktree?.(worktree.id);
+                onReviewWorktree?.(worktree.worktree);
               }}
               applications={applications}
             />
           ))
         ) : (
           <div className="px-2 py-2 text-xs leading-relaxed text-ink-faint">
-            {tm("worktree.sidebar.empty", "No task worktrees")}
+            {tm("worktree.sidebar.empty", "No worktrees")}
           </div>
         )}
       </div>
-      {isCreating && (
-        <div className="fixed inset-0 z-[9000] grid place-items-center bg-black/24 p-4 backdrop-blur-sm">
-          <form
-            className="w-[min(360px,calc(100vw-32px))] rounded-[12px] border border-line-strong bg-surface-chrome p-4 shadow-pop"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (canCreate) submitCreate();
-            }}
-          >
-            <div className="mb-3">
-              <div className="text-sm font-semibold text-ink">{tm("worktree.task.create", "New Task")}</div>
-              <div className="mt-1 text-xs text-ink-faint">{selectedProject?.name ?? selectedProject?.path ?? ""}</div>
-            </div>
-            <label className="grid gap-1.5">
-              <span className="text-[11px] font-semibold text-ink-soft">{tm("worktree.task.branch", "Task Branch")}</span>
-              <input
-                className="h-8 rounded-md border border-line bg-fill/[0.035] px-2.5 text-xs text-ink outline-none focus:border-brand-blue/60"
-                value={branchName}
-                onChange={(event) => setBranchName(event.currentTarget.value)}
-                autoFocus
-              />
-            </label>
-            <label className="mt-3 grid gap-1.5">
-              <span className="text-[11px] font-semibold text-ink-soft">{tm("worktree.task.title", "Task Title")}</span>
-              <input
-                className="h-8 rounded-md border border-line bg-fill/[0.035] px-2.5 text-xs text-ink outline-none focus:border-brand-blue/60"
-                value={taskTitle}
-                placeholder={branchTitle(branchName)}
-                onChange={(event) => setTaskTitle(event.currentTarget.value)}
-              />
-            </label>
-            <div className="mt-4 flex justify-end gap-2">
-              <PressableButton
-                className="h-8 rounded-md px-3 text-xs font-semibold text-ink-soft hover:bg-fill/8 hover:text-ink"
-                onPressUp={() => {
-                  setCreating(false);
-                  setTaskTitle("");
+      <Modal isOpen={isCreating} onOpenChange={setCreating}>
+        <Modal.Backdrop className="no-drag fixed inset-0 z-[9000] grid place-items-center bg-black/24 p-4 backdrop-blur-sm">
+          <Modal.Container size="sm" placement="center">
+            <Modal.Dialog className="no-drag w-[min(380px,calc(100vw-32px))] rounded-[12px] border border-line-strong bg-surface-chrome p-4 text-ink shadow-pop outline-none">
+              <Modal.Header className="mb-3 p-0">
+                <div className="min-w-0">
+                  <Modal.Heading className="text-sm font-semibold text-ink">
+                    {tm("worktree.create.title", "New Worktree")}
+                  </Modal.Heading>
+                  <div className="mt-1 truncate text-xs text-ink-faint">
+                    {selectedProject?.name ?? selectedProject?.path ?? ""}
+                  </div>
+                </div>
+              </Modal.Header>
+              <form
+                className="grid gap-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (canCreate) submitCreate();
                 }}
               >
-                {tm("common.cancel", "Cancel")}
-              </PressableButton>
-              <PressableButton
-                className="h-8 rounded-md bg-brand-blue px-3 text-xs font-semibold text-on-brand disabled:opacity-50"
-                disabled={!canCreate}
-                type="submit"
-              >
-                {tm("common.create", "Create")}
-              </PressableButton>
-            </div>
-          </form>
-        </div>
-      )}
+                <label className="grid gap-1.5">
+                  <span className="text-sm font-semibold text-ink-soft">
+                    {tm("worktree.task.base_branch", "Base Branch")}
+                  </span>
+                  <HeroSelect
+                    aria-label={tm("worktree.task.base_branch", "Base Branch")}
+                    selectedKey={baseBranch}
+                    onSelectionChange={(key) => {
+                      if (typeof key === "string") setBaseBranch(key);
+                    }}
+                    isDisabled={isBusy || isLoadingBranches || branchOptions.length === 0}
+                    fullWidth
+                  >
+                    <HeroSelect.Trigger>
+                      <HeroSelect.Value />
+                      <HeroSelect.Indicator />
+                    </HeroSelect.Trigger>
+                    <HeroSelect.Popover>
+                      <ListBox>
+                        {branchOptions.map((branch) => (
+                          <ListBox.Item key={branch} id={branch} textValue={branch}>
+                            {branch}
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </HeroSelect.Popover>
+                  </HeroSelect>
+                </label>
+                <label className="grid gap-1.5">
+                  <span className="text-sm font-semibold text-ink-soft">
+                    {tm("worktree.task.title", "Worktree Name")}
+                  </span>
+                  <HeroInput
+                    value={worktreeName}
+                    onChange={(event) => setWorktreeName(event.currentTarget.value)}
+                    disabled={isBusy}
+                    fullWidth
+                    autoFocus
+                  />
+                </label>
+                {createError ? <div className="text-sm text-brand-red">{createError}</div> : null}
+                <Modal.Footer className="mt-1 flex justify-end gap-2 p-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={isBusy}
+                    onPressUp={() => {
+                      setCreating(false);
+                    }}
+                  >
+                    {tm("common.cancel", "Cancel")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={!canCreate}
+                    className="bg-brand-blue text-on-brand"
+                    onPressUp={handleCreatePress}
+                  >
+                    {isBusy ? tm("common.creating", "Creating") : tm("common.create", "Create")}
+                  </Button>
+                </Modal.Footer>
+              </form>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
     </aside>
   );
 }
 
-function TaskCard({
-  task,
+const WorktreeCard = memo(function WorktreeCard({
+  worktree,
+  aiState,
   isSelected,
   onSelect,
   onRemove,
@@ -218,7 +330,8 @@ function TaskCard({
   onReview,
   applications,
 }: {
-  task: TaskRow;
+  worktree: WorktreeRow;
+  aiState: WorktreeAIState;
   isSelected?: boolean;
   onSelect?: () => void;
   onRemove?: () => void;
@@ -228,15 +341,11 @@ function TaskCard({
   applications: ProjectOpenApplication[];
 }) {
   const contextMenu = useContextMenu();
-  const ideApplications = useMemo(
-    () => applications.filter((item) => item.id !== "terminal"),
-    [applications],
-  );
+  const ideApplications = useMemo(() => applications.filter((item) => item.id !== "terminal"), [applications]);
   const interactionBg = isSelected ? "bg-brand-blue/14" : "hover:bg-fill/4";
-  const borderColor = isSelected ? "border-brand-blue/45" : "border-transparent";
   const openWithApplication = (application: ProjectOpenApplication) => {
-    if (!task.worktree.path) return;
-    void openProjectInApplication(task.worktree.path, application.id).catch((error) =>
+    if (!worktree.worktree.path) return;
+    void openProjectInApplication(worktree.worktree.path, application.id).catch((error) =>
       console.error("failed to open worktree in application", error),
     );
   };
@@ -246,7 +355,11 @@ function TaskCard({
         <SquareTerminal size={13} />
         {tm("worktree.menu.open_terminal", "Open Terminal")}
       </ContextMenuItem>
-      <ContextMenuItem label={tm("worktree.menu.open_folder", "Open Folder")} onSelect={onOpenFolder} disabled={!task.worktree.path}>
+      <ContextMenuItem
+        label={tm("worktree.menu.open_folder", "Open Folder")}
+        onSelect={onOpenFolder}
+        disabled={!worktree.worktree.path}
+      >
         <Folder size={13} />
         {tm("worktree.menu.open_folder", "Open Folder")}
       </ContextMenuItem>
@@ -262,7 +375,7 @@ function TaskCard({
               key={application.id}
               label={formatOpenTitle(application.label)}
               onSelect={() => openWithApplication(application)}
-              disabled={!task.worktree.path}
+              disabled={!worktree.worktree.path}
             >
               {formatOpenTitle(application.label)}
             </ContextMenuItem>
@@ -281,51 +394,33 @@ function TaskCard({
   );
 
   return (
-    <div className="group relative mb-1.5" onContextMenu={contextMenu.openMenu}>
+    <div className="group relative mb-1.5 contain-layout" onContextMenu={contextMenu.openMenu}>
       <PressableButton
         onPressUp={onSelect}
-        className={`relative w-full min-h-[52px] rounded-[8px] border ${borderColor} overflow-hidden text-left transition-colors`}
+        className="relative w-full min-h-[64px] rounded-[8px] overflow-hidden text-left"
       >
-      <span
-        className={`absolute inset-0 rounded-[8px] ${interactionBg} transition-colors`}
-      />
+        <span className={`absolute inset-0 rounded-[8px] ${interactionBg}`} />
 
-      {task.watermark && (
-        <span
-          className={`absolute right-2 top-1/2 -translate-y-1/2 text-[32px] font-black leading-none select-none pointer-events-none ${
-            watermarkTone[task.watermark.tone]
-          }`}
-        >
-          {task.watermark.letter}
-        </span>
-      )}
-
-      <div className="relative flex items-center gap-2.5 px-2.5 py-2 h-[52px]">
-        <span className="w-4 h-5 grid place-items-center flex-shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-brand-blue" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div
-            className={`text-sm font-semibold leading-tight truncate ${
-              isSelected ? "text-ink" : "text-ink-soft"
-            }`}
-          >
-            {task.title}
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 text-xs font-medium text-ink-faint">
-            <GitBranch size={9} strokeWidth={2.2} />
-            <span className="truncate">{task.branch}</span>
-            <span className="tabular-nums">
-              {formatI18n(tm("worktree.sidebar.changed_format", "%@ changed"), task.changes ?? 0)}
-            </span>
-            {task.incoming ? <span className="tabular-nums">↓{task.incoming}</span> : null}
-            {task.outgoing ? <span className="tabular-nums">↑{task.outgoing}</span> : null}
+        <div className="relative flex min-h-[64px] items-center gap-2.5 px-2.5 py-2.5">
+          <span className="grid h-full w-4 flex-shrink-0 place-items-center">
+            <WorktreeActivityDot state={aiState} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div
+              className={`break-all text-sm font-semibold leading-snug ${isSelected ? "text-ink" : "text-ink-soft"}`}
+            >
+              {worktree.title}
+            </div>
+            <WorktreeGitSummary
+              changes={worktree.changes ?? 0}
+              additions={worktree.additions ?? 0}
+              deletions={worktree.deletions ?? 0}
+            />
           </div>
         </div>
-      </div>
       </PressableButton>
       <ContextMenu
-        ariaLabel={formatI18n(tm("worktree.menu.actions_format", "%@ Actions"), task.title)}
+        ariaLabel={formatI18n(tm("worktree.menu.actions_format", "%@ Actions"), worktree.title)}
         menu={contextMenu.menu}
         onClose={contextMenu.closeMenu}
       >
@@ -333,10 +428,50 @@ function TaskCard({
       </ContextMenu>
     </div>
   );
-}
+});
 
 function formatOpenTitle(label: string) {
   return tm("open.application.format", "Open in %@").replace("%@", label);
+}
+
+function WorktreeActivityDot({ state }: { state: WorktreeAIState }) {
+  if (state === "running") {
+    return (
+      <span className="relative grid h-4 w-4 place-items-center rounded-full">
+        <span className="h-2.5 w-2.5 rounded-full bg-brand-amber" />
+        <span className="absolute inset-0 rounded-full border border-brand-amber/20 border-t-brand-amber motion-safe:animate-spin" />
+      </span>
+    );
+  }
+  if (state === "review") {
+    return <span className="h-2.5 w-2.5 rounded-full bg-brand-amber" />;
+  }
+  if (state === "done") {
+    return <span className="h-2.5 w-2.5 rounded-full bg-brand-green" />;
+  }
+  return <span className="h-2.5 w-2.5 rounded-full bg-brand-blue" />;
+}
+
+function WorktreeGitSummary({
+  changes,
+  additions,
+  deletions,
+}: {
+  changes: number;
+  additions: number;
+  deletions: number;
+}) {
+  return (
+    <div className="mt-1 flex min-w-0 items-center justify-between gap-2 text-xs font-semibold tabular-nums">
+      <span className="min-w-0 truncate text-ink-faint">
+        {formatI18n(tm("worktree.sidebar.changed_format", "%@ changed"), changes)}
+      </span>
+      <span className="flex flex-none items-center gap-1.5">
+        <span className="text-brand-green">+{Math.max(0, additions)}</span>
+        <span className="text-brand-red">-{Math.max(0, deletions)}</span>
+      </span>
+    </div>
+  );
 }
 
 function fallbackDefaultWorktree(project?: WorkspaceProject): ProjectWorktreeSnapshot {
@@ -354,44 +489,26 @@ function fallbackDefaultWorktree(project?: WorkspaceProject): ProjectWorktreeSna
       changes: project?.changes ?? 0,
       incoming: 0,
       outgoing: 0,
+      additions: 0,
+      deletions: 0,
     },
   };
 }
 
-function toTaskRow(
-  worktree: ProjectWorktreeSnapshot,
-  task: WorktreeTaskSnapshot | undefined,
-): TaskRow {
-  const status = task?.status ?? worktree.status;
+function toWorktreeRow(worktree: ProjectWorktreeSnapshot): WorktreeRow {
+  const status = worktree.status;
   return {
     id: worktree.id,
-    title: worktree.branch || worktree.name || task?.title || tm("worktree.task.default_title", "New Task"),
+    title: worktree.name || branchTitle(worktree.branch) || worktree.branch || tm("worktree.default.name", "Default"),
     branch: worktree.branch || worktree.path || tm("worktree.branch.current", "current branch"),
     changes: worktree.gitSummary.changes,
     incoming: worktree.gitSummary.incoming,
     outgoing: worktree.gitSummary.outgoing,
-    watermark: watermarkForStatus(status),
+    additions: worktree.gitSummary.additions,
+    deletions: worktree.gitSummary.deletions,
     status,
     worktree,
   };
-}
-
-function watermarkForStatus(
-  status: WorktreeTaskStatus,
-): NonNullable<TaskRow["watermark"]> {
-  if (status === "running" || status === "planning" || status === "waiting") {
-    return { letter: "R", tone: "running" };
-  }
-  if (status === "review" || status === "blocked") {
-    return { letter: "V", tone: "review" };
-  }
-  if (status === "ready") {
-    return { letter: "A", tone: "ready" };
-  }
-  if (status === "done" || status === "merged") {
-    return { letter: "D", tone: "done" };
-  }
-  return { letter: "T", tone: "todo" };
 }
 
 function timestampSlug() {
@@ -401,5 +518,5 @@ function timestampSlug() {
 }
 
 function branchTitle(branch: string) {
-  return branch.split("/").filter(Boolean).pop() || tm("worktree.task.default_title", "New Task");
+  return branch.split("/").filter(Boolean).pop() || "";
 }

@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-const NORMALIZED_HISTORY_SCHEMA_VERSION: &str = "1";
+const NORMALIZED_HISTORY_SCHEMA_VERSION: &str = "3";
 
 const SCHEMA_STATEMENTS: &[&str] = &[
     r#"
@@ -66,9 +66,9 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "#,
     r#"
     CREATE TABLE IF NOT EXISTS ai_history_project_index_state (
-        project_id TEXT PRIMARY KEY,
+        project_path TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
         project_name TEXT NOT NULL,
-        project_path TEXT NOT NULL,
         indexed_at REAL NOT NULL
     );
     "#,
@@ -577,10 +577,10 @@ impl AIUsageStore {
                 r#"
                 SELECT indexed_at
                 FROM ai_history_project_index_state
-                WHERE project_id = ?1 AND project_path = ?2
+                WHERE project_path = ?1
                 LIMIT 1;
                 "#,
-                params![project.id, project.path],
+                params![project.path],
                 |row| row.get::<_, f64>(0),
             )
             .optional()?;
@@ -592,6 +592,69 @@ impl AIUsageStore {
         Ok(Some(snapshot))
     }
 
+    pub(crate) fn rename_project_session(
+        &self,
+        conn: &Connection,
+        project_path: &str,
+        session_id: &str,
+        title: &str,
+    ) -> Result<bool> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Ok(false);
+        }
+        let links = self.project_session_links(conn, project_path)?;
+        let matched = matching_session_keys(&links, session_id);
+        if matched.is_empty() {
+            return Ok(false);
+        }
+        let tx = conn.unchecked_transaction()?;
+        for (source, session_key) in &matched {
+            tx.execute(
+                r#"
+                UPDATE ai_history_file_session_link
+                SET session_title = ?1
+                WHERE project_path = ?2 AND source = ?3 AND session_key = ?4;
+                "#,
+                params![title, project_path, source, session_key],
+            )?;
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
+    pub(crate) fn remove_project_session(
+        &self,
+        conn: &Connection,
+        project_path: &str,
+        session_id: &str,
+    ) -> Result<bool> {
+        let links = self.project_session_links(conn, project_path)?;
+        let matched = matching_session_keys(&links, session_id);
+        if matched.is_empty() {
+            return Ok(false);
+        }
+        let tx = conn.unchecked_transaction()?;
+        for (source, session_key) in &matched {
+            tx.execute(
+                r#"
+                DELETE FROM ai_history_file_usage_bucket
+                WHERE project_path = ?1 AND source = ?2 AND session_key = ?3;
+                "#,
+                params![project_path, source, session_key],
+            )?;
+            tx.execute(
+                r#"
+                DELETE FROM ai_history_file_session_link
+                WHERE project_path = ?1 AND source = ?2 AND session_key = ?3;
+                "#,
+                params![project_path, source, session_key],
+            )?;
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
     pub(crate) fn save_project_index_state(
         &self,
         conn: &Connection,
@@ -600,17 +663,17 @@ impl AIUsageStore {
     ) -> Result<()> {
         conn.execute(
             r#"
-            INSERT INTO ai_history_project_index_state (project_id, project_name, project_path, indexed_at)
+            INSERT INTO ai_history_project_index_state (project_path, project_id, project_name, indexed_at)
             VALUES (?1, ?2, ?3, ?4)
-            ON CONFLICT(project_id) DO UPDATE SET
+            ON CONFLICT(project_path) DO UPDATE SET
+                project_id = excluded.project_id,
                 project_name = excluded.project_name,
-                project_path = excluded.project_path,
                 indexed_at = excluded.indexed_at;
             "#,
             params![
+                project_path,
                 snapshot.project_id,
                 snapshot.project_name,
-                project_path,
                 snapshot.indexed_at
             ],
         )?;
@@ -1392,6 +1455,28 @@ fn fixed_today_time_buckets(mut map: HashMap<i64, AITimeBucket>) -> Vec<AITimeBu
             })
         })
         .collect()
+}
+
+fn matching_session_keys(
+    links: &[NormalizedSessionLinkRow],
+    session_id: &str,
+) -> Vec<(String, String)> {
+    let mut matched = Vec::new();
+    for link in links {
+        let raw_id = deterministic_uuid(&history_key(&link.source, &link.session_key));
+        let grouped_id = deterministic_uuid(&history_group_key(
+            &link.source,
+            &link.session_key,
+            link.external_session_id.as_deref(),
+        ));
+        if session_id == raw_id || session_id == grouped_id {
+            let key = (link.source.clone(), link.session_key.clone());
+            if !matched.contains(&key) {
+                matched.push(key);
+            }
+        }
+    }
+    matched
 }
 
 fn history_group_key(source: &str, session_key: &str, external_session_id: Option<&str>) -> String {

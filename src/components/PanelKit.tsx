@@ -46,7 +46,7 @@ export function PanelCard({
       {title !== undefined && (
         <div
           className={`flex items-center justify-between gap-2 px-3 ${
-            divider ? "h-[34px] border-b border-line" : "pt-3 pb-1.5"
+            divider ? "h-[34px] border-b border-line" : "pt-3 pb-0"
           }`}
         >
           <div className="text-xs font-semibold text-ink truncate">{title}</div>

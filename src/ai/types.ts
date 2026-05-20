@@ -68,7 +68,21 @@ export type AIRuntimeBridgeSnapshot = {
   zdotdirPath: string;
   hookScriptPath: string;
   managedHookScriptPath: string;
+  hookConfig: AIRuntimeHookConfigStatus;
   terminals: AIRuntimeTerminalState[];
+};
+
+export type AIRuntimeHookConfigStatus = {
+  codex: AIRuntimeToolHookConfigStatus;
+  claude: AIRuntimeToolHookConfigStatus;
+  gemini: AIRuntimeToolHookConfigStatus;
+  opencode: AIRuntimeToolHookConfigStatus;
+};
+
+export type AIRuntimeToolHookConfigStatus = {
+  configured: boolean;
+  configPath: string;
+  missing: string[];
 };
 
 export type AIRuntimeContextSnapshot = {
@@ -141,6 +155,7 @@ export type AIProjectPhase =
 
 export type AIProjectTotals = {
   totalTokens: number;
+  cachedInputTokens: number;
   running: number;
   needsInput: number;
   completed: number;

@@ -16,14 +16,18 @@ tauri-build = { version = "2.5.1", features = [] }
 [dependencies]
 anyhow = "1.0"
 aes-gcm = "0.10"
+async-trait = "0.1"
 base64 = "0.22"
+bytes = "1.9"
 chrono = "0.4"
 core-foundation-sys = "0.8"
+hkdf = "0.12"
 libc = "0.2"
 notify = "8.2.0"
 percent-encoding = "2.3"
 portable-pty = "0.9"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "system-proxy"] }
+futures-util = "0.3"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -35,9 +39,13 @@ tauri-plugin-dialog = "2.0.0-rc.8"
 tauri-plugin-notification = "2.0.0-rc.5"
 tauri-plugin-opener = "2.5.0"
 thiserror = "2.0"
+tokio = { version = "1", features = ["sync", "time"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 uuid = { version = "1.11", features = ["serde", "v4", "v5"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Power", "Win32_System_SystemServices", "Win32_System_Threading"] }
+x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
 url = "2.5.7"
+webrtc = "0.20.0-alpha.1"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

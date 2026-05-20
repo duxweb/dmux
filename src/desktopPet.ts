@@ -13,6 +13,7 @@ import codeUrl from "./assets/pets/code/spritesheet.png?url";
 import dragonUrl from "./assets/pets/dragon/spritesheet.png?url";
 import chaosspriteUrl from "./assets/pets/chaossprite/spritesheet.png?url";
 import gooseUrl from "./assets/pets/goose/spritesheet.png?url";
+import { desktopPetActivityLine, nextDesktopPetActivityRefreshMs, type AISessionSnapshot } from "./desktopPetActivity";
 import "./desktopPet.css";
 
 type PetAnimationState = "idle" | "running" | "waiting" | "review";
@@ -37,18 +38,6 @@ type PetSnapshot = {
   dailyExperienceTokens: number;
 };
 
-type AISessionSnapshot = {
-  state: "idle" | "responding" | "needsInput";
-  tool: string;
-  updatedAt: number;
-  hasCompletedTurn: boolean;
-  wasInterrupted: boolean;
-  notificationType?: string | null;
-  targetToolName?: string | null;
-  message?: string | null;
-  latestAssistantPreview?: string | null;
-};
-
 type AIRuntimeStateSnapshot = {
   sessions: AISessionSnapshot[];
 };
@@ -57,7 +46,6 @@ type PlacementSnapshot = {
   side: DesktopPetSide;
 };
 
-const DESKTOP_PET_COMPLETED_STATUS_SECONDS = 8;
 const atlas = { columns: 8, rows: 9, cellWidth: 192, cellHeight: 208 };
 const spriteSize = 128;
 const visibleWidth = (atlas.cellWidth * spriteSize) / atlas.cellHeight;
@@ -201,7 +189,11 @@ function updateSpriteSource() {
 }
 
 function updateSpriteAnimation() {
-  const nextState: PetAnimationState = pet?.claimedAt ? (pet.dailyExperienceTokens > 0 ? "running" : "idle") : "waiting";
+  const nextState: PetAnimationState = pet?.claimedAt
+    ? pet.dailyExperienceTokens > 0
+      ? "running"
+      : "idle"
+    : "waiting";
   if (nextState === currentState && frameTimer != null) return;
   currentState = nextState;
   currentFrame = 0;
@@ -213,7 +205,10 @@ function updateSpriteAnimation() {
 
 function scheduleFrame() {
   const animation = animations[currentState] ?? animations.idle;
-  const delay = frameDelay(animation.frameDurationsMs[currentFrame % animation.frameDurationsMs.length] ?? 180, currentState);
+  const delay = frameDelay(
+    animation.frameDurationsMs[currentFrame % animation.frameDurationsMs.length] ?? 180,
+    currentState,
+  );
   frameTimer = window.setTimeout(() => {
     currentFrame = (currentFrame + 1) % animation.frameDurationsMs.length;
     applyFrame();
@@ -252,61 +247,6 @@ function setBubbleText(text: string) {
   bubble.style.display = isVisible ? "grid" : "none";
   bubbleText.textContent = nextText;
   void invoke("desktop_pet_set_bubble_visible", { visible: isVisible }).catch(() => undefined);
-}
-
-function desktopPetActivityLine(sessions: AISessionSnapshot[], now: number) {
-  const visibleSessions = sessions.filter((session) => {
-    if (session.state === "responding" || session.state === "needsInput") return true;
-    return session.hasCompletedTurn && now - session.updatedAt <= DESKTOP_PET_COMPLETED_STATUS_SECONDS;
-  });
-  if (!visibleSessions.length) return "";
-  const permission = visibleSessions
-    .filter((session) => session.state === "needsInput" && isPermissionRequestNotificationType(session.notificationType))
-    .sort(compareUpdatedDesc)[0];
-  if (permission) {
-    return permission.targetToolName
-      ? `${permission.tool} needs permission for ${permission.targetToolName}`
-      : `${permission.tool} needs permission`;
-  }
-  const needsInput = visibleSessions.filter((session) => session.state === "needsInput").sort(compareUpdatedDesc)[0];
-  if (needsInput) {
-    return normalizedPreview(needsInput.latestAssistantPreview) || normalizedPreview(needsInput.message) || `${needsInput.tool} needs input`;
-  }
-  const running = visibleSessions.filter((session) => session.state === "responding").sort(compareUpdatedDesc)[0];
-  if (running) {
-    return normalizedPreview(running.latestAssistantPreview) || `${running.tool} is running`;
-  }
-  const completed = visibleSessions.filter((session) => session.hasCompletedTurn).sort(compareUpdatedDesc)[0];
-  if (completed) return completed.wasInterrupted ? `${completed.tool} failed` : `${completed.tool} completed`;
-  return "";
-}
-
-function nextDesktopPetActivityRefreshMs(sessions: AISessionSnapshot[], now: number) {
-  const nextExpiry = sessions
-    .filter((session) => session.hasCompletedTurn && session.state !== "responding" && session.state !== "needsInput")
-    .map((session) => session.updatedAt + DESKTOP_PET_COMPLETED_STATUS_SECONDS)
-    .filter((expiresAt) => expiresAt > now)
-    .sort((left, right) => left - right)[0];
-  return nextExpiry ? Math.max(250, Math.ceil((nextExpiry - now) * 1000)) : null;
-}
-
-function compareUpdatedDesc(left: AISessionSnapshot, right: AISessionSnapshot) {
-  return right.updatedAt - left.updatedAt;
-}
-
-function isPermissionRequestNotificationType(value?: string | null) {
-  return value === "PermissionRequest" || value === "permission-request" || value === "permission_request";
-}
-
-function normalizedPreview(value?: string | null) {
-  return (value ?? "")
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 3)
-    .join("\n")
-    .trim();
 }
 
 function frameDelay(delayMs: number, state: PetAnimationState) {

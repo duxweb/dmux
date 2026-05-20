@@ -53,8 +53,17 @@ const emptyReviewSnapshot: GitReviewSnapshot = {
   error: null,
 };
 
+const gitReviewSnapshotCache = new Map<string, GitReviewSnapshot>();
+
+function reviewCacheKey(projectPath?: string, baseBranch?: string | null) {
+  return projectPath ? `${projectPath}:${baseBranch ?? ""}` : "";
+}
+
 export function useGitReviewSnapshot(projectPath?: string, baseBranch?: string | null) {
-  const [snapshot, setSnapshot] = useState<GitReviewSnapshot>(emptyReviewSnapshot);
+  const cacheKey = reviewCacheKey(projectPath, baseBranch);
+  const [snapshot, setSnapshot] = useState<GitReviewSnapshot>(
+    () => (cacheKey ? gitReviewSnapshotCache.get(cacheKey) : undefined) ?? emptyReviewSnapshot,
+  );
   const [isLoading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +80,7 @@ export function useGitReviewSnapshot(projectPath?: string, baseBranch?: string |
         baseBranch,
       });
       const normalized = sanitizeGitRepositorySnapshot(next);
+      gitReviewSnapshotCache.set(reviewCacheKey(projectPath, baseBranch), normalized);
       setSnapshot(normalized);
       setError(normalized.error ?? null);
     } catch (nextError) {
@@ -86,8 +96,12 @@ export function useGitReviewSnapshot(projectPath?: string, baseBranch?: string |
   }, [baseBranch, projectPath]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    const cached = cacheKey ? gitReviewSnapshotCache.get(cacheKey) : undefined;
+    setSnapshot(cached ?? emptyReviewSnapshot);
+    setError(cached?.error ?? null);
+    setLoading(false);
+    if (!cached) void refresh();
+  }, [cacheKey, refresh]);
 
   useEffect(() => {
     if (!projectPath || !window.__TAURI_INTERNALS__) return;

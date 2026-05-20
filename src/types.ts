@@ -11,6 +11,7 @@ export interface ProjectSummary {
   changes?: number;
   badgeSymbol?: string | null;
   badgeColorHex?: string | null;
+  gitDefaultPushRemoteName?: string | null;
 }
 
 export interface ProjectListSnapshot {
@@ -35,6 +36,7 @@ export interface WorkspaceProject {
   changes: number;
   badgeSymbol?: string | null;
   badgeColorHex?: string | null;
+  gitDefaultPushRemoteName?: string | null;
 }
 
 export interface TerminalSession {
@@ -61,12 +63,45 @@ export interface RemoteStatus {
   relay: string;
   devices: number;
   encryption: string;
+  status: "stopped" | "registering" | "connecting" | "connected" | "failed";
+  message: string;
+  hostId: string;
+  pairing?: RemotePairingInfo | null;
+  deviceList: RemoteHostDevice[];
+  pendingPairings: RemotePendingPairing[];
+}
+
+export interface RemoteHostDevice {
+  id: string;
+  hostId: string;
+  name: string;
+  publicKey: string;
+  createdAt: string;
+  lastSeen: string;
+  revokedAt?: string | null;
+  online?: boolean | null;
+}
+
+export interface RemotePairingInfo {
+  pairingId: string;
+  code: string;
+  secret: string;
+  hostPublicKey?: string | null;
+  cryptoVersion?: number | null;
+  expiresAt: string;
+  qrPayload: string;
+}
+
+export interface RemotePendingPairing {
+  id: string;
+  deviceName: string;
+  devicePublicKey: string;
+  code: string;
 }
 
 export interface PerformanceSnapshot {
   cpuPercent: number;
   memoryBytes: number;
-  graphicsBytes: number;
 }
 
 export type MainView = "terminal" | "files" | "review";

@@ -10,7 +10,8 @@ import {
   Wrench,
 } from "../icons";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useEffect, useState } from "react";
 import { checkForUpdates, type UpdateInstallResult, type UpdateStatus } from "../appActions";
 import { Button } from "../components/Button";
 import { PressableButton } from "../components/PressableButton";
@@ -24,7 +25,7 @@ import {
   TextInput,
   Toggle,
 } from "../components/Form";
-import { closeCurrentAppWindow, resizeCurrentAppWindow, revealCurrentAppWindow } from "../windowing";
+import { closeCurrentAppWindow, revealCurrentAppWindow } from "../windowing";
 import type { AppIcon } from "../icons";
 import {
   readAppSettings,
@@ -36,6 +37,7 @@ import {
   type AIProviderSettings,
   type AIToolPermissionMode,
   type NotificationChannelSettings,
+  type RemoteDeviceSettings,
 } from "../settings";
 import {
   appShortcutDefinitions,
@@ -45,6 +47,7 @@ import {
 import { restartNotice, systemMessage } from "../systemDialog";
 import { backgroundColorOptions, systemThemeOptions, terminalThemeOptions, terminalThemePreview } from "../theme";
 import { formatI18n, tm } from "../i18n";
+import type { RemoteStatus } from "../types";
 
 type SectionId =
   | "general"
@@ -195,72 +198,68 @@ const notificationChannels = [
   ["webhook", "Webhook", "Request URL", "Bearer Token", "Send JSON POST requests to your own endpoint."],
 ] as const;
 
-const settingsWindowHeights: Record<SectionId, number> = {
-  general: 600,
-  appearance: 620,
-  pet: 660,
-  ai: 720,
-  notifications: 700,
-  remote: 620,
-  shortcuts: 640,
-  experiments: 520,
-  developer: 520,
-};
-
 export function SettingsWindow() {
   const [active, setActive] = useState<SectionId>("general");
   const activeSection = sections.find((item) => item.id === active) ?? sections[0];
-  const preferredHeight = useMemo(() => settingsWindowHeight(active), [active]);
 
   useEffect(() => {
     void revealCurrentAppWindow();
   }, []);
-
-  useEffect(() => {
-    void resizeSettingsWindow(640, preferredHeight);
-  }, [preferredHeight]);
 
   const dismiss = () => {
     void closeCurrentAppWindow();
   };
 
   return (
-    <div className="app-shell h-screen min-w-[640px] overflow-hidden text-ink flex flex-col">
-      <header className="flex-shrink-0 border-b border-line bg-surface-chrome px-4 pb-2 pt-3">
-        <nav className="no-drag flex items-end justify-center gap-1.5 overflow-x-auto scrollbar-hidden">
-          {sections.map((item) => (
-            <PressableButton
-              key={item.id}
-              onPressUp={() => setActive(item.id)}
-              className={`grid h-[58px] min-w-[62px] place-items-center content-center gap-1 rounded-[8px] px-2 text-center transition-colors ${
-                active === item.id
-                  ? "bg-fill/[0.09] text-ink shadow-sm"
-                  : "text-ink-mute hover:bg-fill/[0.055] hover:text-ink"
-              }`}
-            >
-              <item.icon size={19} strokeWidth={1.9} />
-              <span className="text-[11px] font-medium leading-none">{tm(item.labelKey ?? "", item.label)}</span>
-            </PressableButton>
-          ))}
-        </nav>
-      </header>
-
-      <section className="relative min-w-0 min-h-0 flex-1 overflow-hidden">
-        <main className="absolute inset-0 overflow-y-auto px-6 pb-[76px] pt-5 no-drag">
-          <div className="mx-auto w-full max-w-[640px]">
-            <div className="mb-4">
-              <div className="text-[17px] font-semibold tracking-tight">
-                {tm(activeSection.labelKey ?? "", activeSection.label)}
-              </div>
-              <div className="mt-1 text-[12.5px] text-ink-mute">
-                {tm(activeSection.description, activeSection.description)}
-              </div>
-            </div>
-            <SettingsPane active={active} />
+    <div className="app-shell h-screen grid grid-cols-[200px_minmax(0,1fr)] text-ink">
+      <aside className="min-h-0 border-r border-line bg-surface-chrome/45 flex flex-col">
+        <div className="h-14 flex-shrink-0 drag-region" data-tauri-drag-region />
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 no-drag">
+          <div className="grid gap-1.5">
+            {sections.map((item) => (
+              <PressableButton
+                key={item.id}
+                onPressUp={() => setActive(item.id)}
+                className={`h-8 px-2.5 rounded-md grid grid-cols-[18px_minmax(0,1fr)] items-center gap-2 text-sm text-left transition-colors ${
+                  active === item.id
+                    ? "bg-brand-blue/16 text-ink"
+                    : "text-ink-soft hover:bg-fill/[0.06] hover:text-ink"
+                }`}
+              >
+                <item.icon size={14} strokeWidth={2} />
+                <span>{tm(item.labelKey ?? "", item.label)}</span>
+              </PressableButton>
+            ))}
           </div>
+        </nav>
+      </aside>
+
+      <section className="relative min-w-0 min-h-0 overflow-hidden">
+        <header
+          className="absolute left-0 right-0 top-0 z-20 h-[92px] flex flex-col justify-end px-6 pb-4 drag-region"
+          data-tauri-drag-region
+          style={{
+            background: "linear-gradient(to top, transparent 0%, var(--color-surface-chrome) 50%)",
+          }}
+        >
+          <div className="text-lg font-semibold tracking-tight drag-region" data-tauri-drag-region>
+            {tm(activeSection.labelKey ?? "", activeSection.label)}
+          </div>
+          <div className="mt-1.5 text-sm text-ink-mute drag-region" data-tauri-drag-region>
+            {tm(activeSection.description, activeSection.description)}
+          </div>
+        </header>
+
+        <main className="absolute inset-0 overflow-y-auto px-5 pt-[108px] pb-[78px] no-drag">
+          <SettingsPane active={active} />
         </main>
 
-        <footer className="absolute left-0 right-0 bottom-0 z-20 h-[56px] px-5 flex items-center justify-end gap-2 border-t border-line bg-surface-chrome no-drag">
+        <footer
+          className="absolute left-0 right-0 bottom-0 z-20 h-[58px] px-5 flex items-center justify-end gap-2 no-drag"
+          style={{
+            background: "linear-gradient(to bottom, transparent 0%, var(--color-surface-chrome) 50%)",
+          }}
+        >
           <Button variant="ghost" onPress={dismiss}>
             {tm("common.cancel", "Cancel")}
           </Button>
@@ -293,18 +292,6 @@ function SettingsPane({ active }: { active: SectionId }) {
       return <ExperimentSection />;
     case "developer":
       return <DeveloperSection />;
-  }
-}
-
-function settingsWindowHeight(active: SectionId) {
-  return settingsWindowHeights[active] ?? 600;
-}
-
-async function resizeSettingsWindow(width: number, height: number) {
-  try {
-    await resizeCurrentAppWindow(width, height);
-  } catch (error) {
-    console.error("failed to resize settings window", error);
   }
 }
 
@@ -492,9 +479,7 @@ function updateModeLabel(status: UpdateStatus | null) {
   if (status.signedUpdaterConfigured) {
     return tm("settings.update.mode.signed_config", "Signed Config");
   }
-  if (!status.configured) {
-    return tm("settings.update.mode.not_configured", "Not Configured");
-  }
+  if (!status.configured) return tm("settings.update.mode.manual_manifest", "Manual");
   return status.installationMode;
 }
 
@@ -547,7 +532,7 @@ function AppearanceSection() {
   const setSetting = <K extends keyof typeof settings>(key: K, value: (typeof settings)[K]) => {
     const next = updateAppSettings({ [key]: value });
     setSettings(next);
-    if (key === "theme" || key === "background") {
+    if (key === "theme") {
       void restartNotice(
         tm("settings.theme.restart_message", "Restart Codux to apply the selected theme to the app and all terminals."),
         tm("settings.theme.restart_title", "Restart Required"),
@@ -583,8 +568,8 @@ function AppearanceSection() {
       </SettingsCard>
 
       <SettingsCard
-        title={tm("settings.background_color", "Background Color")}
-        description={tm("settings.background_color.help", "Tints the app window background while preserving the translucent desktop material.")}
+        title={tm("settings.theme_color", "Theme Color")}
+        description={tm("settings.theme_color.help", "Applies to the app accent color, buttons, highlights, and the translucent window tint.")}
       >
         <div className="grid grid-cols-[repeat(auto-fill,minmax(48px,1fr))] gap-x-2 gap-y-3 py-1">
           {backgroundColorOptions.map((item) => (
@@ -678,10 +663,7 @@ function PetSection() {
             options={petSpeechModeOptions}
           />
         </Field>
-        <Field
-          label={tm("settings.pet.speech.frequency", "Frequency")}
-          description={tm("settings.pet.speech.frequency_help", "Frequency is estimated per hour, not a daily cap. The shortest global cooldown is 30 seconds.")}
-        >
+        <Field label={tm("settings.pet.speech.frequency", "Frequency")}>
           <Select
             value={settings.ai.pet.speechFrequency}
             onChange={(speechFrequency) => setAIPet({ speechFrequency })}
@@ -863,10 +845,7 @@ function AISection() {
 
   return (
     <SettingsForm className="max-w-[680px]">
-      <SettingsCard
-        title={tm("settings.ai.section.runtime_tools", "Runtime Tools")}
-        description={tm("settings.tools.hint", "These defaults apply the next time a supported AI tool is launched inside a Codux terminal. Explicit command-line flags still take priority.")}
-      >
+      <SettingsCard title={tm("settings.ai.section.runtime_tools", "Runtime Tools")}>
         {runtimeTools.map((tool) => (
           <div key={tool.id} className="grid gap-3">
             <div className="text-sm font-semibold text-ink">
@@ -903,11 +882,13 @@ function AISection() {
         title={tm("settings.ai.global_prompt", "Global Prompt")}
         description={tm("settings.ai.global_prompt_help", "Injected when supported tools start. It is merged with memory context and written to each tool's launch context.")}
       >
-        <Textarea
-          value={ai.globalPrompt}
-          rows={4}
-          onChange={(event) => setAI({ globalPrompt: event.currentTarget.value })}
-        />
+        <div className="py-1">
+          <Textarea
+            value={ai.globalPrompt}
+            rows={4}
+            onChange={(event) => setAI({ globalPrompt: event.currentTarget.value })}
+          />
+        </div>
       </SettingsCard>
 
       <SettingsCard title={tm("settings.ai.section.memory", "Memory")}>
@@ -941,10 +922,7 @@ function AISection() {
 
       {ai.memory.enabled && (
         <SettingsCard title={tm("settings.ai.memory.default_extraction_provider", "Default Extraction Provider")}>
-          <Field
-            label={tm("settings.ai.memory.default_extraction_provider", "Default Extraction Provider")}
-            description={tm("settings.ai.memory.extraction_provider.automatic_help", "Automatic uses selected memory providers by priority.")}
-          >
+          <Field label={tm("settings.ai.memory.default_extraction_provider", "Default Extraction Provider")}>
             <Select
               value={ai.memory.defaultExtractorProviderId}
               onChange={(defaultExtractorProviderId) => setMemory({ defaultExtractorProviderId })}
@@ -970,13 +948,12 @@ function AISection() {
 
       <SettingsCard
         title={tm("settings.ai.section.providers", "AI Providers")}
-        description={tm("settings.ai.provider.api_only_help", "Local and API providers for memory extraction.")}
-      >
-        <div className="flex justify-end">
+        action={(
           <Button size="sm" variant="secondary" onPress={() => addProvider("openAICompatible")}>
             {tm("settings.ai.provider.add", "Add API Channel")}
           </Button>
-        </div>
+        )}
+      >
         {providers.length === 0 && (
           <div className="text-sm text-ink-faint">
             {tm("settings.ai.provider.empty", "No API channel configured.")}
@@ -1260,44 +1237,84 @@ function NotificationSection() {
 
 function RemoteSection() {
   const [settings, setSettings] = useSyncedSettings();
+  const [status, setStatus] = useState<RemoteStatus | null>(null);
   const remote = settings.remote;
   const setRemote = (patch: Partial<typeof remote>) => {
+    const serverUrl = patch.serverUrl ?? patch.relayUrl;
     const next = updateAppSettings({
       remote: {
         ...remote,
         ...patch,
+        ...(serverUrl !== undefined ? { relayUrl: serverUrl, serverUrl } : {}),
       },
     });
     setSettings(next);
   };
-  const isConfigured = Boolean(remote.relayUrl.trim());
+  const serverUrl = (remote.serverUrl || remote.relayUrl).trim();
+  const isConfigured = Boolean(serverUrl);
+  const devices = status?.deviceList?.length ? status.deviceList : remote.cachedDevices.filter((device) => !device.revokedAt);
+  const statusLabel = remoteStatusLabel(remote.enabled, isConfigured, status);
+  const statusDotClass = remoteStatusDotClass(remote.enabled, isConfigured, status?.status);
+
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void invoke<RemoteStatus>("remote_status").then((next) => {
+      if (!disposed) setStatus(next);
+    }).catch(() => undefined);
+    void listen<RemoteStatus>("remote:status", (event) => {
+      if (!disposed) setStatus(event.payload);
+    }).then((nextUnlisten) => {
+      if (disposed) {
+        nextUnlisten();
+        return;
+      }
+      unlisten = nextUnlisten;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  const runRemoteCommand = async (
+    command:
+      | "remote_reconnect"
+      | "remote_devices_refresh"
+      | "remote_pairing_create"
+      | "remote_pairing_confirm"
+      | "remote_pairing_reject",
+    args?: Record<string, unknown>,
+  ) => {
+    if (!window.__TAURI_INTERNALS__) return;
+    const next = await invoke<RemoteStatus>(command, args).catch(() => null);
+    if (next) setStatus(next);
+  };
 
   return (
     <SettingsForm className="max-w-[640px]">
       <SettingsCard title={tm("settings.remote.server", "Server")}>
         <Field label={tm("settings.remote.server_url", "Relay Server URL")}>
           <TextInput
-            value={remote.relayUrl}
+            value={serverUrl}
             placeholder="https://relay.example.com"
-            onChange={(event) => setRemote({ relayUrl: event.currentTarget.value })}
+            onChange={(event) => setRemote({ relayUrl: event.currentTarget.value, serverUrl: event.currentTarget.value })}
           />
         </Field>
         <FormRow label={tm("settings.remote.enabled", "Enable Remote Host")}>
           <Toggle checked={remote.enabled} onChange={(enabled) => setRemote({ enabled })} />
         </FormRow>
         <div className="flex items-center gap-2 text-xs text-ink-faint">
-          <span
-            className={`h-2 w-2 rounded-full ${remote.enabled && isConfigured ? "bg-brand-amber" : "bg-ink-faint"}`}
-          />
-          <span>
-            {remote.enabled && isConfigured
-              ? tm("remote.status.connecting_label", "Connecting")
-              : remote.enabled
-                ? tm("remote.status.not_configured", "Remote not configured")
-                : tm("remote.status.disabled", "Remote disabled")}
-          </span>
+          <span className={`h-2 w-2 rounded-full ${statusDotClass}`} />
+          <span className="min-w-0 truncate">{statusLabel}</span>
           <span className="flex-1" />
-          <Button variant="secondary" size="sm" disabled={!isConfigured}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={!isConfigured}
+            onPress={() => void runRemoteCommand("remote_reconnect")}
+          >
             {tm("settings.remote.reconnect", "Reconnect")}
           </Button>
         </div>
@@ -1305,12 +1322,57 @@ function RemoteSection() {
 
       <SettingsCard title={tm("settings.remote.devices", "Devices")}>
         {remote.enabled && isConfigured ? (
-          <div className="flex items-center justify-between gap-3 text-sm text-ink-mute">
-            <span>{tm("remote.devices.empty", "No paired devices")}</span>
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" disabled>{tm("settings.remote.create_pairing", "Create Pairing QR")}</Button>
-              <Button variant="ghost" size="sm" disabled>{tm("common.refresh", "Refresh")}</Button>
+          <div className="grid gap-3">
+            {devices.length > 0 ? (
+              <div className="grid gap-2">
+                {devices.map((device) => (
+                  <RemoteDeviceRow key={device.id} device={device} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-ink-mute">{tm("remote.devices.empty", "No paired devices")}</div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onPress={() => void runRemoteCommand("remote_pairing_create")}>
+                {tm("settings.remote.create_pairing", "Create Pairing QR")}
+              </Button>
+              <Button variant="ghost" size="sm" onPress={() => void runRemoteCommand("remote_devices_refresh")}>
+                {tm("settings.remote.refresh_devices", "Refresh Devices")}
+              </Button>
             </div>
+            {status?.pairing && (
+              <div className="rounded-md border border-brand-blue/20 bg-brand-blue/10 px-2.5 py-2 text-xs text-brand-blue">
+                {formatI18n(tm("remote.status.pairing_code_format", "Pairing code: %@"), status.pairing.code)}
+              </div>
+            )}
+            {status?.pendingPairings?.map((pairing) => (
+              <div key={pairing.id} className="grid gap-2 rounded-md border border-border/80 bg-surface/70 px-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-ink">
+                    {pairing.deviceName || tm("settings.remote.device", "Device")}
+                  </div>
+                  <div className="text-xs text-ink-faint">
+                    {formatI18n(tm("settings.remote.match_code", "Match code: %@"), pairing.code)}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => void runRemoteCommand("remote_pairing_reject", { pairingId: pairing.id })}
+                  >
+                    {tm("settings.remote.reject_pairing", "Reject")}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onPress={() => void runRemoteCommand("remote_pairing_confirm", { pairingId: pairing.id })}
+                  >
+                    {tm("settings.remote.confirm_pairing", "Confirm")}
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="text-sm text-ink-faint">
@@ -1320,6 +1382,46 @@ function RemoteSection() {
       </SettingsCard>
     </SettingsForm>
   );
+}
+
+function RemoteDeviceRow({ device }: { device: RemoteDeviceSettings }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md bg-fill/[0.035] px-2.5 py-2 text-sm">
+      <div className="min-w-0">
+        <div className="truncate font-medium text-ink">{device.name || tm("settings.remote.device", "Device")}</div>
+        <div className="truncate text-xs text-ink-faint">{device.id}</div>
+      </div>
+      <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${device.online ? "bg-brand-green/12 text-brand-green" : "bg-fill/10 text-ink-faint"}`}>
+        {device.online ? tm("remote.devices.online", "Online") : tm("remote.devices.offline", "Offline")}
+      </span>
+    </div>
+  );
+}
+
+function remoteStatusLabel(enabled: boolean, configured: boolean, status: RemoteStatus | null) {
+  if (!configured) return tm("remote.status.not_configured", "Remote not configured");
+  if (!enabled) return tm("remote.status.disabled", "Remote disabled");
+  if (status?.message && status.status === "failed") return status.message;
+  switch (status?.status) {
+    case "connected":
+      return tm("remote.status.connected_label", "Connected");
+    case "registering":
+    case "connecting":
+      return tm("remote.status.connecting_label", "Connecting");
+    case "failed":
+      return tm("remote.status.failed_label", "Error");
+    case "stopped":
+      return tm("remote.status.stopped_short", "Remote stopped");
+    default:
+      return tm("remote.status.connecting_label", "Connecting");
+  }
+}
+
+function remoteStatusDotClass(enabled: boolean, configured: boolean, status?: RemoteStatus["status"]) {
+  if (!enabled || !configured || status === "stopped") return "bg-ink-faint";
+  if (status === "connected") return "bg-brand-green";
+  if (status === "failed") return "bg-brand-red";
+  return "bg-brand-amber";
 }
 
 function ShortcutSection() {
@@ -1429,17 +1531,6 @@ function DeveloperSection() {
         </Field>
       </SettingsCard>
     </SettingsForm>
-  );
-}
-
-function ReadOnlySetting({ label, value }: { label: ReactNode; value: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0 text-sm font-medium text-ink">{label}</div>
-      <div className="rounded-md border border-line bg-fill/[0.035] px-2 py-1 text-xs font-medium text-ink-faint">
-        {value}
-      </div>
-    </div>
   );
 }
 

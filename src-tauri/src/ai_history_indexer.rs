@@ -1,7 +1,8 @@
 use crate::ai_history::{
     index_global_history_fresh, index_project_history_fresh_with_progress,
-    load_indexed_global_history, load_indexed_project_history, AIGlobalHistorySnapshot,
-    AIHistoryProjectRequest, AIHistorySnapshot,
+    load_indexed_global_history, load_indexed_project_history, remove_indexed_history_session,
+    rename_indexed_history_session, AIGlobalHistorySnapshot, AIHistoryProjectRequest,
+    AIHistorySnapshot,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -152,7 +153,21 @@ impl AIHistoryIndexer {
             return Ok(state);
         }
         let cached_snapshot = indexed_project_snapshot(project.clone()).await?;
-        seed_project_state(&self.state, &project, cached_snapshot)
+        if cached_snapshot.is_none() {
+            let (project_state, should_enqueue) = mark_project_queued(&self.state, &project, None)?;
+            emit_history_event(
+                &self.app,
+                AIHistoryEvent::ProjectState {
+                    state: project_state.clone(),
+                },
+            );
+            if should_enqueue {
+                let _ = self.tx.send(AIHistoryJob::RefreshProject { project }).await;
+            }
+            return Ok(project_state);
+        }
+        let project_state = seed_project_state(&self.state, &project, cached_snapshot)?;
+        Ok(project_state)
     }
 
     pub async fn global_summary(
@@ -187,6 +202,53 @@ impl AIHistoryIndexer {
             .send(AIHistoryJob::RefreshGlobal { projects })
             .await
             .map_err(|_| "AI history indexer stopped.".to_string())
+    }
+
+    pub async fn rename_session(
+        &self,
+        project: AIHistoryProjectRequest,
+        session_id: String,
+        title: String,
+    ) -> Result<AIHistoryProjectState, String> {
+        let snapshot = tauri::async_runtime::spawn_blocking({
+            let project = project.clone();
+            move || rename_indexed_history_session(project, session_id, title)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "Matching session record was not found.".to_string())?;
+        let next_state = mark_project_completed(&self.state, &project, snapshot)?;
+        emit_history_event(
+            &self.app,
+            AIHistoryEvent::ProjectState {
+                state: next_state.clone(),
+            },
+        );
+        Ok(next_state)
+    }
+
+    pub async fn remove_session(
+        &self,
+        project: AIHistoryProjectRequest,
+        session_id: String,
+    ) -> Result<AIHistoryProjectState, String> {
+        let snapshot = tauri::async_runtime::spawn_blocking({
+            let project = project.clone();
+            move || remove_indexed_history_session(project, session_id)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "Matching session record was not found.".to_string())?;
+        let next_state = mark_project_completed(&self.state, &project, snapshot)?;
+        emit_history_event(
+            &self.app,
+            AIHistoryEvent::ProjectState {
+                state: next_state.clone(),
+            },
+        );
+        Ok(next_state)
     }
 }
 

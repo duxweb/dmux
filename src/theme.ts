@@ -51,6 +51,16 @@ type ManagedThemeVariable =
   | "--surface-window-tint"
   | "--surface-window-glass"
   | "--surface-editor"
+  | "--color-brand-blue"
+  | "--color-brand-blue-deep"
+  | "--color-on-brand"
+  | "--accent"
+  | "--accent-hover"
+  | "--accent-foreground"
+  | "--accent-soft"
+  | "--accent-soft-foreground"
+  | "--focus"
+  | "--link"
   | "--color-surface-glass"
   | "--color-surface-chrome"
   | "--color-surface-panel"
@@ -183,6 +193,16 @@ const managedThemeVariables: ManagedThemeVariable[] = [
   "--surface-window-tint",
   "--surface-window-glass",
   "--surface-editor",
+  "--color-brand-blue",
+  "--color-brand-blue-deep",
+  "--color-on-brand",
+  "--accent",
+  "--accent-hover",
+  "--accent-foreground",
+  "--accent-soft",
+  "--accent-soft-foreground",
+  "--focus",
+  "--link",
   "--color-surface-glass",
   "--color-surface-chrome",
   "--color-surface-panel",
@@ -718,8 +738,7 @@ export function initSystemTheme() {
   }
 
   const media = window.matchMedia("(prefers-color-scheme: dark)");
-  const startupSettings = readAppSettings();
-  const sync = () => applyConfiguredTheme(startupSettings, media.matches ? "dark" : "light");
+  const sync = () => applyConfiguredTheme(readAppSettings(), media.matches ? "dark" : "light");
   sync();
 
   if (typeof media.addEventListener === "function") {
@@ -834,10 +853,16 @@ function applyBackgroundOverride(root: HTMLElement, background: string) {
   if (!option || normalizeThemeName(option.label) === "auto") {
     root.style.setProperty("--surface-window-tint", "color-mix(in oklab, var(--terminal-bg) 38%, transparent)");
     root.style.setProperty("--surface-window-glass", "color-mix(in oklab, var(--terminal-bg) 26%, transparent)");
+    applyAccentColor(root, "var(--color-brand-blue)", "var(--color-on-brand)");
     return;
   }
   const color = option.color;
   const anchor = appTheme === "light" ? "rgb(255 255 255)" : "var(--terminal-bg)";
+  const foreground = resolveAccentForeground(color);
+  root.style.setProperty("--color-brand-blue", color);
+  root.style.setProperty("--color-brand-blue-deep", `color-mix(in oklab, ${color} 78%, black)`);
+  root.style.setProperty("--color-on-brand", foreground);
+  applyAccentColor(root, color, foreground);
   root.style.setProperty("--surface-window-tint", `color-mix(in oklab, ${color} ${appTheme === "light" ? "42%" : "46%"}, transparent)`);
   root.style.setProperty("--surface-window-glass", `color-mix(in oklab, ${color} ${appTheme === "light" ? "28%" : "32%"}, transparent)`);
   root.style.setProperty("--color-surface-glass", `color-mix(in oklab, ${color} ${appTheme === "light" ? "30%" : "62%"}, ${anchor})`);
@@ -847,6 +872,23 @@ function applyBackgroundOverride(root: HTMLElement, background: string) {
   root.style.setProperty("--color-surface-terminal", "var(--terminal-bg)");
   root.style.setProperty("--color-surface-editor", "var(--terminal-bg)");
   root.style.setProperty("--surface-editor", "var(--terminal-bg)");
+}
+
+function applyAccentColor(root: HTMLElement, color: string, foreground: string) {
+  root.style.setProperty("--accent", color);
+  root.style.setProperty("--accent-hover", `color-mix(in oklab, ${color} 88%, ${foreground})`);
+  root.style.setProperty("--accent-foreground", foreground);
+  root.style.setProperty("--accent-soft", `color-mix(in oklab, ${color} 16%, transparent)`);
+  root.style.setProperty("--accent-soft-foreground", color);
+  root.style.setProperty("--focus", color);
+  root.style.setProperty("--link", color);
+}
+
+function resolveAccentForeground(color: string) {
+  const parsed = parseHexColor(color);
+  if (!parsed) return "rgb(252 255 255)";
+  const luminance = relativeLuminance(parsed.r, parsed.g, parsed.b);
+  return luminance > 0.46 ? "rgb(28 35 46)" : "rgb(252 255 255)";
 }
 
 function resolveBackgroundTint(root: HTMLElement, background: string): ResolvedBackgroundTint {
@@ -911,4 +953,12 @@ function parseHexColor(value: string) {
     g: Number.parseInt(normalized.slice(2, 4), 16),
     b: Number.parseInt(normalized.slice(4, 6), 16),
   };
+}
+
+function relativeLuminance(r: number, g: number, b: number) {
+  const [red, green, blue] = [r, g, b].map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }

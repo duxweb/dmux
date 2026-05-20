@@ -360,7 +360,8 @@ impl PetStore {
     pub fn load_or_seed() -> Self {
         let state_file = state_file_path();
         let loaded_state = load_state(&state_file);
-        let should_persist_migrated_state = loaded_state.is_some() && !state_file.is_file();
+        let should_persist_migrated_state = loaded_state.is_some()
+            && (!state_file.is_file() || loaded_state_claimed(&loaded_state));
         let state = sanitize_state(loaded_state.unwrap_or_default());
         migrate_mac_custom_pets_if_needed();
         let store = Self {
@@ -1506,19 +1507,6 @@ fn sanitize_project_totals(items: Vec<PetProjectTokenTotal>) -> HashMap<String, 
 }
 
 fn sanitize_state(mut state: PetSnapshot) -> PetSnapshot {
-    let stored_state_version = state.state_version;
-    if stored_state_version < STATE_VERSION && state.claimed_at.is_some() {
-        state.claimed_at = None;
-        state.species = "voidcat".to_string();
-        state.custom_pet = None;
-        state.custom_name.clear();
-        state.current_experience_tokens = 0;
-        state.current_stats = PetStats::default();
-        state.stats_updated_day = None;
-        state.global_normalized_total_watermark = None;
-        state.project_normalized_token_watermarks.clear();
-        state.daily_experience_tokens = 0;
-    }
     state.state_version = STATE_VERSION;
     state.stats_model_version = STATS_MODEL_VERSION;
     state.current_experience_tokens = state.current_experience_tokens.max(0);
@@ -1644,10 +1632,29 @@ fn legacy_record_from_state(state: &PetSnapshot) -> Option<PetLegacyRecord> {
 }
 
 fn load_state(path: &PathBuf) -> Option<PetSnapshot> {
-    load_tauri_state(path)
+    let local_state = load_tauri_state(path)
         .or_else(|| load_tauri_json_state())
-        .or_else(load_mac_pet_state)
-        .map(sanitize_state)
+        .map(sanitize_state);
+    if local_state
+        .as_ref()
+        .is_some_and(|state| state.claimed_at.is_some())
+    {
+        return local_state;
+    }
+    let mac_state = load_mac_pet_state().map(sanitize_state);
+    if mac_state
+        .as_ref()
+        .is_some_and(|state| state.claimed_at.is_some())
+    {
+        return mac_state;
+    }
+    local_state.or(mac_state)
+}
+
+fn loaded_state_claimed(state: &Option<PetSnapshot>) -> bool {
+    state
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.claimed_at.is_some())
 }
 
 fn load_tauri_state(path: &PathBuf) -> Option<PetSnapshot> {
@@ -2166,19 +2173,29 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_state_migrates_auto_claimed_v7_state_back_to_unclaimed() {
+    fn sanitize_state_preserves_claimed_pet_across_version_migrations() {
         let snapshot = sanitize_state(PetSnapshot {
             state_version: 7,
             claimed_at: Some(1),
+            species: "dragon".to_string(),
+            custom_name: " Spark ".to_string(),
             current_experience_tokens: 200,
             project_normalized_token_watermarks: HashMap::from([("project-a".to_string(), 200)]),
             ..PetSnapshot::default()
         });
 
         assert_eq!(snapshot.state_version, STATE_VERSION);
-        assert_eq!(snapshot.claimed_at, None);
-        assert_eq!(snapshot.current_experience_tokens, 0);
-        assert!(snapshot.project_normalized_token_watermarks.is_empty());
+        assert_eq!(snapshot.claimed_at, Some(1));
+        assert_eq!(snapshot.species, "dragon");
+        assert_eq!(snapshot.custom_name, "Spark");
+        assert_eq!(snapshot.current_experience_tokens, 200);
+        assert_eq!(
+            snapshot
+                .project_normalized_token_watermarks
+                .get("project-a")
+                .copied(),
+            Some(200)
+        );
     }
 
     #[test]
@@ -2214,6 +2231,16 @@ mod tests {
         assert_eq!(restored.species, "panda");
         assert_eq!(restored.custom_name, "Bao");
         assert_eq!(restored.current_experience_tokens, 88);
+    }
+
+    #[test]
+    fn loaded_state_claimed_marks_recovered_pet_for_persist() {
+        assert!(!loaded_state_claimed(&None));
+        assert!(!loaded_state_claimed(&Some(PetSnapshot::default())));
+        assert!(loaded_state_claimed(&Some(PetSnapshot {
+            claimed_at: Some(123),
+            ..PetSnapshot::default()
+        })));
     }
 
     #[test]

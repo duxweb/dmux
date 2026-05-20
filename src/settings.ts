@@ -24,6 +24,8 @@ export type AppSettings = {
   developerRefresh: string;
 };
 
+export type AIStatisticsMode = "normalized" | "includingCache";
+
 export type NotificationChannelSettings = {
   enabled: boolean;
   endpoint: string;
@@ -39,6 +41,23 @@ export type UpdateSettings = {
 export type RemoteSettings = {
   enabled: boolean;
   relayUrl: string;
+  serverUrl: string;
+  hostID: string;
+  hostToken: string;
+  hostPrivateKey: string;
+  hostPublicKey: string;
+  cachedDevices: RemoteDeviceSettings[];
+};
+
+export type RemoteDeviceSettings = {
+  id: string;
+  hostId: string;
+  name: string;
+  publicKey: string;
+  createdAt: string;
+  lastSeen: string;
+  revokedAt?: string | null;
+  online?: boolean | null;
 };
 
 export type PetSettings = {
@@ -205,7 +224,13 @@ export const defaultSettings: AppSettings = {
   },
   remote: {
     enabled: false,
-    relayUrl: "",
+    relayUrl: "http://127.0.0.1:8088",
+    serverUrl: "http://127.0.0.1:8088",
+    hostID: "",
+    hostToken: "",
+    hostPrivateKey: "",
+    hostPublicKey: "",
+    cachedDevices: [],
   },
   developerHud: false,
   developerRefresh: "3",
@@ -233,10 +258,7 @@ export function readAppSettings(): AppSettings {
         ...defaultSettings.update,
         ...(parsed.update ?? {}),
       },
-      remote: {
-        ...defaultSettings.remote,
-        ...(parsed.remote ?? {}),
-      },
+    remote: normalizeRemoteSettings(parsed.remote),
       pet: {
         ...defaultSettings.pet,
         ...(parsed.pet ?? {}),
@@ -331,15 +353,28 @@ function normalizeAppSettings(settings: Partial<AppSettings>): AppSettings {
     update: {
       ...update,
     },
-    remote: {
-      ...defaultSettings.remote,
-      ...(settings.remote ?? {}),
-    },
+    remote: normalizeRemoteSettings(settings.remote),
     pet: {
       ...defaultSettings.pet,
       ...(settings.pet ?? {}),
     },
     ai: normalizeAISettings(settings.ai, settings.pet),
+    statisticsMode: normalizeStatisticsMode(settings.statisticsMode),
+  };
+}
+
+export function normalizeStatisticsMode(value?: string): AIStatisticsMode {
+  return value === "includingCache" ? "includingCache" : "normalized";
+}
+
+function normalizeRemoteSettings(settings?: Partial<RemoteSettings>): RemoteSettings {
+  const serverUrl = (settings?.serverUrl ?? settings?.relayUrl ?? defaultSettings.remote.serverUrl).trim();
+  return {
+    ...defaultSettings.remote,
+    ...(settings ?? {}),
+    relayUrl: serverUrl,
+    serverUrl,
+    cachedDevices: Array.isArray(settings?.cachedDevices) ? settings.cachedDevices : [],
   };
 }
 

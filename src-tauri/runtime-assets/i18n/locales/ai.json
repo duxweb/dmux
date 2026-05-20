@@ -64,7 +64,10 @@
       "ai.indexing.status.manual_refreshing": "Statistiken werden aktualisiert",
       "ai.indexing.status.silent_indexing": "Indexierung im Hintergrund",
       "ai.indexing.status.completed": "Index abgeschlossen",
-      "ai.sessions.recent_limit_format": "Letzte %d"
+      "ai.sessions.recent_limit_format": "Letzte %d",
+      "ai.panel.statistics_title": "AI Stats",
+      "ai.sessions.actions_format": "%@ Actions",
+      "ai.sessions.delete_confirm_format": "Delete %@?"
     },
     "en": {
       "ai.action.refresh_current_project": "Refresh AI stats for the current project.",
@@ -130,7 +133,10 @@
       "ai.indexing.status.manual_refreshing": "Refreshing stats",
       "ai.indexing.status.silent_indexing": "Indexing in background",
       "ai.indexing.status.completed": "Index complete",
-      "ai.sessions.recent_limit_format": "Recent %d"
+      "ai.sessions.recent_limit_format": "Recent %d",
+      "ai.panel.statistics_title": "AI Stats",
+      "ai.sessions.actions_format": "%@ Actions",
+      "ai.sessions.delete_confirm_format": "Delete %@?"
     },
     "es": {
       "ai.action.refresh_current_project": "Actualizar las estadísticas de IA del proyecto actual.",
@@ -196,7 +202,10 @@
       "ai.indexing.status.manual_refreshing": "Actualizando estadísticas",
       "ai.indexing.status.silent_indexing": "Indexando en segundo plano",
       "ai.indexing.status.completed": "Índice completo",
-      "ai.sessions.recent_limit_format": "Recientes %d"
+      "ai.sessions.recent_limit_format": "Recientes %d",
+      "ai.panel.statistics_title": "AI Stats",
+      "ai.sessions.actions_format": "%@ Actions",
+      "ai.sessions.delete_confirm_format": "Delete %@?"
     },
     "fr": {
       "ai.action.refresh_current_project": "Actualiser les statistiques IA du projet actuel.",
@@ -262,7 +271,10 @@
       "ai.indexing.status.manual_refreshing": "Actualisation des statistiques",
       "ai.indexing.status.silent_indexing": "Indexation en arrière-plan",
       "ai.indexing.status.completed": "Index terminé",
-      "ai.sessions.recent_limit_format": "%d récents"
+      "ai.sessions.recent_limit_format": "%d récents",
+      "ai.panel.statistics_title": "AI Stats",
+      "ai.sessions.actions_format": "%@ Actions",
+      "ai.sessions.delete_confirm_format": "Delete %@?"
     },
     "ja": {
       "ai.action.refresh_current_project": "現在のプロジェクトの AI 統計を更新します。",
@@ -328,7 +340,10 @@
       "ai.indexing.status.manual_refreshing": "統計を更新中",
       "ai.indexing.status.silent_indexing": "バックグラウンドでインデックス中",
       "ai.indexing.status.completed": "インデックス完了",
-      "ai.sessions.recent_limit_format": "最近 %d 件"
+      "ai.sessions.recent_limit_format": "最近 %d 件",
+      "ai.panel.statistics_title": "AI Stats",
+      "ai.sessions.actions_format": "%@ Actions",
+      "ai.sessions.delete_confirm_format": "Delete %@?"
     },
     "ko": {
       "ai.action.refresh_current_project": "현재 프로젝트에 대한 AI 통계를 새로 고칩니다.",
@@ -394,7 +409,10 @@
       "ai.indexing.status.manual_refreshing": "통계 새로고침 중",
       "ai.indexing.status.silent_indexing": "백그라운드에서 인덱싱 중",
       "ai.indexing.status.completed": "인덱싱 완료",
-      "ai.sessions.recent_limit_format": "최근 %d개"
+      "ai.sessions.recent_limit_format": "최근 %d개",
+      "ai.panel.statistics_title": "AI Stats",
+      "ai.sessions.actions_format": "%@ Actions",
+      "ai.sessions.delete_confirm_format": "Delete %@?"
     },
     "pt-BR": {
       "ai.action.refresh_current_project": "Atualizar as estatísticas de IA do projeto atual.",
@@ -460,7 +478,10 @@
       "ai.indexing.status.manual_refreshing": "Atualizando estatísticas",
       "ai.indexing.status.silent_indexing": "Indexando em segundo plano",
       "ai.indexing.status.completed": "Índice concluído",
-      "ai.sessions.recent_limit_format": "Recentes %d"
+      "ai.sessions.recent_limit_format": "Recentes %d",
+      "ai.panel.statistics_title": "AI Stats",
+      "ai.sessions.actions_format": "%@ Actions",
+      "ai.sessions.delete_confirm_format": "Delete %@?"
     },
     "ru": {
       "ai.action.refresh_current_project": "Обновить статистику ИИ для текущего проекта.",
@@ -526,7 +547,10 @@
       "ai.indexing.status.manual_refreshing": "Обновление статистики",
       "ai.indexing.status.silent_indexing": "Индексирование в фоне",
       "ai.indexing.status.completed": "Индекс завершен",
-      "ai.sessions.recent_limit_format": "Последние %d"
+      "ai.sessions.recent_limit_format": "Последние %d",
+      "ai.panel.statistics_title": "AI Stats",
+      "ai.sessions.actions_format": "%@ Actions",
+      "ai.sessions.delete_confirm_format": "Delete %@?"
     },
     "zh-Hans": {
       "ai.action.refresh_current_project": "刷新当前项目的 AI 统计。",
@@ -592,7 +616,10 @@
       "ai.indexing.status.manual_refreshing": "正在刷新统计",
       "ai.indexing.status.silent_indexing": "正在后台索引",
       "ai.indexing.status.completed": "索引已完成",
-      "ai.sessions.recent_limit_format": "最近 %d 条"
+      "ai.sessions.recent_limit_format": "最近 %d 条",
+      "ai.panel.statistics_title": "AI 统计",
+      "ai.sessions.actions_format": "%@ 操作",
+      "ai.sessions.delete_confirm_format": "删除 %@？"
     },
     "zh-Hant": {
       "ai.action.refresh_current_project": "刷新目前專案的 AI 統計資料。",
@@ -658,7 +685,10 @@
       "ai.indexing.status.manual_refreshing": "正在重新整理統計",
       "ai.indexing.status.silent_indexing": "正在背景索引",
       "ai.indexing.status.completed": "索引已完成",
-      "ai.sessions.recent_limit_format": "最近 %d 筆"
+      "ai.sessions.recent_limit_format": "最近 %d 筆",
+      "ai.panel.statistics_title": "AI 統計",
+      "ai.sessions.actions_format": "%@ 操作",
+      "ai.sessions.delete_confirm_format": "刪除 %@？"
     }
   }
 }

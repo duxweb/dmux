@@ -127,6 +127,7 @@ export function ProjectCreateWindow() {
 
   return (
     <WindowFrame
+      title={tm("project.create.title", "Create Project")}
       footer={
         <WindowFooterActions
           onCancel={dismiss}

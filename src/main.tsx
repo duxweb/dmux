@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { installDesktopBrowserBehavior } from "./desktopBehavior";
 import { lockRuntimeLocale, syncI18nBundleFromRust } from "./i18n";
-import { syncAppSettingsFromRust } from "./settings";
+import { subscribeAppSettings, syncAppSettingsFromRust } from "./settings";
 import { applyConfiguredTheme, initSystemTheme } from "./theme";
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
@@ -12,6 +12,7 @@ const uninstallDesktopBrowserBehavior = installDesktopBrowserBehavior();
 
 const route = window.location.hash.replace(/^#/, "");
 const isStandalone =
+  route === "/about" ||
   route === "/settings" ||
   route === "/project-create" ||
   route === "/pet-claim" ||
@@ -28,6 +29,10 @@ if (route.startsWith("/terminal")) {
 }
 
 async function loadRoot() {
+  if (route === "/about") {
+    const { AboutWindow } = await import("./windows/AboutWindow");
+    return AboutWindow;
+  }
   if (route === "/settings") {
     const { SettingsWindow } = await import("./windows/SettingsWindow");
     return SettingsWindow;
@@ -65,6 +70,9 @@ async function loadRoot() {
 }
 
 const uninstallSystemTheme = initSystemTheme();
+const uninstallSettingsThemeSync = subscribeAppSettings((settings) => {
+  applyConfiguredTheme(settings);
+});
 
 void Promise.all([syncAppSettingsFromRust(), syncI18nBundleFromRust(), loadRoot()])
   .then(([settings, , Root]) => {
@@ -93,6 +101,7 @@ void Promise.all([syncAppSettingsFromRust(), syncI18nBundleFromRust(), loadRoot(
 const uninstallAppRuntime = () => {
   uninstallDesktopBrowserBehavior();
   uninstallSystemTheme();
+  uninstallSettingsThemeSync();
 };
 
 window.addEventListener("beforeunload", uninstallAppRuntime, { once: true });

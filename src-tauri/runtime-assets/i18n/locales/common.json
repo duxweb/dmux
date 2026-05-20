@@ -36,7 +36,8 @@
       "common.sync": "Sync",
       "common.today_format": "Heute %@",
       "common.undo": "Undo",
-      "common.processing": "Wird verarbeitet"
+      "common.processing": "Wird verarbeitet",
+      "common.creating": "Wird erstellt"
     },
     "en": {
       "common.about": "About",
@@ -49,6 +50,7 @@
       "common.continue": "Continue",
       "common.copy": "Copy",
       "common.create": "Create",
+      "common.creating": "Creating",
       "common.cut": "Cut",
       "common.current": "Current",
       "common.last_format": "Last %@",
@@ -115,7 +117,8 @@
       "common.sync": "Sync",
       "common.today_format": "Hoy %@",
       "common.undo": "Undo",
-      "common.processing": "Procesando"
+      "common.processing": "Procesando",
+      "common.creating": "Creando"
     },
     "fr": {
       "common.about": "À propos",
@@ -153,7 +156,8 @@
       "common.sync": "Sync",
       "common.today_format": "Aujourd'hui %@",
       "common.undo": "Undo",
-      "common.processing": "Traitement"
+      "common.processing": "Traitement",
+      "common.creating": "Création"
     },
     "ja": {
       "common.about": "について",
@@ -191,7 +195,8 @@
       "common.sync": "Sync",
       "common.today_format": "今日 %@",
       "common.undo": "Undo",
-      "common.processing": "処理中"
+      "common.processing": "処理中",
+      "common.creating": "作成中"
     },
     "ko": {
       "common.about": "에 대한",
@@ -229,7 +234,8 @@
       "common.sync": "Sync",
       "common.today_format": "오늘 %@",
       "common.undo": "Undo",
-      "common.processing": "처리 중"
+      "common.processing": "처리 중",
+      "common.creating": "생성 중"
     },
     "pt-BR": {
       "common.about": "Sobre",
@@ -267,7 +273,8 @@
       "common.sync": "Sync",
       "common.today_format": "Hoje %@",
       "common.undo": "Undo",
-      "common.processing": "Processando"
+      "common.processing": "Processando",
+      "common.creating": "Criando"
     },
     "ru": {
       "common.about": "О",
@@ -305,7 +312,8 @@
       "common.sync": "Sync",
       "common.today_format": "Сегодня %@",
       "common.undo": "Undo",
-      "common.processing": "Обработка"
+      "common.processing": "Обработка",
+      "common.creating": "Создание"
     },
     "zh-Hans": {
       "common.about": "关于",
@@ -318,6 +326,7 @@
       "common.continue": "继续",
       "common.copy": "复制",
       "common.create": "创建",
+      "common.creating": "创建中",
       "common.cut": "剪切",
       "common.current": "当前",
       "common.last_format": "最后 %@",
@@ -359,6 +368,7 @@
       "common.continue": "繼續",
       "common.copy": "複製",
       "common.create": "創建",
+      "common.creating": "建立中",
       "common.cut": "剪下",
       "common.current": "目前",
       "common.last_format": "最後 %@",

@@ -25,6 +25,12 @@ struct TrackedProject {
     last_ai_refresh: Option<Instant>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectActivationKind {
+    FirstSeen,
+    Existing,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusEvent {
@@ -37,6 +43,8 @@ pub struct GitStatusEvent {
 #[derive(Default)]
 pub struct ProjectActivityCoordinator {
     projects: Mutex<HashMap<String, TrackedProject>>,
+    active_project_id: Mutex<Option<String>>,
+    activated_git_projects: Mutex<HashSet<String>>,
     activated_ai_projects: Mutex<HashSet<String>>,
     last_global_ai_refresh: Mutex<Option<Instant>>,
 }
@@ -54,31 +62,75 @@ impl ProjectActivityCoordinator {
         }
     }
 
-    pub fn mark_project_summary(&self, project: &ProjectSummary) {
+    pub fn mark_project_summary(&self, project: &ProjectSummary) -> bool {
         if let Ok(mut guard) = self.projects.lock() {
-            upsert_project(
+            return upsert_project(
                 &mut guard,
                 project.id.clone(),
                 project.name.clone(),
                 project.path.clone(),
             );
         }
+        false
     }
 
     pub fn mark_project_active(
         &self,
+        app: AppHandle,
+        project: ProjectSummary,
+        ai_history: Arc<AIHistoryIndexer>,
+    ) -> ProjectActivationKind {
+        let is_new_project = self.mark_project_summary(&project);
+        if let Ok(mut active) = self.active_project_id.lock() {
+            *active = Some(project.id.clone());
+        }
+        let is_first_git_activation = self.mark_git_activation(&project.id);
+        let is_first_ai_activation = self.mark_ai_activation(&project.id);
+        if is_first_git_activation || is_new_project {
+            self.refresh_git_once(app, &project);
+        }
+        if is_first_ai_activation || is_new_project {
+            self.refresh_ai_once(project, ai_history);
+            return ProjectActivationKind::FirstSeen;
+        }
+        if is_first_git_activation {
+            ProjectActivationKind::FirstSeen
+        } else {
+            ProjectActivationKind::Existing
+        }
+    }
+
+    pub fn refresh_project_now(
+        &self,
+        app: AppHandle,
         project: ProjectSummary,
         ai_history: Arc<AIHistoryIndexer>,
     ) {
         self.mark_project_summary(&project);
+        self.refresh_git_once(app, &project);
         if self.mark_ai_activation(&project.id) {
             self.refresh_ai_once(project, ai_history);
         }
     }
 
+    pub fn refresh_git_once(&self, app: AppHandle, project: &ProjectSummary) {
+        self.mark_project_summary(project);
+        let mut tracked_project = TrackedProject::from(project.clone());
+        if let Ok(mut guard) = self.projects.lock() {
+            if let Some(tracked) = guard.get_mut(&project.id) {
+                tracked.last_git_refresh = Some(Instant::now());
+                tracked_project = tracked.clone();
+            }
+        }
+        refresh_git_project(app, tracked_project);
+    }
+
     pub fn remove_project(&self, project_id: &str) {
         if let Ok(mut guard) = self.projects.lock() {
             guard.remove(project_id);
+        }
+        if let Ok(mut activated) = self.activated_git_projects.lock() {
+            activated.remove(project_id);
         }
         if let Ok(mut activated) = self.activated_ai_projects.lock() {
             activated.remove(project_id);
@@ -88,6 +140,12 @@ impl ProjectActivityCoordinator {
     pub fn clear(&self) {
         if let Ok(mut guard) = self.projects.lock() {
             guard.clear();
+        }
+        if let Ok(mut active) = self.active_project_id.lock() {
+            *active = None;
+        }
+        if let Ok(mut activated) = self.activated_git_projects.lock() {
+            activated.clear();
         }
         if let Ok(mut activated) = self.activated_ai_projects.lock() {
             activated.clear();
@@ -140,9 +198,29 @@ impl ProjectActivityCoordinator {
             .unwrap_or(false)
     }
 
-    fn projects_due_for_git(&self, interval: Duration) -> Vec<TrackedProject> {
-        projects_due(&self.projects, interval, |project| {
-            &mut project.last_git_refresh
+    fn mark_git_activation(&self, project_id: &str) -> bool {
+        self.activated_git_projects
+            .lock()
+            .map(|mut activated| activated.insert(project_id.to_string()))
+            .unwrap_or(false)
+    }
+
+    fn projects_due_for_git(
+        &self,
+        foreground_interval: Duration,
+        background_interval: Duration,
+    ) -> Vec<TrackedProject> {
+        let active_project_id = self
+            .active_project_id
+            .lock()
+            .ok()
+            .and_then(|value| value.clone());
+        projects_due_by_interval(&self.projects, |project| {
+            if active_project_id.as_deref() == Some(project.id.as_str()) {
+                foreground_interval
+            } else {
+                background_interval
+            }
         })
     }
 
@@ -191,7 +269,11 @@ fn run_activity_tick(
         configured_interval_seconds(&configured.ai_background_refresh, min_ai_refresh_seconds);
 
     if let Some(interval) = git_interval {
-        for project in coordinator.projects_due_for_git(interval) {
+        let background_interval = interval
+            .checked_mul(4)
+            .unwrap_or_else(|| Duration::from_secs(min_git_refresh_seconds * 4))
+            .max(Duration::from_secs(min_git_refresh_seconds * 4));
+        for project in coordinator.projects_due_for_git(interval, background_interval) {
             refresh_git_project(app.clone(), project);
         }
     }
@@ -229,6 +311,18 @@ impl From<ProjectSummary> for AIHistoryProjectRequest {
     }
 }
 
+impl From<ProjectSummary> for TrackedProject {
+    fn from(project: ProjectSummary) -> Self {
+        Self {
+            id: project.id,
+            name: project.name,
+            path: project.path,
+            last_git_refresh: None,
+            last_ai_refresh: Some(Instant::now()),
+        }
+    }
+}
+
 impl From<TrackedProject> for AIHistoryProjectRequest {
     fn from(project: TrackedProject) -> Self {
         Self {
@@ -244,23 +338,28 @@ fn upsert_project(
     id: String,
     name: String,
     path: String,
-) {
+) -> bool {
     if id.trim().is_empty() || path.trim().is_empty() {
-        return;
+        return false;
     }
+    let mut inserted = false;
     projects
         .entry(id.clone())
         .and_modify(|project| {
             project.name = name.clone();
             project.path = path.clone();
         })
-        .or_insert_with(|| TrackedProject {
-            id,
-            name,
-            path,
-            last_git_refresh: None,
-            last_ai_refresh: Some(Instant::now()),
+        .or_insert_with(|| {
+            inserted = true;
+            TrackedProject {
+                id,
+                name,
+                path,
+                last_git_refresh: None,
+                last_ai_refresh: Some(Instant::now()),
+            }
         });
+    inserted
 }
 
 fn projects_due(
@@ -283,6 +382,31 @@ fn projects_due(
                 return None;
             }
             *last = Some(now);
+            Some(project.clone())
+        })
+        .collect()
+}
+
+fn projects_due_by_interval(
+    projects: &Mutex<HashMap<String, TrackedProject>>,
+    interval_for_project: impl Fn(&TrackedProject) -> Duration,
+) -> Vec<TrackedProject> {
+    let now = Instant::now();
+    let Ok(mut guard) = projects.lock() else {
+        return Vec::new();
+    };
+    guard
+        .values_mut()
+        .filter_map(|project| {
+            let interval = interval_for_project(project);
+            let is_due = project
+                .last_git_refresh
+                .map(|value| now.duration_since(value) >= interval)
+                .unwrap_or(true);
+            if !is_due {
+                return None;
+            }
+            project.last_git_refresh = Some(now);
             Some(project.clone())
         })
         .collect()

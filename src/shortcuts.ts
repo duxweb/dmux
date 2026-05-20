@@ -75,7 +75,7 @@ export const appShortcutDefinitions: ShortcutDefinition[] = [
   },
   {
     id: "task.create",
-    label: "New Task",
+    label: "New Worktree",
     labelKey: "shortcut.task.create",
     scope: "task-sidebar",
     keys: [{ key: "n", meta: true }],

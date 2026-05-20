@@ -93,7 +93,7 @@ const PATH_SEPARATOR: char = ';';
 #[cfg(not(windows))]
 const PATH_SEPARATOR: char = ':';
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalConfig {
     pub cwd: Option<String>,
@@ -163,6 +163,17 @@ impl TerminalManager {
         }
     }
 
+    pub fn list(&self) -> Vec<TerminalSessionSnapshot> {
+        let sessions = match self.sessions.lock() {
+            Ok(sessions) => sessions.values().cloned().collect::<Vec<_>>(),
+            Err(_) => return Vec::new(),
+        };
+        sessions
+            .into_iter()
+            .filter_map(|session| session.info())
+            .collect()
+    }
+
     pub fn create<F>(&self, config: TerminalConfig, emit: F) -> Result<String, TerminalError>
     where
         F: Fn(TerminalEvent) + Send + Sync + 'static,
@@ -222,6 +233,26 @@ impl TerminalManager {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSessionSnapshot {
+    pub id: String,
+    pub title: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub cwd: String,
+    pub shell: String,
+    pub command: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub status: String,
+    pub is_running: bool,
+    pub created_at: String,
+    pub last_active_at: String,
+    pub buffer_characters: usize,
+    pub has_buffer: bool,
+}
+
 struct TerminalSession {
     master: Mutex<Box<dyn MasterPty + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
@@ -229,6 +260,7 @@ struct TerminalSession {
     writer: Mutex<Box<dyn Write + Send>>,
     history: Mutex<RingHistory>,
     binding: Mutex<AIRuntimeTerminalBinding>,
+    info: Mutex<TerminalSessionSnapshot>,
 }
 
 impl TerminalSession {
@@ -327,6 +359,24 @@ impl TerminalSession {
             terminal_instance_id: Some(process_instance_id.clone()),
         };
         ai_runtime.registry().upsert(binding.clone());
+        let now = chrono::Utc::now().to_rfc3339();
+        let info = TerminalSessionSnapshot {
+            id: id.clone(),
+            title: title.clone().unwrap_or_else(|| "Terminal".to_string()),
+            project_id: project_id.clone().unwrap_or_default(),
+            project_name: project_name.clone().unwrap_or_default(),
+            cwd: cwd.clone().unwrap_or_default(),
+            shell: shell.clone(),
+            command: initial_command.clone().unwrap_or_default(),
+            cols,
+            rows,
+            status: "running".to_string(),
+            is_running: true,
+            created_at: now.clone(),
+            last_active_at: now,
+            buffer_characters: 0,
+            has_buffer: false,
+        };
 
         let session = Arc::new(Self {
             master: Mutex::new(pair.master),
@@ -335,6 +385,7 @@ impl TerminalSession {
             writer: Mutex::new(writer),
             history: Mutex::new(RingHistory::new(MAX_HISTORY_BYTES)),
             binding: Mutex::new(binding),
+            info: Mutex::new(info),
         });
 
         Self::spawn_reader(id.clone(), reader, Arc::clone(&session), Arc::clone(&emit));
@@ -366,6 +417,11 @@ impl TerminalSession {
                 pixel_height: 0,
             })
             .context("failed to resize PTY")?;
+        if let Ok(mut info) = self.info.lock() {
+            info.cols = cols.max(20);
+            info.rows = rows.max(8);
+            info.last_active_at = chrono::Utc::now().to_rfc3339();
+        }
         Ok(())
     }
 
@@ -386,6 +442,15 @@ impl TerminalSession {
         Ok(history.to_string_lossy())
     }
 
+    fn info(&self) -> Option<TerminalSessionSnapshot> {
+        let mut info = self.info.lock().ok()?.clone();
+        if let Ok(history) = self.history.lock() {
+            info.buffer_characters = history.len_lossy();
+            info.has_buffer = info.buffer_characters > 0;
+        }
+        Some(info)
+    }
+
     fn spawn_reader(
         id: String,
         mut reader: Box<dyn Read + Send>,
@@ -403,6 +468,12 @@ impl TerminalSession {
                             let bytes = &buffer[..count];
                             if let Ok(mut history) = session.history.lock() {
                                 history.push(bytes);
+                            }
+                            if let Ok(mut info) = session.info.lock() {
+                                info.last_active_at = chrono::Utc::now().to_rfc3339();
+                                info.buffer_characters =
+                                    info.buffer_characters.saturating_add(data_chars(bytes));
+                                info.has_buffer = true;
                             }
                             let data = String::from_utf8_lossy(bytes).to_string();
                             emit(TerminalEvent::Output {
@@ -435,9 +506,18 @@ impl TerminalSession {
                     session_id: id,
                     exit_code,
                 });
+                if let Ok(mut info) = session.info.lock() {
+                    info.status = "exited".to_string();
+                    info.is_running = false;
+                    info.last_active_at = chrono::Utc::now().to_rfc3339();
+                }
             })
             .expect("failed to spawn terminal waiter");
     }
+}
+
+fn data_chars(bytes: &[u8]) -> usize {
+    String::from_utf8_lossy(bytes).chars().count()
 }
 
 struct TerminalEnvironmentRequest<'a> {
@@ -677,6 +757,10 @@ impl RingHistory {
             bytes.extend_from_slice(chunk);
         }
         String::from_utf8_lossy(&bytes).to_string()
+    }
+
+    fn len_lossy(&self) -> usize {
+        self.to_string_lossy().chars().count()
     }
 }
 

@@ -22,6 +22,8 @@ type Props = {
   onSelect: (id: string) => void;
   onClose?: (id: string) => void;
   onAdd?: () => void;
+  onRename?: (id: string, label: string) => void;
+  onReorder?: (sourceId: string, targetId: string) => void;
 };
 
 export function TabStrip({
@@ -33,7 +35,16 @@ export function TabStrip({
   onSelect,
   onClose,
   onAdd,
+  onRename,
+  onReorder,
 }: Props) {
+  const renameTab = (item: TabStripItem) => {
+    if (!onRename || typeof item.label !== "string") return;
+    const next = window.prompt(tm("common.rename", "Rename"), item.label)?.trim();
+    if (!next || next === item.label) return;
+    onRename(item.id, next);
+  };
+
   return (
     <div className={`tab-strip ${className ?? ""}`}>
       <div className="tab-strip-scroll">
@@ -47,10 +58,28 @@ export function TabStrip({
               <div
                 key={item.id}
                 className={`tab-strip-item group ${active ? "active" : ""}`}
+                draggable={Boolean(onReorder)}
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", item.id);
+                }}
+                onDragOver={(event) => {
+                  if (!onReorder) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(event) => {
+                  if (!onReorder) return;
+                  event.preventDefault();
+                  const sourceId = event.dataTransfer.getData("text/plain");
+                  if (!sourceId || sourceId === item.id) return;
+                  onReorder(sourceId, item.id);
+                }}
               >
                 <PressableButton
                   className="tab-strip-select"
                   onPressUp={() => onSelect(item.id)}
+                  onDoubleClick={() => renameTab(item)}
                 >
                   {Icon ? <Icon size={13} strokeWidth={2.1} className="flex-shrink-0" /> : null}
                   <span className="truncate">{item.label}</span>

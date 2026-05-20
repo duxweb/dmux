@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal as XtermTerminal, type IDisposable, type ITheme } from "@xterm/xterm";
 import {
   Copy,
@@ -125,11 +126,41 @@ function XtermRenderer({
     const fitAddon = new FitAddon();
     const unicode11Addon = new Unicode11Addon();
     const disposables: IDisposable[] = [];
+    let webglAddon: WebglAddon | null = null;
+
+    const disposeWebglAddon = () => {
+      if (!webglAddon) return;
+      try {
+        webglAddon.dispose();
+      } finally {
+        webglAddon = null;
+      }
+    };
 
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(unicode11Addon);
     terminal.unicode.activeVersion = "11";
     terminal.open(host);
+    try {
+      const nextWebglAddon = new WebglAddon();
+      disposables.push(
+        nextWebglAddon.onContextLoss(() => {
+          logTerminalFocusDebug("xterm-webgl-context-loss", {});
+          if (webglAddon === nextWebglAddon) {
+            disposeWebglAddon();
+          } else {
+            nextWebglAddon.dispose();
+          }
+        }),
+      );
+      terminal.loadAddon(nextWebglAddon);
+      webglAddon = nextWebglAddon;
+      logTerminalFocusDebug("xterm-webgl-enabled", {});
+    } catch (error) {
+      logTerminalFocusDebug("xterm-webgl-unavailable", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const releaseSelectionDrag = (reason: string) => {
       if (!isSelecting) return;
@@ -230,11 +261,13 @@ function XtermRenderer({
       },
       reset: (history) => {
         terminal.reset();
+        webglAddon?.clearTextureAtlas();
         if (history) terminal.write(history);
         scheduleFit();
       },
       clear: () => {
         terminal.reset();
+        webglAddon?.clearTextureAtlas();
       },
       focus: () => {
         if (inputEnabled) terminal.focus();
@@ -246,6 +279,7 @@ function XtermRenderer({
       fit,
       setFontSize: (fontSize) => {
         terminal.options.fontSize = fontSize;
+        webglAddon?.clearTextureAtlas();
         scheduleFit();
       },
       setInputEnabled: (enabled) => {
@@ -292,6 +326,7 @@ function XtermRenderer({
         for (const disposable of disposables) {
           disposable.dispose();
         }
+        disposeWebglAddon();
         terminal.dispose();
       },
     };
@@ -442,6 +477,7 @@ export function TerminalView({
   useEffect(() => {
     const adapter = adapterRef.current;
     if (!adapter) return;
+    fitAndResize();
 
     if (!active || !canAcceptInput) {
       adapter.setInputEnabled(false);

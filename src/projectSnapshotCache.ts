@@ -45,13 +45,13 @@ export function sanitizeProjectListSnapshot(value: unknown): ProjectListSnapshot
         changes: numberValue(item.changes),
         badgeSymbol: stringValue(item.badgeSymbol),
         badgeColorHex: stringValue(item.badgeColorHex),
+        gitDefaultPushRemoteName: stringValue(item.gitDefaultPushRemoteName),
       },
     ];
   });
   if (projects.length === 0) return null;
   const selectedProjectId =
-    typeof record.selectedProjectId === "string" &&
-    projects.some((project) => project.id === record.selectedProjectId)
+    typeof record.selectedProjectId === "string" && projects.some((project) => project.id === record.selectedProjectId)
       ? record.selectedProjectId
       : projects[0]?.id;
   const selectedWorktreeIdByProject =

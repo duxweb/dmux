@@ -187,4 +187,54 @@ describe("ai runtime store", () => {
     expect(factory.canonicalToolName("opencode")).toBe("opencode");
     expect(factory.isRealtimeTool("opencode")).toBe(true);
   });
+
+  it("lets opencode runtime snapshots use the Rust probe fallback", async () => {
+    const driver = new OpenCodeToolDriver(async (request) => ({
+      tool: "opencode",
+      externalSessionID: request.externalSessionId,
+      model: "minimax-m2.5-free",
+      inputTokens: 12,
+      outputTokens: 8,
+      cachedInputTokens: 3,
+      totalTokens: 20,
+      updatedAt: 1020,
+      startedAt: 1000,
+      completedAt: 1020,
+      responseState: "idle",
+      wasInterrupted: false,
+      hasCompletedTurn: true,
+      sessionOrigin: "restored",
+      source: "probe",
+    }));
+
+    await expect(
+      driver.runtimeSnapshot({
+        terminalId: "term-1",
+        terminalInstanceId: "instance-1",
+        projectId: "project-1",
+        projectName: "Project",
+        projectPath: "/project",
+        sessionTitle: "OpenCode",
+        tool: "opencode",
+        aiSessionId: "ses_opencode",
+        model: "minimax-m2.5-free",
+        state: "responding",
+        status: "running",
+        isRunning: true,
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 0,
+        baselineTotalTokens: 0,
+        updatedAt: 1000,
+        hasCompletedTurn: false,
+        wasInterrupted: false,
+      }),
+    ).resolves.toMatchObject({
+      tool: "opencode",
+      responseState: "idle",
+      hasCompletedTurn: true,
+      totalTokens: 20,
+    });
+  });
 });

@@ -2,7 +2,7 @@ import { Button as HButton } from "@heroui/react";
 import type { ComponentProps, ReactNode } from "react";
 import { logTerminalFocusDebug } from "../debug/terminalFocusDebug";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
 export type ButtonSize = "sm" | "md" | "lg";
 
 type IconLike = (props: { size?: number; strokeWidth?: number; className?: string }) => ReactNode;
@@ -36,6 +36,11 @@ const heroVariantMap: Record<ButtonVariant, NonNullable<HButtonProps["variant"]>
   secondary: "secondary",
   ghost: "ghost",
   danger: "danger",
+  success: "primary",
+};
+
+const variantClassNameMap: Partial<Record<ButtonVariant, string>> = {
+  success: "bg-brand-green text-on-brand hover:bg-brand-green/90 active:bg-brand-green/80",
 };
 
 const iconSizeMap: Record<ButtonSize, number> = {
@@ -77,7 +82,7 @@ export function Button({
       isDisabled={disabled}
       excludeFromTabOrder={excludeFromTabOrder}
       preventFocusOnPress={preventFocusOnPress}
-      className={`${block ? "w-full" : ""} focus:outline-none focus-visible:outline-none ${className ?? ""}`}
+      className={`${block ? "w-full" : ""} focus:outline-none focus-visible:outline-none ${variantClassNameMap[variant] ?? ""} ${className ?? ""}`}
       onPointerDownCapture={(event) => {
         logTerminalFocusDebug("button:pointerdown-capture", {
           name: debugName,

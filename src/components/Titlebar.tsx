@@ -1,7 +1,6 @@
 import {
   BarChart3,
   Book,
-  Box,
   BrainCog,
   Columns2,
   Cpu,
@@ -126,7 +125,6 @@ export function Titlebar({
           <GlyphButton
             icon={Columns2}
             tooltip={t("split", settings)}
-            active={mainView === "terminal"}
             onPress={() => {
               setMainView("terminal");
               dispatchWorkspaceCommand({ type: "add-top-terminal-split" });
@@ -557,7 +555,6 @@ function PerformanceHUD() {
   const [snapshot, setSnapshot] = useState<PerformanceSnapshot>({
     cpuPercent: 0,
     memoryBytes: 0,
-    graphicsBytes: 0,
   });
 
   useEffect(() => {
@@ -592,7 +589,6 @@ function PerformanceHUD() {
 
   const cpuText = formatCpu(snapshot.cpuPercent);
   const memoryText = formatBytes(snapshot.memoryBytes);
-  const graphicsText = formatBytes(snapshot.graphicsBytes);
   const cpuTone =
     snapshot.cpuPercent >= 85
       ? "text-brand-red"
@@ -603,7 +599,6 @@ function PerformanceHUD() {
   const tooltip = [
     formatI18n(tm("performance.monitor.cpu_format", "CPU %@"), cpuText),
     formatI18n(tm("performance.monitor.memory_format", "MEM %@"), memoryText),
-    formatI18n(tm("performance.monitor.graphics_format", "GFX %@"), graphicsText),
   ].join(" · ");
 
   return (
@@ -617,11 +612,6 @@ function PerformanceHUD() {
         <span className="flex items-center gap-1.5 px-1.5">
           <MemoryStick size={11} strokeWidth={2.2} />
           <span className="tabular-nums">{memoryText}</span>
-        </span>
-        <span className="w-px h-3 bg-line" />
-        <span className="flex items-center gap-1.5 px-1.5">
-          <Box size={11} strokeWidth={2.2} />
-          <span className="tabular-nums">{graphicsText}</span>
         </span>
       </div>
     </Tooltip>
@@ -981,7 +971,7 @@ function ModeSwitcher({
           <Tabs.Tab
             key={id}
             id={id}
-            className="h-[24px] min-w-[78px] rounded-full px-3 text-xs font-semibold text-ink-soft outline-none transition-colors hover:bg-fill/8 hover:text-ink data-[selected]:bg-brand-blue/18 data-[selected]:text-ink"
+            className="h-[24px] min-w-[78px] rounded-full px-3 text-xs font-semibold text-ink-soft outline-none transition-colors hover:bg-fill/8 hover:text-ink data-[selected]:bg-brand-blue data-[selected]:text-white"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               <Icon size={12} strokeWidth={2.2} />

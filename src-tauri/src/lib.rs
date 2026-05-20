@@ -17,10 +17,13 @@ mod pet;
 mod power;
 mod project_activity;
 mod project_store;
+mod remote_p2p;
 mod ssh;
 mod terminal;
 mod worktree;
 
+use aes_gcm::aead::{Aead as _, KeyInit as _, Payload};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
 use ai_history::{AIGlobalHistorySnapshot, AIHistoryProjectRequest};
 use ai_history_indexer::AIHistoryIndexer;
 use ai_history_indexer::AIHistoryProjectState;
@@ -45,10 +48,11 @@ use files::{
     file_create_file as create_file_file, file_delete as delete_file_path,
     file_import_external as import_external_file_paths, file_list_children as list_file_children,
     file_open as open_file_path, file_read as read_file_path, file_rename as rename_file_path,
-    file_reveal as reveal_file_path, file_write as write_file_path, FileChildrenRequest, FileCopyRequest, FileCreateRequest,
-    FileEntry, FileExternalCopyRequest, FilePathRequest, FileReadResult, FileRenameRequest,
-    FileWatchManager, FileWriteRequest,
+    file_reveal as reveal_file_path, file_write as write_file_path, FileChildrenRequest,
+    FileCopyRequest, FileCreateRequest, FileEntry, FileExternalCopyRequest, FilePathRequest,
+    FileReadResult, FileRenameRequest, FileWatchManager, FileWriteRequest,
 };
+use futures_util::{SinkExt, StreamExt};
 use git::{
     git_add_remote as perform_git_add_remote,
     git_amend_last_commit_message as perform_git_amend_last_commit_message,
@@ -77,10 +81,11 @@ use git::{
     GitBranchRequest, GitBranchesSnapshot, GitCloneRequest, GitCommitActionRequest,
     GitCommitRefRequest, GitCommitRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
     GitDiffRequest, GitDiffSnapshot, GitPathsRequest, GitPushRemoteBranchRequest,
-    GitPushRemoteRequest, GitRemoteRequest, GitRestoreCommitRequest, GitReviewDiffRequest,
-    GitReviewContentRequest, GitReviewContentSnapshot, GitReviewSnapshot, GitStatusSnapshot,
+    GitPushRemoteRequest, GitRemoteRequest, GitRestoreCommitRequest, GitReviewContentRequest,
+    GitReviewContentSnapshot, GitReviewDiffRequest, GitReviewSnapshot, GitStatusSnapshot,
     GitWatchManager, GitWatchRegistration,
 };
+use hkdf::Hkdf;
 use i18n::I18nBundle;
 use llm::{
     LLMCompletionRequest, LLMCompletionResponse, LLMProviderTestResult, PetIdleSpeechRequest,
@@ -103,16 +108,24 @@ use pet::{
 use power::PowerManager;
 use project_activity::ProjectActivityCoordinator;
 use project_store::{
-    ProjectCloseRequest, ProjectCreateRequest, ProjectListSnapshot, ProjectSelectWorktreeRequest,
-    ProjectStore, ProjectSummary, TerminalLayoutRecord,
+    ProjectCloseRequest, ProjectCreateRequest, ProjectDefaultPushRemoteRequest,
+    ProjectListSnapshot, ProjectReorderRequest, ProjectSelectWorktreeRequest, ProjectStore,
+    ProjectSummary, ProjectUpdateRequest, TerminalLayoutRecord,
 };
+use remote_p2p::{RemoteP2PHostTransport, RemoteP2PLane, RemoteP2PSignal};
+use reqwest::header::CONTENT_TYPE;
+use serde_json::{json, Value};
+use sha2::{Digest as _, Sha256};
 use ssh::{SSHLaunchCommand, SSHProfileUpsertRequest, SSHProfilesSnapshot, SSHStore};
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::io::{Seek as _, Write as _};
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
+use tauri::async_runtime::JoinHandle;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID};
 use tauri::utils::config::Color;
 use tauri::Wry;
@@ -121,11 +134,14 @@ use tauri::{
     LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl,
     WebviewWindowBuilder,
 };
-use terminal::{TerminalConfig, TerminalManager};
+use terminal::{TerminalConfig, TerminalEvent, TerminalManager};
+use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message as WebSocketMessage;
 use worktree::{
     create_worktree, remove_worktree, worktree_snapshot as load_worktree_snapshot,
     WorktreeCreateRequest, WorktreeRemoveRequest, WorktreeSnapshot,
 };
+use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -154,6 +170,14 @@ struct ProjectOpenApplicationSnapshot {
 struct ProjectOpenApplicationRequest {
     project_path: String,
     application_id: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeSnapshotEvent {
+    project_id: String,
+    project_path: String,
+    snapshot: WorktreeSnapshot,
 }
 
 struct ProjectOpenApplicationSpec {
@@ -380,7 +404,7 @@ impl MenuLabels {
             files: tr("titlebar.files", "Files"),
             review: tr("titlebar.review", "Review"),
             projects_sidebar: tr("menu.view.projects_sidebar", "Projects Sidebar"),
-            tasks_sidebar: tr("menu.view.tasks_sidebar", "Tasks Sidebar"),
+            tasks_sidebar: tr("menu.view.tasks_sidebar", "Worktree Sidebar"),
             git_panel: tr("menu.view.open_git_panel", "Open Git Panel"),
             files_panel: tr("menu.view.open_files_panel", "Open Files Panel"),
             ai_panel: tr("menu.view.open_ai_panel", "Open AI Panel"),
@@ -432,6 +456,7 @@ impl MenuAccelerators {
 #[derive(Clone)]
 struct AppState {
     terminals: Arc<TerminalManager>,
+    remote: Arc<RemoteHostService>,
     performance: Arc<PerformanceMonitor>,
     power: Arc<PowerManager>,
     ai_runtime: Arc<AIRuntimeBridge>,
@@ -572,10 +597,7 @@ fn start_desktop_pet_hit_test_loop(app: tauri::AppHandle) {
     else {
         return;
     };
-    if hit_state
-        .hit_test_running
-        .swap(true, Ordering::AcqRel)
-    {
+    if hit_state.hit_test_running.swap(true, Ordering::AcqRel) {
         return;
     }
 
@@ -847,10 +869,12 @@ fn terminal_create(
     app: tauri::AppHandle,
     config: TerminalConfig,
 ) -> Result<String, String> {
+    let remote = Arc::clone(&state.remote);
     state
         .terminals
         .create(config, move |event| {
-            let _ = app.emit("terminal:event", event);
+            let _ = app.emit("terminal:event", event.clone());
+            remote.handle_terminal_event(event);
         })
         .map_err(|error| error.to_string())
 }
@@ -959,12 +983,15 @@ fn app_settings_set(
     if let Ok(pet) = state.pet.snapshot() {
         sync_desktop_pet_window(&app, &next, &pet);
     }
+    state.remote.sync_settings(app.clone());
     let _ = app.emit("settings:updated", next.clone());
     Ok(next)
 }
 
 #[tauri::command]
-fn localized_open_dialog(request: LocalizedOpenDialogRequest) -> Result<Option<Vec<String>>, String> {
+fn localized_open_dialog(
+    request: LocalizedOpenDialogRequest,
+) -> Result<Option<Vec<String>>, String> {
     open_localized_dialog(request)
 }
 
@@ -1266,6 +1293,28 @@ async fn ai_history_global_state(
 }
 
 #[tauri::command]
+async fn ai_history_session_rename(
+    state: tauri::State<'_, AppState>,
+    project: AIHistoryProjectRequest,
+    session_id: String,
+    title: String,
+) -> Result<AIHistoryProjectState, String> {
+    state
+        .ai_history
+        .rename_session(project, session_id, title)
+        .await
+}
+
+#[tauri::command]
+async fn ai_history_session_remove(
+    state: tauri::State<'_, AppState>,
+    project: AIHistoryProjectRequest,
+    session_id: String,
+) -> Result<AIHistoryProjectState, String> {
+    state.ai_history.remove_session(project, session_id).await
+}
+
+#[tauri::command]
 fn git_status(project_path: String) -> GitStatusSnapshot {
     load_git_status(project_path)
 }
@@ -1544,9 +1593,46 @@ async fn worktree_snapshot(
     .map_err(|error| error.to_string())?
 }
 
+fn emit_worktree_snapshot(
+    app: tauri::AppHandle,
+    projects: Arc<ProjectStore>,
+    project: ProjectSummary,
+) {
+    tauri::async_runtime::spawn(async move {
+        let project_id = project.id;
+        let project_path = project.path;
+        let event_project_id = project_id.clone();
+        let event_project_path = project_path.clone();
+        let snapshot = tauri::async_runtime::spawn_blocking(move || {
+            projects.merge_worktree_snapshot(load_worktree_snapshot(project_id, project_path))
+        })
+        .await;
+
+        match snapshot {
+            Ok(Ok(snapshot)) => {
+                let _ = app.emit(
+                    "worktree:snapshot",
+                    WorktreeSnapshotEvent {
+                        project_id: event_project_id,
+                        project_path: event_project_path,
+                        snapshot,
+                    },
+                );
+            }
+            Ok(Err(error)) => {
+                eprintln!("failed to merge worktree snapshot: {error}");
+            }
+            Err(error) => {
+                eprintln!("failed to refresh worktree snapshot: {error}");
+            }
+        }
+    });
+}
+
 #[tauri::command]
 async fn worktree_create(
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
     request: WorktreeCreateRequest,
 ) -> Result<WorktreeSnapshot, String> {
     let projects = Arc::clone(&state.projects);
@@ -1564,12 +1650,34 @@ async fn worktree_create(
     })
     .await
     .map_err(|error| error.to_string())??;
+    let project_id = snapshot.project_id.clone();
+    let project_path = snapshot
+        .worktrees
+        .iter()
+        .find(|worktree| worktree.is_default)
+        .map(|worktree| worktree.path.clone())
+        .or_else(|| {
+            snapshot
+                .worktrees
+                .first()
+                .map(|worktree| worktree.path.clone())
+        })
+        .unwrap_or_default();
+    let _ = app.emit(
+        "worktree:snapshot",
+        WorktreeSnapshotEvent {
+            project_id,
+            project_path,
+            snapshot: snapshot.clone(),
+        },
+    );
     Ok(snapshot)
 }
 
 #[tauri::command]
 async fn worktree_remove(
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
     request: WorktreeRemoveRequest,
 ) -> Result<WorktreeSnapshot, String> {
     let projects = Arc::clone(&state.projects);
@@ -1579,6 +1687,27 @@ async fn worktree_remove(
     })
     .await
     .map_err(|error| error.to_string())??;
+    let project_id = snapshot.project_id.clone();
+    let project_path = snapshot
+        .worktrees
+        .iter()
+        .find(|worktree| worktree.is_default)
+        .map(|worktree| worktree.path.clone())
+        .or_else(|| {
+            snapshot
+                .worktrees
+                .first()
+                .map(|worktree| worktree.path.clone())
+        })
+        .unwrap_or_default();
+    let _ = app.emit(
+        "worktree:snapshot",
+        WorktreeSnapshotEvent {
+            project_id,
+            project_path,
+            snapshot: snapshot.clone(),
+        },
+    );
     Ok(snapshot)
 }
 
@@ -1743,10 +1872,18 @@ async fn project_list(state: tauri::State<'_, AppState>) -> Result<ProjectListSn
 }
 
 #[tauri::command]
-fn project_mark_active(state: tauri::State<'_, AppState>, project: ProjectSummary) {
-    state
-        .project_activity
-        .mark_project_active(project, Arc::clone(&state.ai_history));
+fn project_mark_active(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    project: ProjectSummary,
+) {
+    state.project_activity.mark_project_active(
+        app.clone(),
+        project.clone(),
+        Arc::clone(&state.ai_history),
+    );
+    emit_worktree_snapshot(app.clone(), Arc::clone(&state.projects), project.clone());
+    let _ = state.git_watch.watch(app.clone(), project.path.clone());
 }
 
 #[tauri::command]
@@ -1768,9 +1905,11 @@ async fn project_create(
         if known_project_ids.contains(&project.id) {
             state.project_activity.mark_project_summary(&project);
         } else {
-            state
-                .project_activity
-                .refresh_ai_once(project, Arc::clone(&state.ai_history));
+            state.project_activity.refresh_project_now(
+                app.clone(),
+                project,
+                Arc::clone(&state.ai_history),
+            );
         }
     }
     let _ = app.emit("project:updated", snapshot.clone());
@@ -1832,10 +1971,28 @@ async fn project_select(
     .await
     .map_err(|error| error.to_string())??;
     if let Some(project) = selected_project_summary(&snapshot) {
-        state
-            .project_activity
-            .mark_project_active(project, Arc::clone(&state.ai_history));
+        state.project_activity.mark_project_active(
+            app.clone(),
+            project.clone(),
+            Arc::clone(&state.ai_history),
+        );
+        emit_worktree_snapshot(app.clone(), Arc::clone(&state.projects), project.clone());
+        let _ = state.git_watch.watch(app.clone(), project.path);
     }
+    let _ = app.emit("project:updated", snapshot.clone());
+    Ok(snapshot)
+}
+
+#[tauri::command]
+async fn project_reorder(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    request: ProjectReorderRequest,
+) -> Result<ProjectListSnapshot, String> {
+    let projects = Arc::clone(&state.projects);
+    let snapshot = tauri::async_runtime::spawn_blocking(move || projects.reorder_projects(request))
+        .await
+        .map_err(|error| error.to_string())??;
     let _ = app.emit("project:updated", snapshot.clone());
     Ok(snapshot)
 }
@@ -1855,23 +2012,40 @@ async fn project_select_worktree(
     .await
     .map_err(|error| error.to_string())??;
     if let Some(worktree) = state.projects.worktree_snapshot_by_id(&worktree_id) {
-        state
-            .project_activity
-            .mark_project_active(
-                ProjectSummary {
-                    id: worktree.id,
-                    name: worktree.name,
-                    path: worktree.path,
-                    badge: String::new(),
-                    status: worktree.status,
-                    branch: worktree.branch,
-                    changes: 0,
-                    badge_symbol: None,
-                    badge_color_hex: None,
-                },
-                Arc::clone(&state.ai_history),
-            );
+        let worktree_path = worktree.path.clone();
+        state.project_activity.mark_project_active(
+            app.clone(),
+            ProjectSummary {
+                id: worktree.id,
+                name: worktree.name,
+                path: worktree.path,
+                badge: String::new(),
+                status: worktree.status,
+                branch: worktree.branch,
+                changes: 0,
+                badge_symbol: None,
+                badge_color_hex: None,
+                git_default_push_remote_name: None,
+            },
+            Arc::clone(&state.ai_history),
+        );
+        let _ = state.git_watch.watch(app.clone(), worktree_path);
     }
+    let _ = app.emit("project:updated", snapshot.clone());
+    Ok(snapshot)
+}
+
+#[tauri::command]
+async fn project_set_default_push_remote(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    request: ProjectDefaultPushRemoteRequest,
+) -> Result<ProjectListSnapshot, String> {
+    let projects = Arc::clone(&state.projects);
+    let snapshot =
+        tauri::async_runtime::spawn_blocking(move || projects.set_default_push_remote(request))
+            .await
+            .map_err(|error| error.to_string())??;
     let _ = app.emit("project:updated", snapshot.clone());
     Ok(snapshot)
 }
@@ -2040,22 +2214,58 @@ async fn terminal_layout_save(
 
 #[tauri::command]
 fn remote_status(state: tauri::State<'_, AppState>) -> RemoteStatus {
-    let settings = state.settings.snapshot().remote;
-    let enabled = settings.enabled && !settings.relay_url.trim().is_empty();
-    RemoteStatus {
-        enabled,
-        relay: if settings.relay_url.trim().is_empty() {
-            "local".to_string()
-        } else {
-            settings.relay_url
-        },
-        devices: 0,
-        encryption: if enabled {
-            "configured".to_string()
-        } else {
-            "disabled".to_string()
-        },
-    }
+    state.remote.snapshot()
+}
+
+#[tauri::command]
+async fn remote_reconnect(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<RemoteStatus, String> {
+    state.remote.reconnect(app).await
+}
+
+#[tauri::command]
+async fn remote_devices_refresh(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<RemoteStatus, String> {
+    state.remote.refresh_devices(app).await
+}
+
+#[tauri::command]
+async fn remote_pairing_create(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<RemoteStatus, String> {
+    state.remote.create_pairing(app).await
+}
+
+#[tauri::command]
+async fn remote_pairing_cancel(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    pairing_id: String,
+) -> Result<RemoteStatus, String> {
+    state.remote.cancel_pairing(app, pairing_id).await
+}
+
+#[tauri::command]
+async fn remote_pairing_confirm(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    pairing_id: String,
+) -> Result<RemoteStatus, String> {
+    state.remote.confirm_pairing(app, pairing_id).await
+}
+
+#[tauri::command]
+async fn remote_pairing_reject(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    pairing_id: String,
+) -> Result<RemoteStatus, String> {
+    state.remote.reject_pairing(app, pairing_id).await
 }
 
 #[tauri::command]
@@ -2149,12 +2359,2368 @@ fn app_toggle_devtools(
     }
 }
 
-#[derive(serde::Serialize)]
+struct RemoteHostService {
+    settings: Arc<AppSettingsStore>,
+    projects: Arc<ProjectStore>,
+    terminals: Arc<TerminalManager>,
+    ai_history: Arc<AIHistoryIndexer>,
+    snapshot: Mutex<RemoteStatus>,
+    socket_tx: Mutex<Option<mpsc::UnboundedSender<String>>>,
+    connection_generation: AtomicU64,
+    send_seq_by_device: Mutex<HashMap<String, i64>>,
+    receive_seq_by_device: Mutex<HashMap<String, i64>>,
+    terminal_viewers_by_session: Mutex<HashMap<String, HashSet<String>>>,
+    terminal_upload_sessions: Mutex<HashMap<String, RemoteTerminalUploadSession>>,
+    reconnect_task: Mutex<Option<JoinHandle<()>>>,
+    p2p: Mutex<Option<Arc<RemoteP2PHostTransport>>>,
+}
+
+impl RemoteHostService {
+    fn new(
+        settings: Arc<AppSettingsStore>,
+        projects: Arc<ProjectStore>,
+        terminals: Arc<TerminalManager>,
+        ai_history: Arc<AIHistoryIndexer>,
+    ) -> Self {
+        let status = RemoteStatus::from_settings(&settings.snapshot().remote, None, None);
+        Self {
+            settings,
+            projects,
+            terminals,
+            ai_history,
+            snapshot: Mutex::new(status),
+            socket_tx: Mutex::new(None),
+            connection_generation: AtomicU64::new(0),
+            send_seq_by_device: Mutex::new(HashMap::new()),
+            receive_seq_by_device: Mutex::new(HashMap::new()),
+            terminal_viewers_by_session: Mutex::new(HashMap::new()),
+            terminal_upload_sessions: Mutex::new(HashMap::new()),
+            reconnect_task: Mutex::new(None),
+            p2p: Mutex::new(None),
+        }
+    }
+
+    fn snapshot(&self) -> RemoteStatus {
+        self.snapshot
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| {
+                RemoteStatus::from_settings(&self.settings.snapshot().remote, None, None)
+            })
+    }
+
+    fn start(self: &Arc<Self>, app: tauri::AppHandle) {
+        self.ensure_p2p_transport();
+        self.sync_settings(app);
+    }
+
+    fn ensure_p2p_transport(self: &Arc<Self>) {
+        if self
+            .p2p
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
+            .is_some()
+        {
+            return;
+        }
+        let weak_for_signal = Arc::downgrade(self);
+        let weak_for_message = Arc::downgrade(self);
+        let weak_for_state = Arc::downgrade(self);
+        let Ok(transport) = RemoteP2PHostTransport::new(
+            Arc::new(move |signal: RemoteP2PSignal| {
+                if let Some(service) = weak_for_signal.upgrade() {
+                    service.send_relay(&signal.kind, Some(&signal.device_id), None, signal.payload);
+                }
+            }),
+            Arc::new(move |device_id: String, data: Vec<u8>| {
+                if let Some(service) = weak_for_message.upgrade() {
+                    tauri::async_runtime::spawn(async move {
+                        service.handle_p2p_message(device_id, data).await;
+                    });
+                }
+            }),
+            Arc::new(move |device_id: String, state: String| {
+                if let Some(service) = weak_for_state.upgrade() {
+                    if matches!(state.as_str(), "closed" | "failed" | "disconnected") {
+                        service.remove_terminal_viewer(Some(&device_id));
+                    }
+                }
+            }),
+        ) else {
+            return;
+        };
+        if let Ok(mut current) = self.p2p.lock() {
+            *current = Some(transport);
+        }
+    }
+
+    fn sync_settings(self: &Arc<Self>, app: tauri::AppHandle) {
+        let remote = self.settings.snapshot().remote;
+        if !remote.enabled || remote_server_url(&remote).trim().is_empty() {
+            self.connection_generation.fetch_add(1, Ordering::SeqCst);
+            if let Ok(mut tx) = self.socket_tx.lock() {
+                *tx = None;
+            }
+            self.update_snapshot(
+                RemoteStatus::from_settings(
+                    &remote,
+                    Some("stopped"),
+                    Some("Remote Host stopped.".to_string()),
+                ),
+                Some(&app),
+            );
+            return;
+        }
+        self.spawn_connect_loop(app, 0);
+    }
+
+    fn spawn_connect_loop(self: &Arc<Self>, app: tauri::AppHandle, initial_delay_ms: u64) {
+        let generation = self.connection_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Ok(mut task) = self.reconnect_task.lock() {
+            if let Some(handle) = task.take() {
+                handle.abort();
+            }
+            let service = Arc::clone(self);
+            *task = Some(tauri::async_runtime::spawn(async move {
+                if initial_delay_ms > 0 {
+                    tokio::time::sleep(Duration::from_millis(initial_delay_ms)).await;
+                }
+                service.connect_loop(app, generation).await;
+            }));
+        }
+    }
+
+    async fn reconnect(self: &Arc<Self>, app: tauri::AppHandle) -> Result<RemoteStatus, String> {
+        self.register_host(Some(&app)).await?;
+        self.spawn_connect_loop(app.clone(), 0);
+        Ok(self.snapshot())
+    }
+
+    async fn refresh_devices(
+        self: &Arc<Self>,
+        app: tauri::AppHandle,
+    ) -> Result<RemoteStatus, String> {
+        if self.settings.snapshot().remote.host_id.trim().is_empty() {
+            self.register_host(Some(&app)).await?;
+        }
+        self.load_devices(Some(&app)).await?;
+        Ok(self.snapshot())
+    }
+
+    async fn create_pairing(
+        self: &Arc<Self>,
+        app: tauri::AppHandle,
+    ) -> Result<RemoteStatus, String> {
+        self.register_host(Some(&app)).await?;
+        let remote = self.settings.snapshot().remote;
+        let body = json!({
+            "hostId": remote.host_id,
+            "token": remote.host_token,
+        });
+        let mut pairing =
+            remote_post::<RemotePairingInfo>(&remote_server_url(&remote), "/api/pairings", body)
+                .await?;
+        pairing.host_public_key =
+            (!remote.host_public_key.trim().is_empty()).then(|| remote.host_public_key.clone());
+        pairing.crypto_version = Some(1);
+        pairing.qr_payload = remote_pairing_qr_payload(&remote, &pairing);
+        let mut status = self.snapshot();
+        status.pairing = Some(pairing.clone());
+        status.status = "connected".to_string();
+        status.message = format!("Pairing code: {}", pairing.code);
+        self.update_snapshot(status.clone(), Some(&app));
+        Ok(status)
+    }
+
+    async fn cancel_pairing(
+        self: &Arc<Self>,
+        app: tauri::AppHandle,
+        pairing_id: String,
+    ) -> Result<RemoteStatus, String> {
+        self.reject_pairing(app, pairing_id).await
+    }
+
+    async fn confirm_pairing(
+        self: &Arc<Self>,
+        app: tauri::AppHandle,
+        pairing_id: String,
+    ) -> Result<RemoteStatus, String> {
+        self.pairing_decision(
+            &app,
+            "/api/pairings/confirm",
+            &pairing_id,
+            "Pairing confirmed.",
+        )
+        .await
+    }
+
+    async fn reject_pairing(
+        self: &Arc<Self>,
+        app: tauri::AppHandle,
+        pairing_id: String,
+    ) -> Result<RemoteStatus, String> {
+        self.pairing_decision(
+            &app,
+            "/api/pairings/reject",
+            &pairing_id,
+            "Pairing rejected.",
+        )
+        .await
+    }
+
+    async fn pairing_decision(
+        self: &Arc<Self>,
+        app: &tauri::AppHandle,
+        path: &str,
+        pairing_id: &str,
+        message: &str,
+    ) -> Result<RemoteStatus, String> {
+        let remote = self.settings.snapshot().remote;
+        if !pairing_id.trim().is_empty()
+            && !remote.host_id.trim().is_empty()
+            && !remote.host_token.trim().is_empty()
+        {
+            let _ = remote_post::<Value>(
+                &remote_server_url(&remote),
+                path,
+                json!({
+                    "hostId": remote.host_id,
+                    "token": remote.host_token,
+                    "pairingId": pairing_id,
+                }),
+            )
+            .await;
+        }
+        let mut status = self.snapshot();
+        status.pairing = status
+            .pairing
+            .filter(|pairing| pairing.pairing_id != pairing_id);
+        status
+            .pending_pairings
+            .retain(|pairing| pairing.id != pairing_id);
+        status.message = message.to_string();
+        self.update_snapshot(status.clone(), Some(app));
+        if path.ends_with("/confirm") {
+            let _ = self.load_devices(Some(app)).await;
+        }
+        Ok(self.snapshot())
+    }
+
+    async fn connect_loop(self: Arc<Self>, app: tauri::AppHandle, generation: u64) {
+        let mut delay = 1_u64;
+        loop {
+            if generation != self.connection_generation.load(Ordering::SeqCst) {
+                return;
+            }
+            let remote = self.settings.snapshot().remote;
+            if !remote.enabled {
+                return;
+            }
+            if let Err(error) = self.connect_once(app.clone(), generation).await {
+                let mut status = RemoteStatus::from_settings(
+                    &self.settings.snapshot().remote,
+                    Some("failed"),
+                    Some(error),
+                );
+                status.pairing = self.snapshot().pairing;
+                self.update_snapshot(status, Some(&app));
+            }
+            if generation != self.connection_generation.load(Ordering::SeqCst) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_secs(delay)).await;
+            delay = (delay * 2).min(30);
+        }
+    }
+
+    async fn connect_once(
+        self: &Arc<Self>,
+        app: tauri::AppHandle,
+        generation: u64,
+    ) -> Result<(), String> {
+        self.register_host(Some(&app)).await?;
+        self.load_devices(Some(&app)).await.ok();
+        let remote = self.settings.snapshot().remote;
+        let ws_url = remote_url(
+            &remote_server_url(&remote),
+            "/ws/host",
+            &[
+                ("hostId", remote.host_id.as_str()),
+                ("token", remote.host_token.as_str()),
+            ],
+            true,
+        )?;
+        let (socket, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map_err(remote_error_message)?;
+        let (mut write, mut read) = socket.split();
+        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        if let Ok(mut current) = self.socket_tx.lock() {
+            *current = Some(tx);
+        }
+        let mut status = RemoteStatus::from_settings(
+            &self.settings.snapshot().remote,
+            Some("connected"),
+            Some("Remote Host connected.".to_string()),
+        );
+        status.pairing = self.snapshot().pairing;
+        self.update_snapshot(status, Some(&app));
+
+        let writer = tauri::async_runtime::spawn(async move {
+            while let Some(message) = rx.recv().await {
+                if write
+                    .send(WebSocketMessage::Text(message.into()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+
+        while let Some(message) = read.next().await {
+            if generation != self.connection_generation.load(Ordering::SeqCst) {
+                writer.abort();
+                return Ok(());
+            }
+            match message {
+                Ok(WebSocketMessage::Text(text)) => {
+                    self.handle_socket_text(app.clone(), text.to_string()).await;
+                }
+                Ok(WebSocketMessage::Close(_)) => break,
+                Ok(_) => {}
+                Err(error) => {
+                    writer.abort();
+                    return Err(error.to_string());
+                }
+            }
+        }
+        writer.abort();
+        if let Ok(mut current) = self.socket_tx.lock() {
+            *current = None;
+        }
+        Err("Remote Host disconnected.".to_string())
+    }
+
+    async fn register_host(self: &Arc<Self>, app: Option<&tauri::AppHandle>) -> Result<(), String> {
+        let mut remote = self.settings.snapshot().remote;
+        if !remote.enabled {
+            self.update_snapshot(
+                RemoteStatus::from_settings(
+                    &remote,
+                    Some("stopped"),
+                    Some("Remote Host stopped.".to_string()),
+                ),
+                app,
+            );
+            return Ok(());
+        }
+        if remote_server_url(&remote).trim().is_empty() {
+            self.update_snapshot(
+                RemoteStatus::from_settings(
+                    &remote,
+                    Some("stopped"),
+                    Some("Remote not configured.".to_string()),
+                ),
+                app,
+            );
+            return Ok(());
+        }
+        if remote.host_id.trim().is_empty() {
+            remote.host_id = uuid::Uuid::new_v4().to_string();
+        }
+        if remote.host_token.trim().is_empty() {
+            remote.host_token = remote_random_token();
+        }
+        ensure_remote_host_identity(&mut remote);
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RegisterResponse {
+            host_id: String,
+            token: String,
+        }
+        let response = remote_post::<RegisterResponse>(
+            &remote_server_url(&remote),
+            "/api/hosts/register",
+            json!({
+                "hostId": remote.host_id,
+                "name": remote_host_name(),
+                "token": remote.host_token,
+                "publicKey": remote.host_public_key,
+            }),
+        )
+        .await?;
+        remote.host_id = response.host_id;
+        remote.host_token = response.token;
+        let next_settings = self.settings.update(|current| {
+            current.remote = remote.clone();
+        })?;
+        self.update_snapshot(
+            RemoteStatus::from_settings(
+                &next_settings.remote,
+                Some("connecting"),
+                Some("Connecting relay...".to_string()),
+            ),
+            app,
+        );
+        Ok(())
+    }
+
+    async fn load_devices(self: &Arc<Self>, app: Option<&tauri::AppHandle>) -> Result<(), String> {
+        let remote = self.settings.snapshot().remote;
+        let relay = remote_server_url(&remote);
+        if relay.trim().is_empty()
+            || remote.host_id.trim().is_empty()
+            || remote.host_token.trim().is_empty()
+        {
+            return Ok(());
+        }
+        #[derive(serde::Deserialize)]
+        struct DeviceList {
+            devices: Vec<app_settings::RemoteHostDeviceSettings>,
+        }
+        let escaped_host_id = percent_encoding::utf8_percent_encode(
+            &remote.host_id,
+            percent_encoding::NON_ALPHANUMERIC,
+        )
+        .to_string();
+        let path = format!("/api/hosts/{escaped_host_id}/devices");
+        let url = remote_url(
+            &relay,
+            &path,
+            &[("token", remote.host_token.as_str())],
+            false,
+        )?;
+        let client = remote_http_client()?;
+        let response = client.get(url).send().await.map_err(remote_error_message)?;
+        let list = remote_parse_response::<DeviceList>(response).await?;
+        let next_settings = self.settings.update(|current| {
+            current.remote.cached_devices = list.devices.clone();
+        })?;
+        let mut status = self.snapshot();
+        let synced = RemoteStatus::from_settings(
+            &next_settings.remote,
+            Some(&status.status),
+            Some(status.message.clone()),
+        );
+        status.devices = synced.devices;
+        status.device_list = synced.device_list;
+        status.host_id = synced.host_id;
+        status.encryption = synced.encryption;
+        self.update_snapshot(status, app);
+        Ok(())
+    }
+
+    async fn handle_socket_text(self: &Arc<Self>, app: tauri::AppHandle, text: String) {
+        let Ok(raw) = serde_json::from_str::<RemoteEnvelope>(&text) else {
+            return;
+        };
+        let Some(envelope) = self.decrypt_envelope_if_needed(raw).await else {
+            return;
+        };
+        match envelope.kind.as_str() {
+            "pairing.request" => {
+                self.handle_pairing_request(envelope, &app).await;
+            }
+            "host.info" => {
+                self.send(
+                    "host.info",
+                    envelope.device_id.as_deref(),
+                    None,
+                    json!({
+                        "hostId": self.settings.snapshot().remote.host_id,
+                        "name": remote_host_name(),
+                        "platform": std::env::consts::OS,
+                        "app": "Codux",
+                    }),
+                );
+            }
+            "device.connected" => {
+                self.update_device_online(envelope.device_id.as_deref(), true, Some(&app));
+                self.send_project_and_terminal_lists(envelope.device_id.as_deref());
+            }
+            "device.disconnected" => {
+                self.update_device_online(envelope.device_id.as_deref(), false, Some(&app));
+                self.remove_terminal_viewer(envelope.device_id.as_deref());
+                if let (Some(p2p), Some(device_id)) = (
+                    self.p2p.lock().ok().and_then(|value| value.clone()),
+                    envelope.device_id.as_deref(),
+                ) {
+                    p2p.close(device_id).await;
+                }
+            }
+            "project.list" => {
+                self.send_project_list(envelope.device_id.as_deref());
+            }
+            "terminal.list" => {
+                self.send_terminal_list(envelope.device_id.as_deref());
+            }
+            "file.list" => {
+                let path = envelope.payload.get("path").and_then(Value::as_str);
+                let purpose = envelope.payload.get("purpose").and_then(Value::as_str);
+                self.send(
+                    "file.list",
+                    envelope.device_id.as_deref(),
+                    None,
+                    remote_file_list(path, purpose),
+                );
+            }
+            "file.read" => {
+                self.handle_file_read(&envelope);
+            }
+            "file.write" => {
+                self.handle_file_write(&envelope);
+            }
+            "file.rename" => {
+                self.handle_file_rename(&envelope);
+            }
+            "file.delete" => {
+                self.handle_file_delete(&envelope);
+            }
+            "project.add" => {
+                self.handle_project_add(&envelope);
+            }
+            "project.edit" => {
+                self.handle_project_edit(&envelope);
+            }
+            "project.remove" => {
+                self.handle_project_remove(&envelope);
+            }
+            "ai.stats" => {
+                self.handle_ai_stats(&envelope).await;
+            }
+            "terminal.create" => {
+                self.handle_terminal_create(app, &envelope);
+            }
+            "terminal.buffer" => {
+                self.handle_terminal_buffer(&envelope);
+            }
+            "terminal.input" => {
+                self.handle_terminal_input(&envelope);
+            }
+            "terminal.resize" => {
+                self.handle_terminal_resize(&envelope);
+            }
+            "terminal.close" => {
+                self.handle_terminal_close(&envelope);
+            }
+            "terminal.signal" => {
+                self.handle_terminal_signal(&envelope);
+            }
+            "terminal.upload" => {
+                self.handle_terminal_upload(&envelope);
+            }
+            "terminal.upload.start" => {
+                self.handle_terminal_upload_start(&envelope);
+            }
+            "terminal.upload.chunk" => {
+                self.handle_terminal_upload_chunk(&envelope);
+            }
+            "terminal.upload.finish" => {
+                self.handle_terminal_upload_finish(&envelope);
+            }
+            "terminal.upload.cancel" => {
+                self.handle_terminal_upload_cancel(&envelope);
+            }
+            "p2p.offer" => {
+                self.ensure_p2p_transport();
+                if let (Some(p2p), Some(device_id)) = (
+                    self.p2p.lock().ok().and_then(|value| value.clone()),
+                    envelope.device_id.clone(),
+                ) {
+                    p2p.handle_offer(device_id, envelope.payload).await;
+                }
+            }
+            "p2p.candidate" => {
+                self.ensure_p2p_transport();
+                if let (Some(p2p), Some(device_id)) = (
+                    self.p2p.lock().ok().and_then(|value| value.clone()),
+                    envelope.device_id.clone(),
+                ) {
+                    p2p.handle_candidate(device_id, envelope.payload).await;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    async fn handle_p2p_message(self: Arc<Self>, device_id: String, data: Vec<u8>) {
+        let Ok(envelope) = serde_json::from_slice::<RemoteEnvelope>(&data) else {
+            return;
+        };
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            self.handle_p2p_envelope_sync(envelope.with_device_id(device_id));
+        })
+        .await;
+    }
+
+    fn handle_p2p_envelope_sync(&self, envelope: RemoteEnvelope) {
+        match envelope.kind.as_str() {
+            "terminal.buffer" => self.handle_terminal_buffer(&envelope),
+            "terminal.input" => self.handle_terminal_input(&envelope),
+            "terminal.resize" => self.handle_terminal_resize(&envelope),
+            "terminal.close" => self.handle_terminal_close(&envelope),
+            "terminal.signal" => self.handle_terminal_signal(&envelope),
+            "terminal.upload" => self.handle_terminal_upload(&envelope),
+            "terminal.upload.start" => self.handle_terminal_upload_start(&envelope),
+            "terminal.upload.chunk" => self.handle_terminal_upload_chunk(&envelope),
+            "terminal.upload.finish" => self.handle_terminal_upload_finish(&envelope),
+            "terminal.upload.cancel" => self.handle_terminal_upload_cancel(&envelope),
+            _ => {}
+        }
+    }
+
+    async fn handle_pairing_request(&self, envelope: RemoteEnvelope, app: &tauri::AppHandle) {
+        let pairing_id = envelope
+            .payload
+            .get("pairingId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if pairing_id.is_empty() {
+            return;
+        }
+        let device_name = envelope
+            .payload
+            .get("deviceName")
+            .and_then(Value::as_str)
+            .unwrap_or("Mobile Device")
+            .to_string();
+        let device_public_key = envelope
+            .payload
+            .get("devicePublicKey")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let pairing_code = envelope
+            .payload
+            .get("code")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                self.snapshot()
+                    .pairing
+                    .filter(|pairing| pairing.pairing_id == pairing_id)
+                    .map(|pairing| pairing.code)
+            })
+            .unwrap_or_default();
+        let pairing_secret = self
+            .snapshot()
+            .pairing
+            .filter(|pairing| pairing.pairing_id == pairing_id)
+            .map(|pairing| pairing.secret)
+            .unwrap_or_default();
+        let match_code = remote_pairing_match_code(
+            &self.settings.snapshot().remote,
+            &pairing_code,
+            &pairing_secret,
+            &device_public_key,
+        )
+        .unwrap_or_else(|| pairing_code.clone());
+        let mut status = self.snapshot();
+        if status
+            .pairing
+            .as_ref()
+            .map(|pairing| pairing.pairing_id.as_str())
+            == Some(pairing_id.as_str())
+        {
+            status.pairing = None;
+        }
+        if let Some(existing) = status
+            .pending_pairings
+            .iter_mut()
+            .find(|pairing| pairing.id == pairing_id)
+        {
+            existing.device_name = device_name;
+            existing.device_public_key = device_public_key;
+            existing.code = match_code;
+        } else {
+            status.pending_pairings.push(RemotePendingPairing {
+                id: pairing_id,
+                device_name,
+                device_public_key,
+                code: match_code,
+            });
+        }
+        status.message = "Confirm device pairing.".to_string();
+        self.update_snapshot(status, Some(app));
+    }
+
+    fn send_project_and_terminal_lists(&self, device_id: Option<&str>) {
+        self.send_project_list(device_id);
+        self.send_terminal_list(device_id);
+    }
+
+    fn send_project_list(&self, device_id: Option<&str>) {
+        self.send(
+            "project.list",
+            device_id,
+            None,
+            json!({ "projects": self.remote_projects() }),
+        );
+    }
+
+    fn send_terminal_list(&self, device_id: Option<&str>) {
+        self.send(
+            "terminal.list",
+            device_id,
+            None,
+            json!({ "terminals": self.remote_terminals() }),
+        );
+    }
+
+    fn remote_projects(&self) -> Vec<Value> {
+        self.projects
+            .projects_snapshot()
+            .into_iter()
+            .map(|project| {
+                json!({
+                    "id": project.id,
+                    "name": project.name,
+                    "path": project.path,
+                })
+            })
+            .collect()
+    }
+
+    fn remote_terminals(&self) -> Vec<Value> {
+        self.terminals
+            .list()
+            .into_iter()
+            .map(|terminal| {
+                json!({
+                    "id": terminal.id,
+                    "title": terminal.title,
+                    "displayTitle": if terminal.project_name.trim().is_empty() {
+                        terminal.title.clone()
+                    } else {
+                        format!("{} · {}", terminal.project_name, terminal.title)
+                    },
+                    "projectId": terminal.project_id,
+                    "projectName": terminal.project_name,
+                    "projectPath": terminal.cwd,
+                    "cwd": terminal.cwd,
+                    "shell": terminal.shell,
+                    "command": terminal.command,
+                    "kind": "desktop-shared",
+                    "ownerKind": std::env::consts::OS,
+                    "ownerDeviceId": "",
+                    "ownerDeviceName": remote_host_name(),
+                    "resizeOwner": std::env::consts::OS,
+                    "cols": terminal.cols,
+                    "rows": terminal.rows,
+                    "gridSource": std::env::consts::OS,
+                    "status": terminal.status,
+                    "isRunning": terminal.is_running,
+                    "createdAt": terminal.created_at,
+                    "lastActiveAt": terminal.last_active_at,
+                    "bufferCharacters": terminal.buffer_characters,
+                    "hasBuffer": terminal.has_buffer,
+                })
+            })
+            .collect()
+    }
+
+    fn handle_file_read(&self, envelope: &RemoteEnvelope) {
+        let Some(path) = envelope.payload.get("path").and_then(Value::as_str) else {
+            self.send_error(envelope, "File path is required.");
+            return;
+        };
+        match remote_file_read(path) {
+            Ok(payload) => self.send("file.read", envelope.device_id.as_deref(), None, payload),
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_file_write(&self, envelope: &RemoteEnvelope) {
+        let Some(path) = envelope.payload.get("path").and_then(Value::as_str) else {
+            self.send_error(envelope, "File path is required.");
+            return;
+        };
+        let Some(content) = envelope.payload.get("content").and_then(Value::as_str) else {
+            self.send_error(envelope, "File content is required.");
+            return;
+        };
+        match remote_file_write(path, content) {
+            Ok(()) => self.send(
+                "file.written",
+                envelope.device_id.as_deref(),
+                None,
+                json!({ "path": path }),
+            ),
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_file_rename(&self, envelope: &RemoteEnvelope) {
+        let Some(path) = envelope.payload.get("path").and_then(Value::as_str) else {
+            self.send_error(envelope, "File path is required.");
+            return;
+        };
+        let Some(new_path) = envelope.payload.get("newPath").and_then(Value::as_str) else {
+            self.send_error(envelope, "New file path is required.");
+            return;
+        };
+        match remote_file_rename(path, new_path) {
+            Ok(()) => self.send(
+                "file.renamed",
+                envelope.device_id.as_deref(),
+                None,
+                json!({ "path": path, "newPath": new_path }),
+            ),
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_file_delete(&self, envelope: &RemoteEnvelope) {
+        let Some(path) = envelope.payload.get("path").and_then(Value::as_str) else {
+            self.send_error(envelope, "File path is required.");
+            return;
+        };
+        match fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)) {
+            Ok(()) => self.send(
+                "file.deleted",
+                envelope.device_id.as_deref(),
+                None,
+                json!({ "path": path }),
+            ),
+            Err(error) => self.send_error(envelope, &error.to_string()),
+        }
+    }
+
+    fn handle_project_add(&self, envelope: &RemoteEnvelope) {
+        let Some(path) = envelope.payload.get("path").and_then(Value::as_str) else {
+            self.send_error(envelope, "Project path is required.");
+            return;
+        };
+        let name = envelope
+            .payload
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                Path::new(path)
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("Project")
+                    .to_string()
+            });
+        match self.projects.create_project(ProjectCreateRequest {
+            name,
+            path: path.to_string(),
+            badge_text: None,
+            badge_symbol: None,
+            badge_color_hex: None,
+        }) {
+            Ok(snapshot) => {
+                let project_id = snapshot.selected_project_id.unwrap_or_default();
+                self.send(
+                    "project.updated",
+                    envelope.device_id.as_deref(),
+                    None,
+                    json!({ "action": "add", "projectId": project_id }),
+                );
+                self.send_project_and_terminal_lists(envelope.device_id.as_deref());
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_project_edit(&self, envelope: &RemoteEnvelope) {
+        let Some(project_id) = envelope.payload.get("projectId").and_then(Value::as_str) else {
+            self.send_error(envelope, "Project id is required.");
+            return;
+        };
+        let Some(path) = envelope.payload.get("path").and_then(Value::as_str) else {
+            self.send_error(envelope, "Project path is required.");
+            return;
+        };
+        let name = envelope
+            .payload
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                Path::new(path)
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("Project")
+                    .to_string()
+            });
+        match self.projects.update_project(ProjectUpdateRequest {
+            project_id: project_id.to_string(),
+            name,
+            path: path.to_string(),
+        }) {
+            Ok(_) => {
+                self.send(
+                    "project.updated",
+                    envelope.device_id.as_deref(),
+                    None,
+                    json!({ "action": "edit", "projectId": project_id }),
+                );
+                self.send_project_and_terminal_lists(envelope.device_id.as_deref());
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_project_remove(&self, envelope: &RemoteEnvelope) {
+        let Some(project_id) = envelope.payload.get("projectId").and_then(Value::as_str) else {
+            self.send_error(envelope, "Project id is required.");
+            return;
+        };
+        match self.projects.close_project(project_id.to_string()) {
+            Ok(_) => {
+                self.send(
+                    "project.updated",
+                    envelope.device_id.as_deref(),
+                    None,
+                    json!({ "action": "remove", "projectId": project_id }),
+                );
+                self.send_project_and_terminal_lists(envelope.device_id.as_deref());
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    async fn handle_ai_stats(&self, envelope: &RemoteEnvelope) {
+        let project_id = envelope
+            .payload
+            .get("projectId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let project = self
+            .projects
+            .projects_snapshot()
+            .into_iter()
+            .find(|project| project.id == project_id)
+            .or_else(|| self.projects.projects_snapshot().into_iter().next());
+        let Some(project) = project else {
+            self.send_error(envelope, "Unable to load AI stats.");
+            return;
+        };
+        let request = AIHistoryProjectRequest {
+            id: project.id.clone(),
+            name: project.name.clone(),
+            path: project.path.clone(),
+        };
+        match self.ai_history.project_state(request).await {
+            Ok(state) => match serde_json::to_value(state) {
+                Ok(mut value) => {
+                    let snapshot = value
+                        .get_mut("snapshot")
+                        .map(Value::take)
+                        .filter(|value| !value.is_null());
+                    let mut payload = snapshot.unwrap_or_else(|| {
+                        json!({
+                            "projectId": project.id,
+                            "projectName": project.name,
+                            "projectSummary": {},
+                            "sessions": [],
+                            "heatmap": [],
+                            "todayTimeBuckets": [],
+                            "toolBreakdown": [],
+                            "modelBreakdown": [],
+                        })
+                    });
+                    if let Some(object) = payload.as_object_mut() {
+                        object.insert(
+                            "updatedAt".to_string(),
+                            json!(chrono::Utc::now().to_rfc3339()),
+                        );
+                    }
+                    self.send("ai.stats", envelope.device_id.as_deref(), None, payload);
+                }
+                Err(error) => self.send_error(envelope, &error.to_string()),
+            },
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_terminal_create(self: &Arc<Self>, app: tauri::AppHandle, envelope: &RemoteEnvelope) {
+        let project_id = envelope
+            .payload
+            .get("projectId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let command = envelope
+            .payload
+            .get("command")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_default();
+        let project = project_id
+            .as_deref()
+            .and_then(|id| {
+                self.projects
+                    .projects_snapshot()
+                    .into_iter()
+                    .find(|project| project.id == id)
+            })
+            .or_else(|| self.projects.projects_snapshot().into_iter().next());
+        let Some(project) = project else {
+            self.send_error(envelope, "Unable to create terminal.");
+            return;
+        };
+        let device_id = envelope.device_id.clone();
+        let service = Arc::clone(self);
+        let app_for_event = app.clone();
+        let title = if command.trim().is_empty() {
+            "Terminal".to_string()
+        } else {
+            command.clone()
+        };
+        match self.terminals.create(
+            TerminalConfig {
+                cwd: Some(project.path.clone()),
+                shell: None,
+                command: (!command.trim().is_empty()).then_some(command),
+                cols: envelope
+                    .payload
+                    .get("cols")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as u16),
+                rows: envelope
+                    .payload
+                    .get("rows")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as u16),
+                env: None,
+                project_id: Some(project.id.clone()),
+                project_name: Some(project.name.clone()),
+                terminal_id: None,
+                slot_id: None,
+                session_key: None,
+                title: Some(title),
+                tool: None,
+            },
+            move |event| {
+                let _ = app_for_event.emit("terminal:event", event.clone());
+                service.handle_terminal_event(event);
+            },
+        ) {
+            Ok(session_id) => {
+                self.register_terminal_viewer(&session_id, device_id.as_deref());
+                self.send_terminal_data(
+                    "terminal.created",
+                    envelope.device_id.as_deref(),
+                    Some(&session_id),
+                    self.remote_terminal_payload(&session_id)
+                        .unwrap_or_else(|| json!({ "id": session_id })),
+                );
+                self.send_terminal_list(envelope.device_id.as_deref());
+                self.send_terminal_buffer(&session_id, envelope.device_id.as_deref(), 0);
+            }
+            Err(error) => self.send_error(envelope, &error.to_string()),
+        }
+    }
+
+    fn handle_terminal_buffer(&self, envelope: &RemoteEnvelope) {
+        let Some(session_id) = envelope.session_id.as_deref() else {
+            self.send_error(envelope, "Terminal session is required.");
+            return;
+        };
+        let offset = envelope
+            .payload
+            .get("offset")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        self.send_terminal_buffer(session_id, envelope.device_id.as_deref(), offset);
+    }
+
+    fn handle_terminal_input(&self, envelope: &RemoteEnvelope) {
+        let Some(session_id) = envelope.session_id.as_deref() else {
+            self.send_error(envelope, "Terminal session is required.");
+            return;
+        };
+        let Some(data) = envelope.payload.get("data").and_then(Value::as_str) else {
+            self.send_error(envelope, "Terminal input is required.");
+            return;
+        };
+        self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
+        if let Some(input_id) = envelope.payload.get("inputId").and_then(Value::as_str) {
+            self.send_terminal_data(
+                "terminal.input.ack",
+                envelope.device_id.as_deref(),
+                Some(session_id),
+                json!({ "inputId": input_id, "ok": true, "accepted": true }),
+            );
+        }
+        if let Err(error) = self.terminals.write(session_id, data.as_bytes()) {
+            self.send_error(envelope, &error.to_string());
+        }
+    }
+
+    fn handle_terminal_resize(&self, envelope: &RemoteEnvelope) {
+        let Some(session_id) = envelope.session_id.as_deref() else {
+            return;
+        };
+        let cols = envelope
+            .payload
+            .get("cols")
+            .and_then(Value::as_u64)
+            .unwrap_or(100) as u16;
+        let rows = envelope
+            .payload
+            .get("rows")
+            .and_then(Value::as_u64)
+            .unwrap_or(30) as u16;
+        let _ = self.terminals.resize(session_id, cols, rows);
+    }
+
+    fn handle_terminal_close(&self, envelope: &RemoteEnvelope) {
+        let Some(session_id) = envelope.session_id.as_deref() else {
+            return;
+        };
+        match self.terminals.kill(session_id) {
+            Ok(()) => {
+                self.send_terminal_data(
+                    "terminal.closed",
+                    envelope.device_id.as_deref(),
+                    Some(session_id),
+                    json!({ "id": session_id }),
+                );
+                self.send_terminal_list(envelope.device_id.as_deref());
+            }
+            Err(error) => self.send_error(envelope, &error.to_string()),
+        }
+    }
+
+    fn handle_terminal_signal(&self, envelope: &RemoteEnvelope) {
+        let Some(session_id) = envelope.session_id.as_deref() else {
+            return;
+        };
+        let signal = envelope
+            .payload
+            .get("signal")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        match signal {
+            "interrupt" => {
+                let _ = self.terminals.write(session_id, &[0x03]);
+            }
+            "escape" => {
+                let _ = self.terminals.write(session_id, &[0x1b]);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_terminal_upload(&self, envelope: &RemoteEnvelope) {
+        let Some(session_id) = envelope.session_id.as_deref() else {
+            self.send_error(envelope, "Terminal session is required.");
+            return;
+        };
+        let Some(data) = envelope.payload.get("data").and_then(Value::as_str) else {
+            self.send_error(envelope, "Upload data is required.");
+            return;
+        };
+        let bytes = match remote_base64_url_decode(data).or_else(|_| {
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data)
+                .map_err(remote_error_message)
+        }) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.send_error(envelope, &error);
+                return;
+            }
+        };
+        let name = sanitized_remote_upload_name(
+            envelope
+                .payload
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("upload.png"),
+        );
+        match self.write_terminal_upload_file(session_id, &name, &bytes) {
+            Ok(path) => {
+                self.finish_terminal_upload(envelope.device_id.as_deref(), session_id, path)
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_terminal_upload_start(&self, envelope: &RemoteEnvelope) {
+        let Some(session_id) = envelope.session_id.as_deref() else {
+            self.send_terminal_upload_ack(
+                envelope,
+                "start",
+                None,
+                false,
+                Some("Terminal session is required."),
+            );
+            return;
+        };
+        let Some(upload_id) = envelope.payload.get("uploadId").and_then(Value::as_str) else {
+            self.send_terminal_upload_ack(
+                envelope,
+                "start",
+                None,
+                false,
+                Some("Upload id is required."),
+            );
+            return;
+        };
+        let total_bytes = envelope
+            .payload
+            .get("totalBytes")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let total_chunks = envelope
+            .payload
+            .get("totalChunks")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        if total_bytes == 0 || total_bytes > 20 * 1024 * 1024 || total_chunks == 0 {
+            self.send_terminal_upload_ack(
+                envelope,
+                "start",
+                None,
+                false,
+                Some("Upload size is not supported."),
+            );
+            return;
+        }
+        let name = sanitized_remote_upload_name(
+            envelope
+                .payload
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("upload.png"),
+        );
+        let directory = remote_terminal_upload_directory(session_id);
+        if let Err(error) = fs::create_dir_all(&directory) {
+            self.send_terminal_upload_ack(envelope, "start", None, false, Some(&error.to_string()));
+            return;
+        }
+        let final_path = unique_remote_upload_path(&directory, &name);
+        let partial_path = final_path.with_extension(format!(
+            "{}.part-{}",
+            final_path
+                .extension()
+                .and_then(|value| value.to_str())
+                .unwrap_or("upload"),
+            upload_id
+        ));
+        if fs::File::create(&partial_path).is_err() {
+            self.send_terminal_upload_ack(
+                envelope,
+                "start",
+                None,
+                false,
+                Some("Unable to create upload file."),
+            );
+            return;
+        }
+        if let Ok(mut uploads) = self.terminal_upload_sessions.lock() {
+            uploads.insert(
+                upload_id.to_string(),
+                RemoteTerminalUploadSession {
+                    session_id: session_id.to_string(),
+                    device_id: envelope.device_id.clone(),
+                    total_bytes,
+                    total_chunks,
+                    partial_path,
+                    final_path,
+                    received_chunks: HashSet::new(),
+                    received_bytes: 0,
+                },
+            );
+        }
+        self.send_terminal_upload_ack(envelope, "start", None, true, None);
+    }
+
+    fn handle_terminal_upload_chunk(&self, envelope: &RemoteEnvelope) {
+        let Some(upload_id) = envelope.payload.get("uploadId").and_then(Value::as_str) else {
+            self.send_terminal_upload_ack(
+                envelope,
+                "chunk",
+                None,
+                false,
+                Some("Upload id is required."),
+            );
+            return;
+        };
+        let chunk_index = envelope
+            .payload
+            .get("chunkIndex")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        let offset = envelope
+            .payload
+            .get("offset")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let Some(data) = envelope.payload.get("data").and_then(Value::as_str) else {
+            self.send_terminal_upload_ack(
+                envelope,
+                "chunk",
+                Some(chunk_index),
+                false,
+                Some("Upload data is required."),
+            );
+            return;
+        };
+        let bytes = match remote_base64_url_decode(data).or_else(|_| {
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data)
+                .map_err(remote_error_message)
+        }) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.send_terminal_upload_ack(
+                    envelope,
+                    "chunk",
+                    Some(chunk_index),
+                    false,
+                    Some(&error),
+                );
+                return;
+            }
+        };
+        let mut uploads = match self.terminal_upload_sessions.lock() {
+            Ok(uploads) => uploads,
+            Err(_) => {
+                self.send_terminal_upload_ack(
+                    envelope,
+                    "chunk",
+                    Some(chunk_index),
+                    false,
+                    Some("Upload lock failed."),
+                );
+                return;
+            }
+        };
+        let Some(session) = uploads.get_mut(upload_id) else {
+            self.send_terminal_upload_ack(
+                envelope,
+                "chunk",
+                Some(chunk_index),
+                false,
+                Some("Upload not found."),
+            );
+            return;
+        };
+        if chunk_index >= session.total_chunks || offset + bytes.len() as u64 > session.total_bytes
+        {
+            self.send_terminal_upload_ack(
+                envelope,
+                "chunk",
+                Some(chunk_index),
+                false,
+                Some("Invalid upload chunk."),
+            );
+            return;
+        }
+        match fs::OpenOptions::new()
+            .write(true)
+            .open(&session.partial_path)
+        {
+            Ok(mut file) => {
+                if file.seek(std::io::SeekFrom::Start(offset)).is_err()
+                    || file.write_all(&bytes).is_err()
+                {
+                    self.send_terminal_upload_ack(
+                        envelope,
+                        "chunk",
+                        Some(chunk_index),
+                        false,
+                        Some("Upload write failed."),
+                    );
+                    return;
+                }
+                session.received_chunks.insert(chunk_index);
+                session.received_bytes = session.received_bytes.saturating_add(bytes.len() as u64);
+                self.send_terminal_upload_ack(envelope, "chunk", Some(chunk_index), true, None);
+            }
+            Err(error) => self.send_terminal_upload_ack(
+                envelope,
+                "chunk",
+                Some(chunk_index),
+                false,
+                Some(&error.to_string()),
+            ),
+        }
+    }
+
+    fn handle_terminal_upload_finish(&self, envelope: &RemoteEnvelope) {
+        let Some(upload_id) = envelope.payload.get("uploadId").and_then(Value::as_str) else {
+            self.send_terminal_upload_ack(
+                envelope,
+                "finish",
+                None,
+                false,
+                Some("Upload id is required."),
+            );
+            return;
+        };
+        let session = match self.terminal_upload_sessions.lock() {
+            Ok(mut uploads) => uploads.remove(upload_id),
+            Err(_) => None,
+        };
+        let Some(session) = session else {
+            self.send_terminal_upload_ack(
+                envelope,
+                "finish",
+                None,
+                false,
+                Some("Upload not found."),
+            );
+            return;
+        };
+        if session.received_chunks.len() != session.total_chunks {
+            self.send_terminal_upload_ack(
+                envelope,
+                "finish",
+                None,
+                false,
+                Some("Upload is missing chunks."),
+            );
+            return;
+        }
+        if fs::rename(&session.partial_path, &session.final_path).is_err() {
+            self.send_terminal_upload_ack(
+                envelope,
+                "finish",
+                None,
+                false,
+                Some("Upload finish failed."),
+            );
+            return;
+        }
+        self.send_terminal_upload_ack(envelope, "finish", None, true, None);
+        self.finish_terminal_upload(
+            session.device_id.as_deref(),
+            &session.session_id,
+            session.final_path,
+        );
+    }
+
+    fn handle_terminal_upload_cancel(&self, envelope: &RemoteEnvelope) {
+        let Some(upload_id) = envelope.payload.get("uploadId").and_then(Value::as_str) else {
+            return;
+        };
+        let session = self
+            .terminal_upload_sessions
+            .lock()
+            .ok()
+            .and_then(|mut uploads| uploads.remove(upload_id));
+        if let Some(session) = session {
+            let _ = fs::remove_file(session.partial_path);
+        }
+        self.send_terminal_upload_ack(envelope, "cancel", None, true, None);
+    }
+
+    fn write_terminal_upload_file(
+        &self,
+        session_id: &str,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<PathBuf, String> {
+        let directory = remote_terminal_upload_directory(session_id);
+        fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+        let path = unique_remote_upload_path(&directory, name);
+        fs::write(&path, bytes).map_err(|error| error.to_string())?;
+        Ok(path)
+    }
+
+    fn finish_terminal_upload(&self, device_id: Option<&str>, session_id: &str, path: PathBuf) {
+        let text = format!("{} ", path.to_string_lossy());
+        let _ = self.terminals.write(session_id, text.as_bytes());
+        self.send_terminal_data(
+            "terminal.uploaded",
+            device_id,
+            Some(session_id),
+            json!({
+                "path": path.to_string_lossy().to_string(),
+                "name": path.file_name().and_then(|value| value.to_str()).unwrap_or_default(),
+                "mode": "path",
+                "tool": Value::Null,
+                "inserted": true,
+            }),
+        );
+    }
+
+    fn send_terminal_upload_ack(
+        &self,
+        envelope: &RemoteEnvelope,
+        stage: &str,
+        chunk_index: Option<usize>,
+        ok: bool,
+        message: Option<&str>,
+    ) {
+        let mut payload = json!({
+            "uploadId": envelope.payload.get("uploadId").cloned().unwrap_or(Value::Null),
+            "stage": stage,
+            "ok": ok,
+        });
+        if let Some(chunk_index) = chunk_index {
+            payload["chunkIndex"] = json!(chunk_index);
+        } else if let Some(value) = envelope.payload.get("chunkIndex") {
+            payload["chunkIndex"] = value.clone();
+        }
+        if let Some(message) = message {
+            payload["message"] = json!(message);
+        }
+        self.send_terminal_data(
+            "terminal.upload.ack",
+            envelope.device_id.as_deref(),
+            envelope.session_id.as_deref(),
+            payload,
+        );
+    }
+
+    fn send_terminal_buffer(&self, session_id: &str, device_id: Option<&str>, offset: usize) {
+        self.register_terminal_viewer(session_id, device_id);
+        match self.terminals.snapshot(session_id) {
+            Ok(data) => {
+                let clamped = offset.min(data.len());
+                let chunk = data.get(clamped..).unwrap_or_default().to_string();
+                self.send_terminal_data(
+                    "terminal.output",
+                    device_id,
+                    Some(session_id),
+                    json!({
+                        "data": chunk,
+                        "buffer": true,
+                        "offset": clamped,
+                        "bufferLength": data.chars().count(),
+                    }),
+                );
+            }
+            Err(error) => {
+                self.send_relay(
+                    "error",
+                    device_id,
+                    Some(session_id),
+                    json!({ "message": error.to_string() }),
+                );
+            }
+        }
+    }
+
+    fn remote_terminal_payload(&self, session_id: &str) -> Option<Value> {
+        self.remote_terminals()
+            .into_iter()
+            .find(|value| value.get("id").and_then(Value::as_str) == Some(session_id))
+    }
+
+    fn register_terminal_viewer(&self, session_id: &str, device_id: Option<&str>) {
+        let Some(device_id) = device_id.filter(|value| !value.trim().is_empty()) else {
+            return;
+        };
+        if let Ok(mut viewers) = self.terminal_viewers_by_session.lock() {
+            viewers
+                .entry(session_id.to_string())
+                .or_default()
+                .insert(device_id.to_string());
+        }
+    }
+
+    fn remove_terminal_viewer(&self, device_id: Option<&str>) {
+        let Some(device_id) = device_id else {
+            return;
+        };
+        if let Ok(mut viewers) = self.terminal_viewers_by_session.lock() {
+            for session_viewers in viewers.values_mut() {
+                session_viewers.remove(device_id);
+            }
+            viewers.retain(|_, value| !value.is_empty());
+        }
+    }
+
+    fn handle_terminal_event(&self, event: TerminalEvent) {
+        if let TerminalEvent::Output { session_id, data } = event {
+            let viewers = self
+                .terminal_viewers_by_session
+                .lock()
+                .ok()
+                .and_then(|viewers| viewers.get(&session_id).cloned())
+                .unwrap_or_default();
+            if viewers.is_empty() {
+                return;
+            }
+            let buffer_length = self
+                .terminals
+                .snapshot(&session_id)
+                .map(|value| value.chars().count())
+                .unwrap_or(0);
+            for device_id in viewers {
+                self.send_terminal_data(
+                    "terminal.output",
+                    Some(&device_id),
+                    Some(&session_id),
+                    json!({
+                        "data": data,
+                        "bufferLength": buffer_length,
+                    }),
+                );
+            }
+        }
+    }
+
+    fn send_error(&self, envelope: &RemoteEnvelope, message: &str) {
+        self.send_relay(
+            "error",
+            envelope.device_id.as_deref(),
+            envelope.session_id.as_deref(),
+            json!({ "message": message }),
+        );
+    }
+
+    fn send_terminal_data(
+        &self,
+        kind: &str,
+        device_id: Option<&str>,
+        session_id: Option<&str>,
+        payload: Value,
+    ) {
+        let envelope = RemoteOutgoingEnvelope {
+            kind: kind.to_string(),
+            device_id: device_id.map(str::to_string),
+            session_id: session_id.map(str::to_string),
+            seq: None,
+            payload: payload.clone(),
+        };
+        let p2p = self.p2p.lock().ok().and_then(|value| value.clone());
+        if let (Some(p2p), Ok(data)) = (p2p, serde_json::to_vec(&envelope)) {
+            let lane = match kind {
+                "terminal.upload.ack" | "terminal.uploaded" => RemoteP2PLane::Upload,
+                _ => RemoteP2PLane::Terminal,
+            };
+            if tauri::async_runtime::block_on(p2p.send(data, device_id, lane)) {
+                return;
+            }
+        }
+        self.send_relay(kind, device_id, session_id, payload);
+    }
+
+    fn send_relay(
+        &self,
+        kind: &str,
+        device_id: Option<&str>,
+        session_id: Option<&str>,
+        payload: Value,
+    ) {
+        let inner = RemoteOutgoingEnvelope {
+            kind: kind.to_string(),
+            device_id: device_id.map(str::to_string),
+            session_id: session_id.map(str::to_string),
+            seq: None,
+            payload,
+        };
+        let envelope = self
+            .encrypted_outgoing_envelope(inner)
+            .unwrap_or_else(|_| RemoteOutgoingEnvelope {
+                kind: "secure.required".to_string(),
+                device_id: device_id.map(str::to_string),
+                session_id: session_id.map(str::to_string),
+                seq: None,
+                payload: json!({
+                    "message": "End-to-end encryption is required. Please pair this mobile device again."
+                }),
+            });
+        let Ok(text) = serde_json::to_string(&envelope) else {
+            return;
+        };
+        if let Ok(current) = self.socket_tx.lock() {
+            if let Some(tx) = current.as_ref() {
+                let _ = tx.send(text);
+            }
+        }
+    }
+
+    fn send(&self, kind: &str, device_id: Option<&str>, session_id: Option<&str>, payload: Value) {
+        self.send_relay(kind, device_id, session_id, payload);
+    }
+
+    async fn decrypt_envelope_if_needed(&self, envelope: RemoteEnvelope) -> Option<RemoteEnvelope> {
+        if envelope.kind != "secure.message" {
+            return Some(envelope);
+        }
+        let device_id = envelope.device_id.clone()?;
+        let device = self
+            .snapshot()
+            .device_list
+            .into_iter()
+            .find(|device| device.id == device_id && !device.public_key.trim().is_empty())?;
+        let remote = self.settings.snapshot().remote;
+        let key = remote_e2e_symmetric_key(
+            &remote.host_private_key,
+            &device.public_key,
+            &remote.host_id,
+            &device_id,
+        )
+        .ok()?;
+        let plaintext =
+            remote_e2e_decrypt(&envelope.payload, &key, &remote.host_id, &device_id).ok()?;
+        let mut inner = serde_json::from_slice::<RemoteEnvelope>(&plaintext).ok()?;
+        if let Some(seq) = inner.seq {
+            if let Ok(mut received) = self.receive_seq_by_device.lock() {
+                let previous = received.get(&device_id).copied().unwrap_or(0);
+                if seq <= previous {
+                    return None;
+                }
+                received.insert(device_id.clone(), seq);
+            }
+        }
+        inner.device_id = Some(device_id);
+        Some(inner)
+    }
+
+    fn encrypted_outgoing_envelope(
+        &self,
+        mut inner: RemoteOutgoingEnvelope,
+    ) -> Result<RemoteOutgoingEnvelope, String> {
+        let Some(device_id) = inner
+            .device_id
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            return Ok(inner);
+        };
+        let device = self
+            .snapshot()
+            .device_list
+            .into_iter()
+            .find(|device| device.id == device_id && !device.public_key.trim().is_empty())
+            .ok_or_else(|| "Missing device encryption key.".to_string())?;
+        let remote = self.settings.snapshot().remote;
+        let seq = {
+            let mut send_seq = self
+                .send_seq_by_device
+                .lock()
+                .map_err(|_| "Remote sequence lock poisoned.".to_string())?;
+            let next = send_seq.get(&device_id).copied().unwrap_or(0) + 1;
+            send_seq.insert(device_id.clone(), next);
+            next
+        };
+        inner.seq = Some(seq);
+        let plaintext = serde_json::to_vec(&inner).map_err(remote_error_message)?;
+        let key = remote_e2e_symmetric_key(
+            &remote.host_private_key,
+            &device.public_key,
+            &remote.host_id,
+            &device_id,
+        )?;
+        let payload = remote_e2e_encrypt(&plaintext, &key, &remote.host_id, &device_id)?;
+        Ok(RemoteOutgoingEnvelope {
+            kind: "secure.message".to_string(),
+            device_id: Some(device_id),
+            session_id: inner.session_id,
+            seq: None,
+            payload,
+        })
+    }
+
+    fn update_device_online(
+        &self,
+        device_id: Option<&str>,
+        online: bool,
+        app: Option<&tauri::AppHandle>,
+    ) {
+        let Some(device_id) = device_id else {
+            return;
+        };
+        let mut status = self.snapshot();
+        if let Some(device) = status
+            .device_list
+            .iter_mut()
+            .find(|device| device.id == device_id)
+        {
+            device.online = Some(online);
+            if online {
+                device.last_seen = chrono::Utc::now().to_rfc3339();
+            }
+        }
+        self.update_snapshot(status, app);
+    }
+
+    fn update_snapshot(&self, status: RemoteStatus, app: Option<&tauri::AppHandle>) {
+        if let Ok(mut current) = self.snapshot.lock() {
+            *current = status.clone();
+        }
+        if let Some(app) = app {
+            let _ = app.emit("remote:status", status);
+        }
+    }
+}
+
+async fn remote_post<T: serde::de::DeserializeOwned>(
+    base: &str,
+    path: &str,
+    body: Value,
+) -> Result<T, String> {
+    let url = remote_url(base, path, &[], false)?;
+    let client = remote_http_client()?;
+    let response = client
+        .post(url)
+        .header(CONTENT_TYPE, "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(remote_error_message)?;
+    remote_parse_response(response).await
+}
+
+async fn remote_parse_response<T: serde::de::DeserializeOwned>(
+    response: reqwest::Response,
+) -> Result<T, String> {
+    let status = response.status();
+    let bytes = response.bytes().await.map_err(remote_error_message)?;
+    if !status.is_success() {
+        if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
+            if let Some(error) = value.get("error").and_then(Value::as_str) {
+                return Err(error.to_string());
+            }
+        }
+        return Err(String::from_utf8_lossy(&bytes).to_string());
+    }
+    serde_json::from_slice(&bytes).map_err(|error| {
+        format!(
+            "Remote response decode failed: {error}. Body: {}",
+            String::from_utf8_lossy(&bytes)
+        )
+    })
+}
+
+fn remote_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .use_rustls_tls()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(remote_error_message)
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct RemoteEnvelope {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default, rename = "deviceId")]
+    device_id: Option<String>,
+    #[serde(default, rename = "sessionId")]
+    session_id: Option<String>,
+    #[serde(default)]
+    seq: Option<i64>,
+    #[serde(default)]
+    payload: Value,
+}
+
+impl RemoteEnvelope {
+    fn with_device_id(mut self, device_id: String) -> Self {
+        self.device_id = Some(device_id);
+        self
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct RemoteOutgoingEnvelope {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "deviceId")]
+    device_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sessionId")]
+    session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seq: Option<i64>,
+    payload: Value,
+}
+
+struct RemoteTerminalUploadSession {
+    session_id: String,
+    device_id: Option<String>,
+    total_bytes: u64,
+    total_chunks: usize,
+    partial_path: PathBuf,
+    final_path: PathBuf,
+    received_chunks: HashSet<usize>,
+    received_bytes: u64,
+}
+
+impl RemoteStatus {
+    fn from_settings(
+        settings: &app_settings::RemoteSettings,
+        status: Option<&str>,
+        message: Option<String>,
+    ) -> Self {
+        let relay = remote_server_url(settings);
+        let enabled = settings.enabled && !relay.trim().is_empty();
+        let devices = settings
+            .cached_devices
+            .iter()
+            .filter(|device| device.revoked_at.is_none())
+            .cloned()
+            .map(RemoteHostDevice::from)
+            .collect::<Vec<_>>();
+        let status = status
+            .unwrap_or(if enabled { "connecting" } else { "stopped" })
+            .to_string();
+        let message = message.unwrap_or_else(|| {
+            if enabled {
+                "Connecting relay...".to_string()
+            } else {
+                "Remote Host stopped.".to_string()
+            }
+        });
+        Self {
+            enabled,
+            relay,
+            devices: devices.len() as u32,
+            encryption: if enabled && !settings.host_public_key.trim().is_empty() {
+                "configured".to_string()
+            } else if enabled {
+                "pending".to_string()
+            } else {
+                "disabled".to_string()
+            },
+            status,
+            message,
+            host_id: settings.host_id.clone(),
+            pairing: None,
+            device_list: devices,
+            pending_pairings: Vec::new(),
+        }
+    }
+}
+
+fn remote_file_list(path: Option<&str>, purpose: Option<&str>) -> Value {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    let requested = path
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(&home);
+    let requested_path = PathBuf::from(requested);
+    let directory = if requested_path.is_dir() {
+        requested_path
+    } else {
+        requested_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(&home))
+    };
+    let mut entries = fs::read_dir(&directory)
+        .ok()
+        .into_iter()
+        .flat_map(|read_dir| read_dir.filter_map(Result::ok))
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = path.file_name()?.to_str()?.to_string();
+            if name.starts_with('.') {
+                return None;
+            }
+            let is_directory = path.is_dir();
+            Some(json!({
+                "name": name,
+                "path": path.to_string_lossy().to_string(),
+                "isDirectory": is_directory,
+            }))
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        let left_dir = left
+            .get("isDirectory")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let right_dir = right
+            .get("isDirectory")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        right_dir.cmp(&left_dir).then_with(|| {
+            left.get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_lowercase()
+                .cmp(
+                    &right
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_lowercase(),
+                )
+        })
+    });
+    let mut payload = json!({
+        "path": directory.to_string_lossy().to_string(),
+        "parent": directory.parent().map(|path| path.to_string_lossy().to_string()).unwrap_or_default(),
+        "entries": entries,
+    });
+    if let Some(purpose) = purpose {
+        payload["purpose"] = Value::String(purpose.to_string());
+    }
+    payload
+}
+
+fn remote_file_read(path: &str) -> Result<Value, String> {
+    let path = PathBuf::from(path);
+    if path.is_dir() {
+        return Err("Cannot open a directory as a file.".to_string());
+    }
+    let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+    if metadata.len() > 2 * 1024 * 1024 {
+        return Err("File is larger than 2MB and cannot be opened on mobile yet.".to_string());
+    }
+    let content = fs::read_to_string(&path)
+        .map_err(|_| "Only UTF-8 text files can be edited on mobile.".to_string())?;
+    Ok(json!({
+        "path": path.to_string_lossy().to_string(),
+        "name": path.file_name().and_then(|value| value.to_str()).unwrap_or_default(),
+        "content": content,
+        "size": content.len(),
+    }))
+}
+
+fn remote_file_write(path: &str, content: &str) -> Result<(), String> {
+    fs::write(path, content).map_err(|error| error.to_string())
+}
+
+fn remote_file_rename(path: &str, new_path: &str) -> Result<(), String> {
+    let source = PathBuf::from(path);
+    let destination = PathBuf::from(new_path);
+    if source.parent() != destination.parent() {
+        return Err("Rename must stay in the same directory.".to_string());
+    }
+    if destination.exists() {
+        return Err("A file with this name already exists.".to_string());
+    }
+    fs::rename(source, destination).map_err(|error| error.to_string())
+}
+
+fn remote_terminal_upload_directory(session_id: &str) -> PathBuf {
+    std::env::temp_dir()
+        .join("CoduxUploads")
+        .join(sanitized_remote_upload_name(session_id))
+}
+
+fn sanitized_remote_upload_name(value: &str) -> String {
+    let name = Path::new(value)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("upload.png");
+    let cleaned = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('.')
+        .to_string();
+    if cleaned.is_empty() {
+        "upload.png".to_string()
+    } else {
+        cleaned
+    }
+}
+
+fn unique_remote_upload_path(directory: &Path, file_name: &str) -> PathBuf {
+    let file_name = sanitized_remote_upload_name(file_name);
+    let path = PathBuf::from(&file_name);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("upload");
+    let extension = path.extension().and_then(|value| value.to_str());
+    let mut candidate = directory.join(&file_name);
+    let mut index = 1;
+    while candidate.exists() {
+        let next = match extension {
+            Some(extension) if !extension.is_empty() => format!("{stem}-{index}.{extension}"),
+            _ => format!("{stem}-{index}"),
+        };
+        candidate = directory.join(next);
+        index += 1;
+    }
+    candidate
+}
+
+fn remote_url(
+    base: &str,
+    path: &str,
+    query: &[(&str, &str)],
+    websocket: bool,
+) -> Result<String, String> {
+    let mut url = url::Url::parse(base.trim()).map_err(|error| error.to_string())?;
+    url.set_path(path);
+    url.set_query(None);
+    if websocket {
+        let scheme = match url.scheme() {
+            "https" => "wss",
+            "http" => "ws",
+            other => other,
+        }
+        .to_string();
+        let _ = url.set_scheme(&scheme);
+    }
+    {
+        let mut pairs = url.query_pairs_mut();
+        for (key, value) in query {
+            pairs.append_pair(key, value);
+        }
+    }
+    Ok(url.to_string())
+}
+
+fn remote_server_url(settings: &app_settings::RemoteSettings) -> String {
+    if settings.relay_url.trim().is_empty() {
+        "http://127.0.0.1:8088".to_string()
+    } else {
+        settings.relay_url.trim().to_string()
+    }
+}
+
+fn remote_host_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "Codux".to_string())
+}
+
+fn remote_random_token() -> String {
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+fn ensure_remote_host_identity(settings: &mut app_settings::RemoteSettings) {
+    if let Some(private_key) = remote_e2e_private_key(&settings.host_private_key) {
+        let public_key = X25519PublicKey::from(&private_key);
+        let derived_public = remote_base64_url_encode(public_key.as_bytes());
+        if settings.host_public_key.trim().is_empty() || settings.host_public_key == derived_public
+        {
+            settings.host_public_key = derived_public;
+            return;
+        }
+    }
+    let private_key = StaticSecret::random();
+    let public_key = X25519PublicKey::from(&private_key);
+    settings.host_private_key = remote_base64_url_encode(private_key.to_bytes().as_slice());
+    settings.host_public_key = remote_base64_url_encode(public_key.as_bytes());
+}
+
+fn remote_pairing_qr_payload(
+    settings: &app_settings::RemoteSettings,
+    pairing: &RemotePairingInfo,
+) -> String {
+    let payload = json!({
+        "server": remote_server_url(settings),
+        "code": pairing.code,
+        "secret": pairing.secret,
+        "hostName": remote_host_name(),
+        "hostPublicKey": settings.host_public_key,
+        "cryptoVersion": 1,
+    });
+    serde_json::to_vec(&payload)
+        .ok()
+        .map(|data| remote_base64_url_encode(&data))
+        .unwrap_or_default()
+}
+
+fn remote_pairing_match_code(
+    settings: &app_settings::RemoteSettings,
+    pairing_code: &str,
+    pairing_secret: &str,
+    device_public_key: &str,
+) -> Option<String> {
+    if settings.host_public_key.trim().is_empty() || device_public_key.trim().is_empty() {
+        return None;
+    }
+    let material = format!(
+        "codux-e2e-match-v1|{}|{}|{}|{}",
+        settings.host_public_key, device_public_key, pairing_code, pairing_secret
+    );
+    let digest = Sha256::digest(material.as_bytes());
+    let prefix = digest
+        .iter()
+        .take(3)
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<String>();
+    Some(format!("{}-{}", &prefix[..3], &prefix[3..]))
+}
+
+fn remote_e2e_private_key(value: &str) -> Option<StaticSecret> {
+    let bytes = remote_base64_url_decode(value).ok()?;
+    let array: [u8; 32] = bytes.as_slice().try_into().ok()?;
+    Some(StaticSecret::from(array))
+}
+
+fn remote_e2e_symmetric_key(
+    host_private_key: &str,
+    remote_public_key: &str,
+    host_id: &str,
+    device_id: &str,
+) -> Result<[u8; 32], String> {
+    let private_key = remote_e2e_private_key(host_private_key)
+        .ok_or_else(|| "Invalid host private key.".to_string())?;
+    let public_bytes = remote_base64_url_decode(remote_public_key)?;
+    let public_array: [u8; 32] = public_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Invalid device public key.".to_string())?;
+    let public_key = X25519PublicKey::from(public_array);
+    let shared = private_key.diffie_hellman(&public_key);
+    let salt = format!("codux-e2e-v1|{host_id}|{device_id}");
+    let hkdf = Hkdf::<Sha256>::new(Some(salt.as_bytes()), shared.as_bytes());
+    let mut key = [0_u8; 32];
+    hkdf.expand(b"codux-remote-payload-v1", &mut key)
+        .map_err(|_| "Failed to derive encryption key.".to_string())?;
+    Ok(key)
+}
+
+fn remote_e2e_encrypt(
+    plaintext: &[u8],
+    key: &[u8; 32],
+    host_id: &str,
+    device_id: &str,
+) -> Result<Value, String> {
+    let nonce_bytes = uuid::Uuid::new_v4().as_bytes()[..12].to_vec();
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let aad = format!("codux-e2e-aad-v1|{host_id}|{device_id}");
+    let encrypted = cipher
+        .encrypt(
+            Nonce::from_slice(&nonce_bytes),
+            Payload {
+                msg: plaintext,
+                aad: aad.as_bytes(),
+            },
+        )
+        .map_err(|_| "Failed to encrypt remote payload.".to_string())?;
+    if encrypted.len() < 16 {
+        return Err("Invalid encrypted payload.".to_string());
+    }
+    let (ciphertext, tag) = encrypted.split_at(encrypted.len() - 16);
+    Ok(json!({
+        "v": 1,
+        "alg": "X25519-HKDF-SHA256-AES-256-GCM",
+        "nonce": remote_base64_url_encode(&nonce_bytes),
+        "ciphertext": remote_base64_url_encode(ciphertext),
+        "tag": remote_base64_url_encode(tag),
+    }))
+}
+
+fn remote_e2e_decrypt(
+    payload: &Value,
+    key: &[u8; 32],
+    host_id: &str,
+    device_id: &str,
+) -> Result<Vec<u8>, String> {
+    if payload.get("v").and_then(Value::as_i64) != Some(1) {
+        return Err("Unsupported encrypted payload.".to_string());
+    }
+    let nonce = remote_base64_url_decode(
+        payload
+            .get("nonce")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Missing nonce.".to_string())?,
+    )?;
+    let mut ciphertext = remote_base64_url_decode(
+        payload
+            .get("ciphertext")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Missing ciphertext.".to_string())?,
+    )?;
+    let tag = remote_base64_url_decode(
+        payload
+            .get("tag")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Missing tag.".to_string())?,
+    )?;
+    ciphertext.extend_from_slice(&tag);
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let aad = format!("codux-e2e-aad-v1|{host_id}|{device_id}");
+    cipher
+        .decrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: &ciphertext,
+                aad: aad.as_bytes(),
+            },
+        )
+        .map_err(|_| "Failed to decrypt remote payload.".to_string())
+}
+
+fn remote_base64_url_encode(data: &[u8]) -> String {
+    base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, data)
+}
+
+fn remote_base64_url_decode(value: &str) -> Result<Vec<u8>, String> {
+    base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, value)
+        .map_err(|error| error.to_string())
+}
+
+fn remote_error_message(error: impl std::fmt::Display) -> String {
+    error.to_string()
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RemoteStatus {
     enabled: bool,
     relay: String,
     devices: u32,
     encryption: String,
+    status: String,
+    message: String,
+    host_id: String,
+    pairing: Option<RemotePairingInfo>,
+    device_list: Vec<RemoteHostDevice>,
+    pending_pairings: Vec<RemotePendingPairing>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteHostDevice {
+    id: String,
+    host_id: String,
+    name: String,
+    public_key: String,
+    created_at: String,
+    last_seen: String,
+    revoked_at: Option<String>,
+    online: Option<bool>,
+}
+
+impl From<app_settings::RemoteHostDeviceSettings> for RemoteHostDevice {
+    fn from(device: app_settings::RemoteHostDeviceSettings) -> Self {
+        Self {
+            id: device.id,
+            host_id: device.host_id,
+            name: device.name,
+            public_key: device.public_key,
+            created_at: device.created_at,
+            last_seen: device.last_seen,
+            revoked_at: device.revoked_at,
+            online: device.online,
+        }
+    }
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemotePairingInfo {
+    pairing_id: String,
+    code: String,
+    secret: String,
+    host_public_key: Option<String>,
+    crypto_version: Option<u32>,
+    expires_at: String,
+    qr_payload: String,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemotePendingPairing {
+    id: String,
+    device_name: String,
+    device_public_key: String,
+    code: String,
 }
 
 #[cfg(debug_assertions)]
@@ -2561,7 +5127,7 @@ fn build_app_menu(app: &tauri::AppHandle, settings: &AppSettings) -> tauri::Resu
     let create_task = MenuItem::with_id(
         app,
         MENU_CREATE_TASK,
-        tr_or_label(settings, "shortcut.task.create", "New Task"),
+        tr_or_label(settings, "shortcut.task.create", "New Worktree"),
         true,
         Some(accelerators.create_task.as_str()),
     )?;
@@ -2857,12 +5423,20 @@ pub fn run() {
             project_activity.seed_projects(projects.projects_snapshot());
             let power = Arc::new(PowerManager::default());
             power.start_settings_sync(Arc::clone(&settings))?;
+            let terminals = Arc::new(TerminalManager::new(
+                Arc::clone(&ai_runtime),
+                Arc::clone(&settings),
+                Arc::clone(&memory),
+            ));
+            let remote = Arc::new(RemoteHostService::new(
+                Arc::clone(&settings),
+                Arc::clone(&projects),
+                Arc::clone(&terminals),
+                Arc::clone(&ai_history),
+            ));
             let state = AppState {
-                terminals: Arc::new(TerminalManager::new(
-                    Arc::clone(&ai_runtime),
-                    Arc::clone(&settings),
-                    Arc::clone(&memory),
-                )),
+                terminals,
+                remote: Arc::clone(&remote),
                 performance: Arc::new(PerformanceMonitor::default()),
                 power,
                 ai_runtime,
@@ -2881,6 +5455,7 @@ pub fn run() {
             let initial_settings = state.settings.snapshot();
             let initial_pet = state.pet.snapshot().ok();
             project_activity.start(app.handle().clone(), Arc::clone(&settings), ai_history);
+            remote.start(app.handle().clone());
             app.manage(state);
             if let Some(pet) = initial_pet {
                 sync_desktop_pet_window(app.handle(), &initial_settings, &pet);
@@ -2894,13 +5469,21 @@ pub fn run() {
             project_close_all,
             project_mark_active,
             project_select,
+            project_reorder,
             project_select_worktree,
+            project_set_default_push_remote,
             project_open_applications,
             project_open_in_application,
             project_reveal_in_file_manager,
             terminal_layout_get,
             terminal_layout_save,
             remote_status,
+            remote_reconnect,
+            remote_devices_refresh,
+            remote_pairing_create,
+            remote_pairing_cancel,
+            remote_pairing_confirm,
+            remote_pairing_reject,
             power_set_sleep_prevention,
             notification_dispatch_channels,
             app_about_metadata,
@@ -2947,6 +5530,8 @@ pub fn run() {
             ai_history_project_state,
             ai_history_global_summary,
             ai_history_global_state,
+            ai_history_session_rename,
+            ai_history_session_remove,
             git_status,
             git_stage,
             git_unstage,

@@ -107,6 +107,7 @@ export function PetCustomPetInstallWindow() {
 
   return (
     <WindowFrame
+      title={tm("pet.custom.install.title", "Add Custom Pet")}
       footer={
         <>
           <Button variant="ghost" disabled={isBusy} onPressUp={() => void closeCurrentAppWindow()}>

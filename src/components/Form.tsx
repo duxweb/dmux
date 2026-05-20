@@ -29,14 +29,38 @@ export function Field({
   description,
   hint,
   required,
+  fullWidth,
   children,
 }: {
   label?: ReactNode;
   description?: ReactNode;
   hint?: ReactNode;
   required?: boolean;
+  fullWidth?: boolean;
   children: ReactNode;
 }) {
+  if (fullWidth) {
+    return (
+      <label className="grid gap-2">
+        {label !== undefined && (
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-ink">
+              {label}
+              {required && <span className="text-brand-red ml-0.5">*</span>}
+            </div>
+            {description !== undefined && (
+              <div className="mt-0.5 text-xs text-ink-faint">{description}</div>
+            )}
+            {hint !== undefined && (
+              <div className="mt-0.5 text-xs text-ink-faint">{hint}</div>
+            )}
+          </div>
+        )}
+        <div className="min-w-0">{children}</div>
+      </label>
+    );
+  }
+
   return (
     <label className="flex items-center justify-between gap-4">
       <div className="min-w-0 flex-1">
@@ -53,7 +77,7 @@ export function Field({
           <div className="mt-0.5 text-xs text-ink-faint">{hint}</div>
         )}
       </div>
-      <div className="flex min-w-[220px] w-[min(440px,44%)] flex-shrink-0 justify-end">{children}</div>
+      <div className="flex min-w-[180px] w-[30%] max-w-[260px] flex-shrink-0 justify-end">{children}</div>
     </label>
   );
 }
@@ -197,24 +221,31 @@ export function FormRow({
 export function SettingsCard({
   title,
   description,
+  action,
   children,
   className,
 }: {
   title?: ReactNode;
   description?: ReactNode;
+  action?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <section className={className}>
-      {(title !== undefined || description !== undefined) && (
+      {(title !== undefined || description !== undefined || action !== undefined) && (
         <div className="mb-2 px-1">
-          <div className="min-w-0">
-            {title !== undefined && (
-              <h3 className="text-sm font-semibold text-ink">{title}</h3>
-            )}
-            {description !== undefined && (
-              <p className="mt-1 text-xs text-ink-faint">{description}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              {title !== undefined && (
+                <h3 className="text-sm font-semibold text-ink">{title}</h3>
+              )}
+              {description !== undefined && (
+                <p className="mt-1 text-xs text-ink-faint">{description}</p>
+              )}
+            </div>
+            {action !== undefined && (
+              <div className="flex flex-none items-center justify-end">{action}</div>
             )}
           </div>
         </div>

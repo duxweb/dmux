@@ -7,6 +7,7 @@ import {
   FileText,
   Folder,
   FolderPlus,
+  GitBranch,
   KeyRound,
   Minus,
   MoreHorizontal,
@@ -22,8 +23,14 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Button as HeroButton, Dropdown, ProgressBar, Spinner } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Key, type ReactNode } from "react";
-import { useAIHistorySnapshot, type AIHeatmapDay, type AIHistorySessionSummary, type AITimeBucket, type AIUsageBreakdownItem } from "../ai/history";
-import { aiIndexingPresentation, liveSessionTotalTokens } from "../ai/panelPresentation";
+import {
+  useAIHistorySnapshot,
+  type AIHeatmapDay,
+  type AIHistorySessionSummary,
+  type AITimeBucket,
+  type AIUsageBreakdownItem,
+} from "../ai/history";
+import { aiIndexingPresentation } from "../ai/panelPresentation";
 import { useAIRuntimeSnapshot, type AISessionSnapshot } from "../ai/runtime";
 import {
   copyFile,
@@ -39,16 +46,16 @@ import {
   type FileChangeEvent,
   type FileEntry,
 } from "../files/api";
-import { useGitStatusSnapshot, type GitCommitAction, type GitCommitSummary, type GitFileStatus, type GitStatusSnapshot } from "../git/status";
+import {
+  useGitStatusSnapshot,
+  type GitCommitAction,
+  type GitCommitSummary,
+  type GitFileStatus,
+  type GitStatusSnapshot,
+} from "../git/status";
 import { Button } from "./Button";
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator, useContextMenu } from "./ContextMenu";
-import {
-  DesktopMenu,
-  DesktopMenuItem,
-  DesktopMenuSectionLabel,
-  DesktopMenuSeparator,
-  DesktopSubmenu,
-} from "./DesktopMenu";
+import { DesktopMenu, DesktopMenuItem, DesktopMenuSeparator, DesktopSubmenu } from "./DesktopMenu";
 import { Select, Textarea, TextInput } from "./Form";
 import { PressableButton } from "./PressableButton";
 import {
@@ -67,6 +74,8 @@ import { openGitDiffWindow } from "../windowing";
 import { systemConfirm } from "../systemDialog";
 import { formatI18n, localeFromSettings, tm } from "../i18n";
 import { openLocalizedDialog } from "../localizedDialog";
+import { readAppSettings, subscribeAppSettings, type AIStatisticsMode } from "../settings";
+import { revealProjectInFileManager } from "../ide";
 
 type Props = {
   panel: RightPanelKind;
@@ -98,7 +107,7 @@ function SectionHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="sticky top-0 z-10 h-[34px] flex items-center justify-between border-b border-line/80 bg-fill/[0.055] px-3.5 text-xs text-ink-soft">
+    <div className="sticky top-0 z-20 h-[34px] flex items-center justify-between border-b border-line/80 bg-surface-chrome px-3.5 text-xs text-ink-soft shadow-[0_1px_0_rgb(0_0_0_/_0.12)]">
       <button
         onClick={() => setOpen(!open)}
         className="min-w-0 h-full flex flex-1 items-center gap-2 text-left transition-colors hover:text-ink"
@@ -112,9 +121,7 @@ function SectionHeader({
       </button>
       <div className="flex items-center gap-1">
         {actions}
-        {count != null && (
-          <span className="min-w-4 text-right text-xs text-ink-faint tabular-nums">{count}</span>
-        )}
+        {count != null && <span className="min-w-4 text-right text-xs text-ink-faint tabular-nums">{count}</span>}
       </div>
     </div>
   );
@@ -204,15 +211,15 @@ function GitInputPanel({
   onCancel: () => void;
   onSubmit: () => void;
 }) {
-  const canSubmit = input.value.trim().length > 0 && (input.secondaryLabel ? (input.secondaryValue ?? "").trim().length > 0 : true);
-  const controlClass = "w-full rounded-md border border-line bg-surface-chrome/65 px-2 text-xs text-ink outline-none focus:border-brand-blue/60";
+  const canSubmit =
+    input.value.trim().length > 0 && (input.secondaryLabel ? (input.secondaryValue ?? "").trim().length > 0 : true);
+  const controlClass =
+    "w-full rounded-md border border-line bg-surface-chrome/65 px-2 text-xs text-ink outline-none focus:border-brand-blue/60";
 
   return (
     <div className="mx-3 mt-3 rounded-[10px] border border-line bg-fill/[0.04] p-3">
       <div className="text-xs font-semibold text-ink">{input.title}</div>
-      {input.message ? (
-        <div className="mt-1 text-[11px] leading-relaxed text-ink-faint">{input.message}</div>
-      ) : null}
+      {input.message ? <div className="mt-1 text-[11px] leading-relaxed text-ink-faint">{input.message}</div> : null}
       <form
         className="mt-2 grid gap-2"
         onSubmit={(event) => {
@@ -285,19 +292,21 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
   });
   const [commitMessage, setCommitMessage] = useState("");
   const [commitAction, setCommitAction] = useState<GitCommitAction>("commit");
-  const [selectedFileId, setSelectedFileId] = useState("");
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [selectionAnchorFileId, setSelectionAnchorFileId] = useState("");
   const [selectedCommitHash, setSelectedCommitHash] = useState("");
   const [gitInput, setGitInput] = useState<GitInputState | null>(null);
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const [commitMenuOpen, setCommitMenuOpen] = useState(false);
+  const [isSubmittingCommit, setSubmittingCommit] = useState(false);
   const git = useGitStatusSnapshot(project);
   const [isManualRefreshing, refreshGit] = useRefreshFeedback(git.refresh);
   const isRefreshingGit = git.isLoading || isManualRefreshing;
   const snapshot = git.snapshot;
   const hasUpstream = Boolean(snapshot.upstream);
-  const totalChanges =
-    snapshot.staged.length + snapshot.unstaged.length + snapshot.untracked.length;
-  const canCommit = snapshot.staged.length > 0 && commitMessage.trim().length > 0;
+  const hasRemotes = snapshot.remotes.length > 0;
+  const canUseCurrentBranchRemote = hasUpstream && snapshot.branch !== "HEAD" && snapshot.branch !== "uninitialized";
+  const canCommit = snapshot.staged.length > 0 && commitMessage.trim().length > 0 && !isSubmittingCommit;
   const statusLabel = !snapshot.isRepository
     ? tm("git.repository.not_repository", "Current project is not a Git repository.")
     : hasUpstream
@@ -307,9 +316,8 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
       : tm("git.remote.status.no_remote_branch", "No Remote Branch");
   const statusTone = snapshot.isRepository && hasUpstream ? "info" : "neutral";
   const statusButtonTone = statusTone === "info" ? "ghost" : "neutral";
-  const StatusIcon = snapshot.isRepository && hasUpstream && snapshot.behind === 0 && snapshot.ahead === 0
-    ? CheckCircle2
-    : ChevronRight;
+  const StatusIcon =
+    snapshot.isRepository && hasUpstream && snapshot.behind === 0 && snapshot.ahead === 0 ? CheckCircle2 : ChevronRight;
   const commitActionLabel = gitCommitActionLabel(commitAction);
   const remoteBranchesByRemote = useMemo(() => {
     return groupRemoteBranches(snapshot.remoteBranches);
@@ -318,14 +326,29 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
     () => snapshot.branches.filter((branch) => branch.name !== snapshot.branch),
     [snapshot.branch, snapshot.branches],
   );
-  const remotePushBranchesByRemote = useMemo(() => {
-    const upstream = snapshot.upstream;
-    const targets = [...snapshot.remoteBranches];
-    if (upstream && !targets.includes(upstream)) {
-      targets.unshift(upstream);
+  const visibleGitFiles = useMemo(
+    () => [
+      ...(stagedOpen ? flattenGitFileTree(buildGitFileTree(snapshot.staged), "staged") : []),
+      ...(changesOpen ? flattenGitFileTree(buildGitFileTree(snapshot.unstaged), "unstaged") : []),
+      ...(untrackedOpen ? flattenGitFileTree(buildGitFileTree(snapshot.untracked), "untracked") : []),
+    ],
+    [changesOpen, snapshot.staged, snapshot.unstaged, snapshot.untracked, stagedOpen, untrackedOpen],
+  );
+  const selectedGitFiles = useMemo(
+    () => visibleGitFiles.filter((item) => selectedFileIds.has(item.id)),
+    [selectedFileIds, visibleGitFiles],
+  );
+  const selectedByKind = useMemo(() => {
+    const grouped: Record<GitFileSectionKind, GitFileStatus[]> = {
+      staged: [],
+      unstaged: [],
+      untracked: [],
+    };
+    for (const item of selectedGitFiles) {
+      grouped[item.kind].push(item.file);
     }
-    return groupRemoteBranches(targets, upstream);
-  }, [snapshot.remoteBranches, snapshot.upstream]);
+    return grouped;
+  }, [selectedGitFiles]);
   useEffect(() => {
     previousGitDirectoryPathsRef.current = {
       staged: new Set(),
@@ -333,12 +356,18 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
       untracked: new Set(),
     };
     setSelectedCommitHash("");
+    setSelectedFileIds(new Set());
+    setSelectionAnchorFileId("");
     setExpandedGitFilePaths({
       staged: new Set(),
       unstaged: new Set(),
       untracked: new Set(),
     });
   }, [project?.path]);
+  useEffect(() => {
+    if (canUseCurrentBranchRemote || commitAction === "commit") return;
+    setCommitAction("commit");
+  }, [canUseCurrentBranchRemote, commitAction]);
   useEffect(() => {
     const nextAvailable = {
       staged: collectGitDirectoryPaths(snapshot.staged),
@@ -375,7 +404,7 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
     await gitInput.onSubmit(primary, secondary);
   };
   const createBranch = () => {
-    const seed = `task/${new Date().toISOString().slice(0, 10)}`;
+    const seed = `worktree/${new Date().toISOString().slice(0, 10)}`;
     openGitInput({
       title: tm("git.branch.new", "New Branch"),
       message: tm("git.branch.new.message", "Enter a new branch name."),
@@ -415,12 +444,15 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
       label: tm("git.remote.name", "Remote Name"),
       value: snapshot.remotes[0]?.name ?? "",
       onSubmit: async (name) => {
-        if (await systemConfirm(formatI18n(tm("git.remote.remove.confirm_format", "Remove remote %@?"), name), {
-          title: tm("git.remote.remove", "Remove Remote"),
-          kind: "warning",
-          okLabel: tm("common.delete", "Delete"),
-          cancelLabel: tm("common.cancel", "Cancel"),
-        })) await git.removeRemote(name);
+        if (
+          await systemConfirm(formatI18n(tm("git.remote.remove.confirm_format", "Remove remote %@?"), name), {
+            title: tm("git.remote.remove", "Remove Remote"),
+            kind: "warning",
+            okLabel: tm("common.delete", "Delete"),
+            cancelLabel: tm("common.cancel", "Cancel"),
+          })
+        )
+          await git.removeRemote(name);
       },
     });
   };
@@ -452,6 +484,18 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
       if (remote) await git.pushRemote(remote);
       return;
     }
+    if (rawKey.startsWith("setDefaultRemote:")) {
+      const remote = rawKey.slice("setDefaultRemote:".length);
+      if (project?.rootProjectId || project?.id) {
+        await invoke("project_set_default_push_remote", {
+          request: {
+            projectId: project.rootProjectId ?? project.id,
+            remoteName: project.gitDefaultPushRemoteName === remote ? null : remote,
+          },
+        });
+      }
+      return;
+    }
     if (rawKey.startsWith("pushRemoteBranch:")) {
       const remoteBranch = rawKey.slice("pushRemoteBranch:".length);
       if (remoteBranch) await git.pushRemoteBranch(remoteBranch, snapshot.branch);
@@ -470,12 +514,15 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
     if (rawKey.startsWith("deleteLocal:")) {
       const branch = rawKey.slice("deleteLocal:".length);
       if (!branch || branch === snapshot.branch) return;
-      const force = await systemConfirm(formatI18n(tm("git.branch.delete.confirm_format", "Delete local branch %@?"), branch), {
-        title: tm("git.branch.delete_local", "Delete Local Branch"),
-        kind: "warning",
-        okLabel: tm("common.delete", "Delete"),
-        cancelLabel: tm("common.cancel", "Cancel"),
-      });
+      const force = await systemConfirm(
+        formatI18n(tm("git.branch.delete.confirm_format", "Delete local branch %@?"), branch),
+        {
+          title: tm("git.branch.delete_local", "Delete Local Branch"),
+          kind: "warning",
+          okLabel: tm("common.delete", "Delete"),
+          cancelLabel: tm("common.cancel", "Cancel"),
+        },
+      );
       if (force) await git.deleteBranch(branch, false);
       return;
     }
@@ -485,6 +532,32 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
         return;
       case "fetch":
         await git.fetch();
+        return;
+      case "pull":
+        await git.pull();
+        return;
+      case "push":
+        await git.push();
+        return;
+      case "forcePush":
+        if (
+          await systemConfirm(tm("git.remote.force_push.message", "Overwrite the current remote branch?"), {
+            title: tm("git.remote.force_push", "Force Push"),
+            kind: "warning",
+            okLabel: tm("git.remote.force_push", "Force Push"),
+            cancelLabel: tm("common.cancel", "Cancel"),
+          })
+        )
+          await git.forcePush();
+        return;
+      case "undoLastCommit":
+        if (snapshot.commits[0]) await runCommitAction(snapshot.commits[0], "undo");
+        return;
+      case "editLastCommitMessage":
+        if (snapshot.commits[0]) await runCommitAction(snapshot.commits[0], "amend");
+        return;
+      case "showRepository":
+        if (project?.path) void revealProjectInFileManager(project.path);
         return;
       case "addRemote":
         addRemote();
@@ -500,8 +573,32 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
   const gitFileSelectionId = (file: GitFileStatus, staged: boolean) =>
     `${staged ? "staged" : file.indexStatus === "?" ? "untracked" : "unstaged"}:${file.path}`;
 
-  const selectGitFile = (file: GitFileStatus, staged: boolean) => {
-    setSelectedFileId(gitFileSelectionId(file, staged));
+  const selectGitFile = (file: GitFileStatus, staged: boolean, modifiers?: { extend?: boolean; toggle?: boolean }) => {
+    const id = gitFileSelectionId(file, staged);
+    if (modifiers?.extend && selectionAnchorFileId) {
+      const anchorIndex = visibleGitFiles.findIndex((item) => item.id === selectionAnchorFileId);
+      const targetIndex = visibleGitFiles.findIndex((item) => item.id === id);
+      if (anchorIndex >= 0 && targetIndex >= 0) {
+        const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+        setSelectedFileIds(new Set(visibleGitFiles.slice(start, end + 1).map((item) => item.id)));
+        return;
+      }
+    }
+    if (modifiers?.toggle) {
+      setSelectedFileIds((current) => {
+        const next = new Set(current);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        return next.size > 0 ? next : new Set([id]);
+      });
+      setSelectionAnchorFileId(id);
+      return;
+    }
+    setSelectedFileIds(new Set([id]));
+    setSelectionAnchorFileId(id);
   };
 
   const previewDiff = async (file: GitFileStatus, staged: boolean) => {
@@ -516,8 +613,13 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
   const submitCommit = async () => {
     const message = commitMessage.trim();
     if (!message) return;
-    await git.commitAction(message, commitAction);
-    setCommitMessage("");
+    setSubmittingCommit(true);
+    try {
+      await git.commitAction(message, commitAction);
+      setCommitMessage("");
+    } finally {
+      setSubmittingCommit(false);
+    }
   };
   const runCommitAction = async (commit: GitCommitSummary, key: Key) => {
     switch (String(key)) {
@@ -525,24 +627,37 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
         await navigator.clipboard?.writeText(commit.hash);
         return;
       case "checkout":
-        if (await systemConfirm(formatI18n(tm("git.history.checkout.message_format", "Check out commit %@?"), commit.hash.slice(0, 7)), {
-          title: tm("git.history.checkout_commit", "Check Out This Commit"),
-          kind: "warning",
-          okLabel: tm("git.history.checkout_commit", "Check Out"),
-          cancelLabel: tm("common.cancel", "Cancel"),
-        })) await git.checkoutCommit(commit.hash);
+        if (
+          await systemConfirm(
+            formatI18n(tm("git.history.checkout.message_format", "Check out commit %@?"), commit.hash.slice(0, 7)),
+            {
+              title: tm("git.history.checkout_commit", "Check Out This Commit"),
+              kind: "warning",
+              okLabel: tm("git.history.checkout_commit", "Check Out"),
+              cancelLabel: tm("common.cancel", "Cancel"),
+            },
+          )
+        )
+          await git.checkoutCommit(commit.hash);
         return;
       case "branch":
         createBranchFromCommit(commit);
         return;
       case "undo": {
         const pushed = await git.headCommitPushed();
-        if (pushed && !(await systemConfirm(tm("git.history.undo_last_commit.remote_notice", "The last commit may already be pushed. Continue?"), {
-          title: tm("git.history.undo_last_commit", "Undo Last Commit"),
-          kind: "warning",
-          okLabel: tm("common.continue", "Continue"),
-          cancelLabel: tm("common.cancel", "Cancel"),
-        }))) return;
+        if (
+          pushed &&
+          !(await systemConfirm(
+            tm("git.history.undo_last_commit.remote_notice", "The last commit may already be pushed. Continue?"),
+            {
+              title: tm("git.history.undo_last_commit", "Undo Last Commit"),
+              kind: "warning",
+              okLabel: tm("common.continue", "Continue"),
+              cancelLabel: tm("common.cancel", "Cancel"),
+            },
+          ))
+        )
+          return;
         await git.undoLastCommit();
         return;
       }
@@ -555,40 +670,71 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
           multiline: true,
           onSubmit: async (message) => {
             const pushed = await git.headCommitPushed();
-            if (pushed && !(await systemConfirm(tm("git.commit.edit_last_message.remote_notice", "The last commit may already be pushed. Continue?"), {
-              title: tm("git.history.edit_last_commit_message", "Edit Last Commit Message"),
-              kind: "warning",
-              okLabel: tm("common.continue", "Continue"),
-              cancelLabel: tm("common.cancel", "Cancel"),
-            }))) return;
+            if (
+              pushed &&
+              !(await systemConfirm(
+                tm("git.commit.edit_last_message.remote_notice", "The last commit may already be pushed. Continue?"),
+                {
+                  title: tm("git.history.edit_last_commit_message", "Edit Last Commit Message"),
+                  kind: "warning",
+                  okLabel: tm("common.continue", "Continue"),
+                  cancelLabel: tm("common.cancel", "Cancel"),
+                },
+              ))
+            )
+              return;
             await git.amendLastCommitMessage(message);
           },
         });
         return;
       }
       case "revert":
-        if (await systemConfirm(formatI18n(tm("git.history.revert.message_format", "Revert commit %@?"), commit.hash.slice(0, 7)), {
-          title: tm("git.history.revert_commit", "Revert This Commit"),
-          kind: "warning",
-          okLabel: tm("git.history.revert_commit", "Revert"),
-          cancelLabel: tm("common.cancel", "Cancel"),
-        })) await git.revertCommit(commit.hash);
+        if (
+          await systemConfirm(
+            formatI18n(tm("git.history.revert.message_format", "Revert commit %@?"), commit.hash.slice(0, 7)),
+            {
+              title: tm("git.history.revert_commit", "Revert This Commit"),
+              kind: "warning",
+              okLabel: tm("git.history.revert_commit", "Revert"),
+              cancelLabel: tm("common.cancel", "Cancel"),
+            },
+          )
+        )
+          await git.revertCommit(commit.hash);
         return;
       case "restoreLocal":
-        if (await systemConfirm(formatI18n(tm("git.history.restore_local.message_format", "Reset the current branch locally to %@?"), commit.hash.slice(0, 7)), {
-          title: tm("git.history.restore_local", "Restore Locally"),
-          kind: "warning",
-          okLabel: tm("git.history.restore_local.action", "Restore Locally"),
-          cancelLabel: tm("common.cancel", "Cancel"),
-        })) await git.restoreCommit(commit.hash, false);
+        if (
+          await systemConfirm(
+            formatI18n(
+              tm("git.history.restore_local.message_format", "Reset the current branch locally to %@?"),
+              commit.hash.slice(0, 7),
+            ),
+            {
+              title: tm("git.history.restore_local", "Restore Locally"),
+              kind: "warning",
+              okLabel: tm("git.history.restore_local.action", "Restore Locally"),
+              cancelLabel: tm("common.cancel", "Cancel"),
+            },
+          )
+        )
+          await git.restoreCommit(commit.hash, false);
         return;
       case "restoreRemote":
-        if (await systemConfirm(formatI18n(tm("git.history.restore_remote.message_format", "Reset the current branch and remote to %@?"), commit.hash.slice(0, 7)), {
-          title: tm("git.history.restore_remote", "Restore Remote"),
-          kind: "warning",
-          okLabel: tm("git.history.restore_remote.action", "Restore Remote"),
-          cancelLabel: tm("common.cancel", "Cancel"),
-        })) await git.restoreCommit(commit.hash, true);
+        if (
+          await systemConfirm(
+            formatI18n(
+              tm("git.history.restore_remote.message_format", "Reset the current branch and remote to %@?"),
+              commit.hash.slice(0, 7),
+            ),
+            {
+              title: tm("git.history.restore_remote", "Restore Remote"),
+              kind: "warning",
+              okLabel: tm("git.history.restore_remote.action", "Restore Remote"),
+              cancelLabel: tm("common.cancel", "Cancel"),
+            },
+          )
+        )
+          await git.restoreCommit(commit.hash, true);
         return;
     }
   };
@@ -603,104 +749,241 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
             onOpenChange={setBranchMenuOpen}
             placement="bottom-start"
             trigger={
-              <button type="button" className="inline-flex items-center gap-1.5 text-sm font-semibold hover:text-ink/90">
-              <span className="truncate">{snapshot.branch || project?.branch || "master"}</span>
-              <ChevronDown size={12} className="flex-shrink-0 text-ink-mute" />
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 text-sm font-semibold hover:text-ink/90"
+              >
+                <span className="truncate">{snapshot.branch || project?.branch || "master"}</span>
+                <ChevronDown size={12} className="flex-shrink-0 text-ink-mute" />
               </button>
             }
           >
-                <DesktopMenuItem label={tm("git.branch.create_and_switch", "New Branch")} onSelect={() => void runBranchAction("create")}>{tm("git.branch.create_and_switch", "New Branch")}</DesktopMenuItem>
-                {snapshot.branches.length > 0 && (
-                  <>
-                    <DesktopMenuSeparator />
-                    <DesktopMenuSectionLabel>{tm("git.branch.local", "Local Branches")}</DesktopMenuSectionLabel>
-                    {snapshot.branches.map((branch) => (
-                      <DesktopMenuItem key={`checkoutLocal:${branch.name}`} label={branch.name} onSelect={() => void runBranchAction(`checkoutLocal:${branch.name}`)}>
-                        <span className="inline-flex min-w-0 items-center gap-2">
-                          <span className={`h-1.5 w-1.5 rounded-full ${branch.isCurrent ? "bg-brand-blue" : "bg-ink-faint/55"}`} />
-                          <span className="truncate">{branch.name}</span>
-                        </span>
+            <DesktopMenuItem
+              label={tm("git.branch.create_and_switch", "New Branch")}
+              onSelect={() => void runBranchAction("create")}
+            >
+              {tm("git.branch.create_and_switch", "New Branch")}
+            </DesktopMenuItem>
+            <DesktopMenuSeparator />
+            <DesktopSubmenu label={tm("git.branch.local", "Local Branches")}>
+              {snapshot.branches.length === 0 ? (
+                <DesktopMenuItem label={tm("git.branch.local.empty", "No Local Branches")} disabled>
+                  {tm("git.branch.local.empty", "No Local Branches")}
+                </DesktopMenuItem>
+              ) : (
+                snapshot.branches.map((branch) => (
+                  <DesktopSubmenu key={`localBranch:${branch.name}`} label={branch.name}>
+                    <DesktopMenuItem
+                      label={tm("git.branch.switch", "Switch Branch")}
+                      disabled={branch.isCurrent}
+                      onSelect={() => void runBranchAction(`checkoutLocal:${branch.name}`)}
+                    >
+                      {branch.isCurrent
+                        ? tm("git.branch.current_label", "Current Branch")
+                        : tm("git.branch.switch", "Switch Branch")}
+                    </DesktopMenuItem>
+                    {branch.upstream ? (
+                      <DesktopMenuItem label={branch.upstream} disabled>
+                        {branch.upstream}
                       </DesktopMenuItem>
-                    ))}
-                  </>
-                )}
-                {remoteBranchesByRemote.length > 0 && (
-                  <>
+                    ) : null}
                     <DesktopMenuSeparator />
-                    <DesktopMenuSectionLabel>{tm("git.remote.branches", "Remote Branches")}</DesktopMenuSectionLabel>
-                    {remoteBranchesByRemote.map(({ remote, branches }) => (
-                      <DesktopSubmenu key={remote} label={remote}>
-                            {branches.map((branch) => (
-                              <DesktopMenuItem
-                                key={`checkoutRemote:${remote}/${branch.name}`}
-                                label={branch.name}
-                                onSelect={() => void runBranchAction(`checkoutRemote:${remote}/${branch.name}`)}
-                              >
-                                {branch.name}
-                              </DesktopMenuItem>
-                            ))}
+                    <DesktopMenuItem
+                      label={tm("git.branch.merge_current", "Merge into Current Branch")}
+                      disabled={branch.isCurrent}
+                      onSelect={() => void runBranchAction(`mergeLocal:${branch.name}`)}
+                    >
+                      {tm("git.branch.merge_current", "Merge into Current Branch")}
+                    </DesktopMenuItem>
+                    <DesktopMenuItem
+                      label={tm("git.branch.squash_merge", "Squash Merge Branch")}
+                      disabled={branch.isCurrent}
+                      onSelect={() => void runBranchAction(`squashLocal:${branch.name}`)}
+                    >
+                      {tm("git.branch.squash_merge", "Squash Merge Branch")}
+                    </DesktopMenuItem>
+                    <DesktopMenuSeparator />
+                    <DesktopMenuItem
+                      label={tm("git.branch.delete_local", "Delete Local Branch")}
+                      disabled={branch.isCurrent}
+                      onSelect={() => void runBranchAction(`deleteLocal:${branch.name}`)}
+                    >
+                      {tm("git.branch.delete_local", "Delete Local Branch")}
+                    </DesktopMenuItem>
+                  </DesktopSubmenu>
+                ))
+              )}
+            </DesktopSubmenu>
+            <DesktopSubmenu label={tm("git.branch.merge_current", "Merge into Current Branch")}>
+              {localMergeCandidates.length === 0 ? (
+                <DesktopMenuItem label={tm("git.branch.merge.empty", "No Branches Available to Merge")} disabled>
+                  {tm("git.branch.merge.empty", "No Branches Available to Merge")}
+                </DesktopMenuItem>
+              ) : (
+                localMergeCandidates.map((branch) => (
+                  <DesktopMenuItem
+                    key={`mergeLocal:${branch.name}`}
+                    label={branch.name}
+                    onSelect={() => void runBranchAction(`mergeLocal:${branch.name}`)}
+                  >
+                    {branch.name}
+                  </DesktopMenuItem>
+                ))
+              )}
+            </DesktopSubmenu>
+            <DesktopSubmenu label={tm("git.remote.remotes", "Remotes")}>
+              <DesktopMenuItem
+                label={tm("git.remote.add", "Add Remote")}
+                onSelect={() => void runBranchAction("addRemote")}
+              >
+                {tm("git.remote.add", "Add Remote")}
+              </DesktopMenuItem>
+              <DesktopMenuSeparator />
+              {snapshot.remotes.length === 0 ? (
+                <DesktopMenuItem label={tm("git.remote.empty", "No Remotes")} disabled>
+                  {tm("git.remote.empty", "No Remotes")}
+                </DesktopMenuItem>
+              ) : (
+                snapshot.remotes.map((remote) => (
+                  <DesktopSubmenu key={`remote:${remote.name}`} label={remote.name}>
+                    <DesktopMenuItem
+                      label={tm("git.remote.set_default", "Set as Default")}
+                      onSelect={() => void runBranchAction(`setDefaultRemote:${remote.name}`)}
+                    >
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <span className="w-3 text-center">
+                          {project?.gitDefaultPushRemoteName === remote.name ? "✓" : ""}
+                        </span>
+                        <span className="truncate">{tm("git.remote.set_default", "Set as Default")}</span>
+                      </span>
+                    </DesktopMenuItem>
+                    <DesktopMenuSeparator />
+                    <DesktopMenuItem
+                      label={tm("git.remote.copy_url", "Copy URL")}
+                      onSelect={() => void navigator.clipboard?.writeText(remote.url)}
+                    >
+                      {tm("git.remote.copy_url", "Copy URL")}
+                    </DesktopMenuItem>
+                    <DesktopMenuItem
+                      label={tm("git.remote.remove", "Remove Remote")}
+                      onSelect={() => void git.removeRemote(remote.name)}
+                    >
+                      {tm("git.remote.remove", "Remove Remote")}
+                    </DesktopMenuItem>
+                  </DesktopSubmenu>
+                ))
+              )}
+            </DesktopSubmenu>
+            <DesktopSubmenu label={tm("git.remote.branches", "Remote Branches")}>
+              <DesktopMenuItem
+                label={tm("git.remote.branches.refresh", "Refresh Remote Branches")}
+                disabled={!hasRemotes}
+                onSelect={() => void runBranchAction("fetch")}
+              >
+                {tm("git.remote.branches.refresh", "Refresh Remote Branches")}
+              </DesktopMenuItem>
+              <DesktopMenuSeparator />
+              {remoteBranchesByRemote.length === 0 ? (
+                <DesktopMenuItem label={tm("git.remote.branches.empty", "No Remote Branches")} disabled>
+                  {tm("git.remote.branches.empty", "No Remote Branches")}
+                </DesktopMenuItem>
+              ) : (
+                remoteBranchesByRemote.map(({ remote, branches }) => (
+                  <DesktopSubmenu key={`remoteBranches:${remote}`} label={remote}>
+                    {branches.map((branch) => (
+                      <DesktopSubmenu key={`remoteBranch:${remote}/${branch.name}`} label={branch.name}>
+                        <DesktopMenuItem
+                          label={tm("git.remote.branch.checkout_local", "Checkout as Local Branch")}
+                          onSelect={() => void runBranchAction(`checkoutRemote:${remote}/${branch.name}`)}
+                        >
+                          {tm("git.remote.branch.checkout_local", "Checkout as Local Branch")}
+                        </DesktopMenuItem>
+                        <DesktopMenuItem
+                          label={tm("git.remote.branch.push_here", "Push to This Branch")}
+                          onSelect={() => void runBranchAction(`pushRemoteBranch:${remote}/${branch.name}`)}
+                        >
+                          {tm("git.remote.branch.push_here", "Push to This Branch")}
+                        </DesktopMenuItem>
                       </DesktopSubmenu>
                     ))}
-                  </>
-                )}
-                {localMergeCandidates.length > 0 && (
-                  <>
-                    <DesktopMenuSeparator />
-                    <DesktopSubmenu label={tm("git.branch.merge.title", "Merge Branch")}>
-                          {localMergeCandidates.map((branch) => (
-                            <DesktopMenuItem key={`mergeLocal:${branch.name}`} label={branch.name} onSelect={() => void runBranchAction(`mergeLocal:${branch.name}`)}>
-                              {branch.name}
-                            </DesktopMenuItem>
-                          ))}
-                    </DesktopSubmenu>
-                    <DesktopSubmenu label={tm("git.branch.squash_merge", "Squash Merge Branch")}>
-                          {localMergeCandidates.map((branch) => (
-                            <DesktopMenuItem key={`squashLocal:${branch.name}`} label={branch.name} onSelect={() => void runBranchAction(`squashLocal:${branch.name}`)}>
-                              {branch.name}
-                            </DesktopMenuItem>
-                          ))}
-                    </DesktopSubmenu>
-                    <DesktopSubmenu label={tm("git.branch.delete_local", "Delete Local Branch")}>
-                          {localMergeCandidates.map((branch) => (
-                            <DesktopMenuItem key={`deleteLocal:${branch.name}`} label={branch.name} onSelect={() => void runBranchAction(`deleteLocal:${branch.name}`)}>
-                              {branch.name}
-                            </DesktopMenuItem>
-                          ))}
-                    </DesktopSubmenu>
-                  </>
-                )}
-                <DesktopMenuSeparator />
-                <DesktopMenuItem label={tm("git.remote.fetch", "Fetch")} onSelect={() => void runBranchAction("fetch")}>{tm("git.remote.fetch", "Fetch")}</DesktopMenuItem>
-                {remotePushBranchesByRemote.length > 0 && (
-                  <>
-                    <DesktopSubmenu label={tm("git.remote.branch.push_here", "Push to Remote Branch")}>
-                          {remotePushBranchesByRemote.map(({ remote, branches }) => (
-                            <DesktopSubmenu key={remote} label={remote}>
-                                  {branches.map((branch) => (
-                                    <DesktopMenuItem
-                                      key={`pushRemoteBranch:${remote}/${branch.name}`}
-                                      label={branch.name}
-                                      onSelect={() => void runBranchAction(`pushRemoteBranch:${remote}/${branch.name}`)}
-                                    >
-                                      <span className="inline-flex min-w-0 items-center gap-2">
-                                        <span className={`h-1.5 w-1.5 rounded-full ${branch.isUpstream ? "bg-brand-blue" : "bg-ink-faint/55"}`} />
-                                        <span className="truncate">{branch.name}</span>
-                                      </span>
-                                    </DesktopMenuItem>
-                                  ))}
-                            </DesktopSubmenu>
-                          ))}
-                    </DesktopSubmenu>
-                  </>
-                )}
-                {snapshot.remotes.map((remote) => (
-                  <DesktopMenuItem key={`pushRemote:${remote.name}`} label={remote.name} onSelect={() => void runBranchAction(`pushRemote:${remote.name}`)}>
-                    {formatI18n(tm("git.remote.push_to_format", "Push to %@"), remote.name)}
+                  </DesktopSubmenu>
+                ))
+              )}
+            </DesktopSubmenu>
+            <DesktopMenuItem
+              label={tm("git.remote.fetch", "Fetch")}
+              disabled={!hasRemotes}
+              onSelect={() => void runBranchAction("fetch")}
+            >
+              {tm("git.remote.fetch", "Fetch")}
+            </DesktopMenuItem>
+            <DesktopMenuItem
+              label={tm("git.remote.pull", "Pull")}
+              disabled={!canUseCurrentBranchRemote}
+              onSelect={() => void runBranchAction("pull")}
+            >
+              {tm("git.remote.pull", "Pull")}
+            </DesktopMenuItem>
+            <DesktopMenuItem
+              label={tm("git.remote.push", "Push")}
+              disabled={!canUseCurrentBranchRemote}
+              onSelect={() => void runBranchAction("push")}
+            >
+              {tm("git.remote.push", "Push")}
+            </DesktopMenuItem>
+            <DesktopSubmenu label={tm("git.remote.push_to", "Push To...")}>
+              {snapshot.remotes.length === 0 ? (
+                <DesktopMenuItem label={tm("git.remote.empty", "No Remotes")} disabled>
+                  {tm("git.remote.empty", "No Remotes")}
+                </DesktopMenuItem>
+              ) : (
+                snapshot.remotes.map((remote) => (
+                  <DesktopMenuItem
+                    key={`pushToRemote:${remote.name}`}
+                    label={remote.name}
+                    onSelect={() => void runBranchAction(`pushRemote:${remote.name}`)}
+                  >
+                    <span className="grid min-w-0 grid-cols-[12px_minmax(0,1fr)] gap-x-2">
+                      <span className="row-span-2 text-center">
+                        {project?.gitDefaultPushRemoteName === remote.name ? "✓" : ""}
+                      </span>
+                      <span className="truncate">{remote.name}</span>
+                      <span className="col-start-2 truncate text-[11px] font-normal text-ink-faint">{remote.url}</span>
+                    </span>
                   </DesktopMenuItem>
-                ))}
-                {snapshot.remotes.length === 0 && <DesktopMenuItem label={tm("git.remote.push_set_upstream", "Push and Set Remote")} onSelect={() => void runBranchAction("pushRemote")}>{tm("git.remote.push_set_upstream", "Push and Set Remote")}</DesktopMenuItem>}
-                <DesktopMenuItem label={tm("git.remote.add", "Add Remote")} onSelect={() => void runBranchAction("addRemote")}>{tm("git.remote.add", "Add Remote")}</DesktopMenuItem>
-                <DesktopMenuItem label={tm("git.remote.remove", "Remove Remote")} onSelect={() => void runBranchAction("removeRemote")}>{tm("git.remote.remove", "Remove Remote")}</DesktopMenuItem>
+                ))
+              )}
+            </DesktopSubmenu>
+            <DesktopMenuItem
+              label={tm("git.remote.force_push", "Force Push")}
+              disabled={!canUseCurrentBranchRemote}
+              onSelect={() => void runBranchAction("forcePush")}
+            >
+              {tm("git.remote.force_push", "Force Push")}
+            </DesktopMenuItem>
+            <DesktopMenuSeparator />
+            <DesktopMenuItem
+              label={tm("git.history.undo_last_commit", "Undo Last Commit")}
+              disabled={!snapshot.commits[0]}
+              onSelect={() => void runBranchAction("undoLastCommit")}
+            >
+              {tm("git.history.undo_last_commit", "Undo Last Commit")}
+            </DesktopMenuItem>
+            <DesktopMenuItem
+              label={tm("git.history.edit_last_commit_message", "Edit Last Commit Message")}
+              disabled={!snapshot.commits[0]}
+              onSelect={() => void runBranchAction("editLastCommitMessage")}
+            >
+              {tm("git.history.edit_last_commit_message", "Edit Last Commit Message")}
+            </DesktopMenuItem>
+            <DesktopMenuSeparator />
+            <DesktopMenuItem
+              label={tm("git.repository.show_in_finder", "Show Repository in Finder")}
+              disabled={!project?.path}
+              onSelect={() => void runBranchAction("showRepository")}
+            >
+              {tm("git.repository.show_in_finder", "Show Repository in Finder")}
+            </DesktopMenuItem>
           </DesktopMenu>
         }
         trailing={
@@ -712,7 +995,11 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
             />
             <PanelIconButton
               icon={RefreshCw}
-              tooltip={isRefreshingGit ? tm("git.empty.reading_status", "Reading Git Status") : tm("git.status.refresh", "Refresh Git Status")}
+              tooltip={
+                isRefreshingGit
+                  ? tm("git.empty.reading_status", "Reading Git Status")
+                  : tm("git.status.refresh", "Refresh Git Status")
+              }
               busy={isRefreshingGit}
               disabled={isRefreshingGit}
               onClick={() => void refreshGit()}
@@ -733,7 +1020,10 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
         <PanelEmptyState
           icon={Folder}
           title={tm("git.empty.no_repository", "No Repository")}
-          description={tm("git.empty.description", "Initialize a repository or clone a remote repository to view commits, diffs, and branches here.")}
+          description={tm(
+            "git.empty.description",
+            "Initialize a repository or clone a remote repository to view commits, diffs, and branches here.",
+          )}
           tone="warning"
           action={
             <div className="flex items-center gap-2">
@@ -743,14 +1033,16 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
               <HeroButton
                 size="sm"
                 variant="secondary"
-                onPress={() => openGitInput({
-                  title: tm("git.empty.clone_remote_repository", "Clone Remote Repository"),
-                  label: tm("git.remote.add.url_message", "Remote URL"),
-                  value: "",
-                  onSubmit: async (remoteUrl) => {
-                    await git.cloneRepository(remoteUrl);
-                  },
-                })}
+                onPress={() =>
+                  openGitInput({
+                    title: tm("git.empty.clone_remote_repository", "Clone Remote Repository"),
+                    label: tm("git.remote.add.url_message", "Remote URL"),
+                    value: "",
+                    onSubmit: async (remoteUrl) => {
+                      await git.cloneRepository(remoteUrl);
+                    },
+                  })
+                }
               >
                 {tm("git.empty.clone_remote_repository", "Clone Remote Repository")}
               </HeroButton>
@@ -777,7 +1069,7 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 className="h-[34px] rounded-l-lg rounded-r-none border-r border-white/15 text-sm font-semibold"
                 onPress={() => void submitCommit()}
               >
-                {commitActionLabel}{snapshot.staged.length > 0 ? ` ${snapshot.staged.length}` : ""}
+                {isSubmittingCommit ? tm("git.commit.submitting", "Committing") : commitActionLabel}
               </Button>
               <Dropdown isOpen={commitMenuOpen} onOpenChange={setCommitMenuOpen}>
                 <Dropdown.Trigger
@@ -787,15 +1079,24 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 >
                   <ChevronDown size={13} strokeWidth={2.4} />
                 </Dropdown.Trigger>
-                <Dropdown.Popover placement="bottom end" className="min-w-[184px] rounded-[10px] border border-line-strong bg-surface-chrome p-1 shadow-pop backdrop-blur-2xl">
+                <Dropdown.Popover
+                  placement="bottom end"
+                  className="min-w-[184px] rounded-[10px] border border-line-strong bg-surface-chrome p-1 shadow-pop backdrop-blur-2xl"
+                >
                   <Dropdown.Menu
                     aria-label={tm("git.commit.options", "Commit Options")}
                     onAction={(key) => setCommitAction(String(key) as GitCommitAction)}
                     className="grid gap-0.5"
                   >
-                    <Dropdown.Item id="commit" className="menu-item">{tm("git.commit.action", "Commit")}</Dropdown.Item>
-                    <Dropdown.Item id="commitAndPush" className="menu-item">{tm("git.commit.action_push", "Commit and Push")}</Dropdown.Item>
-                    <Dropdown.Item id="commitAndSync" className="menu-item">{tm("git.commit.action_sync", "Commit and Sync")}</Dropdown.Item>
+                    <Dropdown.Item id="commit" className="menu-item">
+                      {tm("git.commit.action", "Commit")}
+                    </Dropdown.Item>
+                    <Dropdown.Item id="commitAndPush" className="menu-item" isDisabled={!canUseCurrentBranchRemote}>
+                      {tm("git.commit.action_push", "Commit and Push")}
+                    </Dropdown.Item>
+                    <Dropdown.Item id="commitAndSync" className="menu-item" isDisabled={!canUseCurrentBranchRemote}>
+                      {tm("git.commit.action_sync", "Commit and Sync")}
+                    </Dropdown.Item>
                   </Dropdown.Menu>
                 </Dropdown.Popover>
               </Dropdown>
@@ -811,9 +1112,16 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
               actions={
                 <HeaderActionButton
                   icon={Minus}
-                  label={tm("git.files.unstage_all", "Unstage All")}
+                  label={
+                    selectedByKind.staged.length > 0
+                      ? tm("git.files.unstage_selected", "Unstage Selected")
+                      : tm("git.files.unstage_all", "Unstage All")
+                  }
                   disabled={snapshot.staged.length === 0}
-                  onPress={() => void git.unstage(snapshot.staged.map((file) => file.path))}
+                  onPress={() => {
+                    const targets = selectedByKind.staged.length > 0 ? selectedByKind.staged : snapshot.staged;
+                    void git.unstage(targets.map((file) => file.path));
+                  }}
                 />
               }
             />
@@ -824,20 +1132,28 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 kind="staged"
                 expandedPaths={expandedGitFilePaths.staged}
                 rootPath={project?.path}
-                selectedId={selectedFileId}
+                selectedIds={selectedFileIds}
                 primaryLabel={tm("git.files.unstage", "Unstage")}
-                onPrimary={(file) => void git.unstage([file.path])}
-                onSelect={(file) => selectGitFile(file, true)}
+                onPrimary={(files) => void git.unstage(files.map((file) => file.path))}
+                onSelect={(file, modifiers) => selectGitFile(file, true, modifiers)}
                 onOpenDiff={(file) => void previewDiff(file, true)}
                 onToggleDirectory={(path) => toggleGitDirectory("staged", path)}
-                onDiscard={(file) => {
-                  void systemConfirm(formatI18n(tm("git.files.discard.confirm_format", "Discard changes in %@?"), file.path), {
-                    title: tm("git.files.discard_changes", "Discard Changes"),
-                    kind: "warning",
-                    okLabel: tm("git.files.discard_changes", "Discard"),
-                    cancelLabel: tm("common.cancel", "Cancel"),
-                  }).then((confirmed) => {
-                    if (confirmed) void git.discard([file.path]);
+                onDiscard={(files) => {
+                  void systemConfirm(
+                    files.length > 1
+                      ? formatI18n(
+                          tm("git.files.discard_selected.confirm_format", "Discard %@ selected changes?"),
+                          String(files.length),
+                        )
+                      : formatI18n(tm("git.files.discard.confirm_format", "Discard changes in %@?"), files[0].path),
+                    {
+                      title: tm("git.files.discard_changes", "Discard Changes"),
+                      kind: "warning",
+                      okLabel: tm("git.files.discard_changes", "Discard"),
+                      cancelLabel: tm("common.cancel", "Cancel"),
+                    },
+                  ).then((confirmed) => {
+                    if (confirmed) void git.discard(files.map((file) => file.path));
                   });
                 }}
               />
@@ -852,22 +1168,34 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 <>
                   <HeaderActionButton
                     icon={Plus}
-                    label={tm("git.files.stage_all", "Stage All")}
+                    label={
+                      selectedByKind.unstaged.length > 0
+                        ? tm("git.files.stage_selected", "Stage Selected")
+                        : tm("git.files.stage_all", "Stage All")
+                    }
                     disabled={snapshot.unstaged.length === 0}
-                    onPress={() => void git.stage(snapshot.unstaged.map((file) => file.path))}
+                    onPress={() => {
+                      const targets = selectedByKind.unstaged.length > 0 ? selectedByKind.unstaged : snapshot.unstaged;
+                      void git.stage(targets.map((file) => file.path));
+                    }}
                   />
                   <HeaderActionButton
                     icon={Undo2}
-                    label={tm("git.files.discard_all", "Discard All")}
+                    label={
+                      selectedByKind.unstaged.length > 0
+                        ? tm("git.files.discard_selected", "Discard Selected")
+                        : tm("git.files.discard_all", "Discard All")
+                    }
                     disabled={snapshot.unstaged.length === 0}
                     onPress={() => {
+                      const targets = selectedByKind.unstaged.length > 0 ? selectedByKind.unstaged : snapshot.unstaged;
                       void systemConfirm(tm("git.files.discard_all.confirm", "Discard all worktree changes?"), {
                         title: tm("git.files.discard_all", "Discard All"),
                         kind: "warning",
                         okLabel: tm("git.files.discard_all", "Discard All"),
                         cancelLabel: tm("common.cancel", "Cancel"),
                       }).then((confirmed) => {
-                        if (confirmed) void git.discard(snapshot.unstaged.map((file) => file.path));
+                        if (confirmed) void git.discard(targets.map((file) => file.path));
                       });
                     }}
                   />
@@ -881,20 +1209,28 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 kind="unstaged"
                 expandedPaths={expandedGitFilePaths.unstaged}
                 rootPath={project?.path}
-                selectedId={selectedFileId}
+                selectedIds={selectedFileIds}
                 primaryLabel={tm("git.files.stage", "Stage")}
-                onPrimary={(file) => void git.stage([file.path])}
-                onSelect={(file) => selectGitFile(file, false)}
+                onPrimary={(files) => void git.stage(files.map((file) => file.path))}
+                onSelect={(file, modifiers) => selectGitFile(file, false, modifiers)}
                 onOpenDiff={(file) => void previewDiff(file, false)}
                 onToggleDirectory={(path) => toggleGitDirectory("unstaged", path)}
-                onDiscard={(file) => {
-                  void systemConfirm(formatI18n(tm("git.files.discard.confirm_format", "Discard changes in %@?"), file.path), {
-                    title: tm("git.files.discard_changes", "Discard Changes"),
-                    kind: "warning",
-                    okLabel: tm("git.files.discard_changes", "Discard"),
-                    cancelLabel: tm("common.cancel", "Cancel"),
-                  }).then((confirmed) => {
-                    if (confirmed) void git.discard([file.path]);
+                onDiscard={(files) => {
+                  void systemConfirm(
+                    files.length > 1
+                      ? formatI18n(
+                          tm("git.files.discard_selected.confirm_format", "Discard %@ selected changes?"),
+                          String(files.length),
+                        )
+                      : formatI18n(tm("git.files.discard.confirm_format", "Discard changes in %@?"), files[0].path),
+                    {
+                      title: tm("git.files.discard_changes", "Discard Changes"),
+                      kind: "warning",
+                      okLabel: tm("git.files.discard_changes", "Discard"),
+                      cancelLabel: tm("common.cancel", "Cancel"),
+                    },
+                  ).then((confirmed) => {
+                    if (confirmed) void git.discard(files.map((file) => file.path));
                   });
                 }}
               />
@@ -909,9 +1245,17 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 <>
                   <HeaderActionButton
                     icon={Plus}
-                    label={tm("git.files.stage_all", "Stage All")}
+                    label={
+                      selectedByKind.untracked.length > 0
+                        ? tm("git.files.stage_selected", "Stage Selected")
+                        : tm("git.files.stage_all", "Stage All")
+                    }
                     disabled={snapshot.untracked.length === 0}
-                    onPress={() => void git.stage(snapshot.untracked.map((file) => file.path))}
+                    onPress={() => {
+                      const targets =
+                        selectedByKind.untracked.length > 0 ? selectedByKind.untracked : snapshot.untracked;
+                      void git.stage(targets.map((file) => file.path));
+                    }}
                   />
                   <HeaderActionButton
                     icon={X}
@@ -929,21 +1273,35 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 kind="untracked"
                 expandedPaths={expandedGitFilePaths.untracked}
                 rootPath={project?.path}
-                selectedId={selectedFileId}
+                selectedIds={selectedFileIds}
                 primaryLabel={tm("git.files.stage", "Stage")}
-                onPrimary={(file) => void git.stage([file.path])}
-                onSelect={(file) => selectGitFile(file, false)}
+                onPrimary={(files) => void git.stage(files.map((file) => file.path))}
+                onSelect={(file, modifiers) => selectGitFile(file, false, modifiers)}
                 onOpenDiff={(file) => void previewDiff(file, false)}
                 onToggleDirectory={(path) => toggleGitDirectory("untracked", path)}
-                onIgnore={(file) => void git.appendGitignore([file.path])}
-                onDiscard={(file) => {
-                  void systemConfirm(formatI18n(tm("git.files.delete_untracked.confirm_format", "Delete untracked file %@?"), file.path), {
-                    title: tm("git.files.delete_file", "Delete File"),
-                    kind: "warning",
-                    okLabel: tm("common.delete", "Delete"),
-                    cancelLabel: tm("common.cancel", "Cancel"),
-                  }).then((confirmed) => {
-                    if (confirmed) void git.discard([file.path]);
+                onIgnore={(files) => void git.appendGitignore(files.map((file) => file.path))}
+                onDiscard={(files) => {
+                  void systemConfirm(
+                    files.length > 1
+                      ? formatI18n(
+                          tm(
+                            "git.files.delete_untracked_selected.confirm_format",
+                            "Delete %@ selected untracked files?",
+                          ),
+                          String(files.length),
+                        )
+                      : formatI18n(
+                          tm("git.files.delete_untracked.confirm_format", "Delete untracked file %@?"),
+                          files[0].path,
+                        ),
+                    {
+                      title: tm("git.files.delete_file", "Delete File"),
+                      kind: "warning",
+                      okLabel: tm("common.delete", "Delete"),
+                      cancelLabel: tm("common.cancel", "Cancel"),
+                    },
+                  ).then((confirmed) => {
+                    if (confirmed) void git.discard(files.map((file) => file.path));
                   });
                 }}
               />
@@ -954,7 +1312,6 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                 {git.error}
               </div>
             )}
-
           </div>
 
           <div className="h-[190px] flex-shrink-0 border-t border-line/80 bg-surface-chrome/25">
@@ -973,7 +1330,9 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
                   ))
                 ) : (
                   <div className="px-3.5 py-3 text-xs text-ink-faint">
-                    {git.isLoading ? tm("git.empty.reading_status", "Reading Git Status") : tm("git.history.empty", "No Commit History")}
+                    {git.isLoading
+                      ? tm("git.empty.reading_status", "Reading Git Status")
+                      : tm("git.history.empty", "No Commit History")}
                   </div>
                 )}
               </div>
@@ -988,8 +1347,10 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
           <span className="flex min-w-0 items-center gap-1.5 truncate">
             {isRefreshingGit ? (
               <Spinner size="sm" color="current" className="text-current/90" />
+            ) : snapshot.isRepository && hasUpstream ? (
+              <StatusIcon size={12} className="opacity-90" />
             ) : (
-              <StatusIcon size={12} className={snapshot.isRepository && hasUpstream ? "opacity-90" : "opacity-0"} />
+              <GitBranch size={12} className="opacity-75" />
             )}
             <span>{isRefreshingGit ? tm("git.empty.reading_status", "Reading Git Status") : statusLabel}</span>
             {isRefreshingGit && (
@@ -1008,15 +1369,21 @@ function GitPanel({ project }: { project?: WorkspaceProject }) {
         }
         trailing={
           <>
-            <PanelButton tone={statusButtonTone} leading={ArrowDownToLine} onClick={hasUpstream ? () => void git.pull() : undefined}>
-              {tm("git.remote.pull", "Pull")}{snapshot.behind > 0 ? ` ${snapshot.behind}` : ""}
+            <PanelButton
+              tone={statusButtonTone}
+              leading={ArrowDownToLine}
+              onClick={hasUpstream ? () => void git.pull() : undefined}
+            >
+              {tm("git.remote.pull", "Pull")}
+              {snapshot.behind > 0 ? ` ${snapshot.behind}` : ""}
             </PanelButton>
             <PanelButton
               tone={statusButtonTone}
               leading={ArrowUpFromLine}
               onClick={hasUpstream ? () => void git.push() : () => void pushRemote()}
             >
-              {tm("git.remote.push", "Push")}{snapshot.ahead > 0 ? ` ${snapshot.ahead}` : ""}
+              {tm("git.remote.push", "Push")}
+              {snapshot.ahead > 0 ? ` ${snapshot.ahead}` : ""}
             </PanelButton>
           </>
         }
@@ -1031,8 +1398,10 @@ function FileRow({
   tag,
   tone,
   selected,
+  selectionCount = 1,
   depth = 0,
   onSelect,
+  onContextSelect,
   onOpenDiff,
   onPrimary,
   primaryLabel,
@@ -1047,7 +1416,9 @@ function FileRow({
   depth?: number;
   rootPath?: string;
   selected?: boolean;
-  onSelect?: () => void;
+  selectionCount?: number;
+  onSelect?: (modifiers?: { extend?: boolean; toggle?: boolean }) => void;
+  onContextSelect?: () => void;
   onOpenDiff?: () => void;
   onPrimary?: () => void;
   primaryLabel?: string;
@@ -1055,16 +1426,14 @@ function FileRow({
   onIgnore?: () => void;
 }) {
   const contextMenu = useContextMenu();
-  const toneClass =
-    tone === "amber"
-      ? "text-brand-amber"
-      : tone === "green"
-        ? "text-brand-green"
-        : "text-brand-blue";
+  const toneClass = tone === "amber" ? "text-brand-amber" : tone === "green" ? "text-brand-green" : "text-brand-blue";
   return (
     <Tooltip label={path} placement="left" triggerClassName="block w-full">
       <div
-        onContextMenu={contextMenu.openMenu}
+        onContextMenu={(event) => {
+          onContextSelect?.();
+          contextMenu.openMenu(event);
+        }}
         className={`group relative w-full h-[28px] pr-3 flex items-center gap-1.5 transition-colors text-xs text-ink-soft ${
           selected ? "bg-brand-blue/12 text-ink" : "hover:bg-fill/[0.04]"
         }`}
@@ -1072,7 +1441,12 @@ function FileRow({
       >
         <PressableButton
           className="min-w-0 flex-1 h-full flex items-center gap-2 text-left"
-          onPressUp={onSelect}
+          onPressUp={(event) =>
+            onSelect?.({
+              extend: event.shiftKey,
+              toggle: event.metaKey || event.ctrlKey,
+            })
+          }
           onDoubleClick={onOpenDiff}
         >
           <span className="w-[13px] flex-shrink-0" />
@@ -1085,23 +1459,44 @@ function FileRow({
           menu={contextMenu.menu}
           onClose={contextMenu.closeMenu}
         >
-          <ContextMenuItem label={tm("git.files.copy_path", "Copy Path")} onSelect={() => void navigator.clipboard?.writeText(path)}>
+          <ContextMenuItem
+            label={tm("git.files.copy_path", "Copy Path")}
+            onSelect={() => void navigator.clipboard?.writeText(path)}
+          >
             {tm("git.files.copy_path", "Copy Path")}
           </ContextMenuItem>
           {rootPath && (
-            <ContextMenuItem label={tm("git.files.show_in_finder", "Show in Finder")} onSelect={() => void revealFile(rootPath, path)}>
+            <ContextMenuItem
+              label={tm("git.files.show_in_finder", "Show in Finder")}
+              onSelect={() => void revealFile(rootPath, path)}
+            >
               {tm("git.files.show_in_finder", "Show in Finder")}
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />
+          {selectionCount > 1 && (
+            <div className="px-2 py-1 text-[11px] font-semibold text-ink-faint">
+              {formatI18n(tm("git.files.selected_count_format", "%@ selected"), String(selectionCount))}
+            </div>
+          )}
           {onPrimary && primaryLabel && (
-            <ContextMenuItem label={primaryLabel} onSelect={onPrimary}>{primaryLabel}</ContextMenuItem>
+            <ContextMenuItem label={primaryLabel} onSelect={onPrimary}>
+              {primaryLabel}
+            </ContextMenuItem>
           )}
           <ContextMenuItem label={tm("git.diff.open", "Open Diff")} onSelect={onOpenDiff}>
             {tm("git.diff.open", "Open Diff")}
           </ContextMenuItem>
-          {onIgnore && <ContextMenuItem label={tm("git.ignore.add", "Add to .gitignore")} onSelect={onIgnore}>{tm("git.ignore.add", "Add to .gitignore")}</ContextMenuItem>}
-          {onDiscard && <ContextMenuItem label={tm("git.files.discard_or_delete", "Discard / Delete")} onSelect={onDiscard}>{tm("git.files.discard_or_delete", "Discard / Delete")}</ContextMenuItem>}
+          {onIgnore && (
+            <ContextMenuItem label={tm("git.ignore.add", "Add to .gitignore")} onSelect={onIgnore}>
+              {tm("git.ignore.add", "Add to .gitignore")}
+            </ContextMenuItem>
+          )}
+          {onDiscard && (
+            <ContextMenuItem label={tm("git.files.discard_or_delete", "Discard / Delete")} onSelect={onDiscard}>
+              {tm("git.files.discard_or_delete", "Discard / Delete")}
+            </ContextMenuItem>
+          )}
         </ContextMenu>
       </div>
     </Tooltip>
@@ -1114,7 +1509,7 @@ function GitFileSection({
   kind,
   expandedPaths,
   rootPath,
-  selectedId,
+  selectedIds,
   primaryLabel,
   onSelect,
   onOpenDiff,
@@ -1128,16 +1523,20 @@ function GitFileSection({
   kind: GitFileSectionKind;
   expandedPaths: Set<string>;
   rootPath?: string;
-  selectedId?: string;
+  selectedIds: Set<string>;
   primaryLabel?: string;
-  onSelect?: (file: GitFileStatus) => void;
+  onSelect?: (file: GitFileStatus, modifiers?: { extend?: boolean; toggle?: boolean }) => void;
   onOpenDiff?: (file: GitFileStatus) => void;
   onToggleDirectory: (path: string) => void;
-  onPrimary?: (file: GitFileStatus) => void;
-  onDiscard?: (file: GitFileStatus) => void;
-  onIgnore?: (file: GitFileStatus) => void;
+  onPrimary?: (files: GitFileStatus[]) => void;
+  onDiscard?: (files: GitFileStatus[]) => void;
+  onIgnore?: (files: GitFileStatus[]) => void;
 }) {
   const tree = useMemo(() => buildGitFileTree(files), [files]);
+  const selectedFiles = useMemo(
+    () => files.filter((file) => selectedIds.has(gitFileNodeId(kind, file.path))),
+    [files, kind, selectedIds],
+  );
   if (files.length === 0) {
     return <div className="px-3.5 py-2.5 text-xs text-ink-faint">{emptyLabel}</div>;
   }
@@ -1151,7 +1550,8 @@ function GitFileSection({
           sectionKind={kind}
           expandedPaths={expandedPaths}
           rootPath={rootPath}
-          selectedId={selectedId}
+          selectedIds={selectedIds}
+          selectedFiles={selectedFiles}
           primaryLabel={primaryLabel}
           onToggleDirectory={onToggleDirectory}
           onSelect={onSelect}
@@ -1184,13 +1584,37 @@ type GitFileTreeFile = {
   file: GitFileStatus;
 };
 
+type VisibleGitFile = {
+  id: string;
+  kind: GitFileSectionKind;
+  file: GitFileStatus;
+};
+
+function gitFileNodeId(kind: GitFileSectionKind, path: string) {
+  return `${kind}:${path}`;
+}
+
+function flattenGitFileTree(nodes: GitFileTreeNode[], kind: GitFileSectionKind): VisibleGitFile[] {
+  const rows: VisibleGitFile[] = [];
+  const visit = (node: GitFileTreeNode) => {
+    if (node.kind === "file") {
+      rows.push({ id: gitFileNodeId(kind, node.file.path), kind, file: node.file });
+      return;
+    }
+    for (const child of node.children) visit(child);
+  };
+  for (const node of nodes) visit(node);
+  return rows;
+}
+
 function GitFileTreeRow({
   node,
   depth,
   sectionKind,
   expandedPaths,
   rootPath,
-  selectedId,
+  selectedIds,
+  selectedFiles,
   primaryLabel,
   onToggleDirectory,
   onSelect,
@@ -1204,43 +1628,48 @@ function GitFileTreeRow({
   sectionKind: GitFileSectionKind;
   expandedPaths: Set<string>;
   rootPath?: string;
-  selectedId?: string;
+  selectedIds: Set<string>;
+  selectedFiles: GitFileStatus[];
   primaryLabel?: string;
   onToggleDirectory: (path: string) => void;
-  onSelect?: (file: GitFileStatus) => void;
+  onSelect?: (file: GitFileStatus, modifiers?: { extend?: boolean; toggle?: boolean }) => void;
   onOpenDiff?: (file: GitFileStatus) => void;
-  onPrimary?: (file: GitFileStatus) => void;
-  onDiscard?: (file: GitFileStatus) => void;
-  onIgnore?: (file: GitFileStatus) => void;
+  onPrimary?: (files: GitFileStatus[]) => void;
+  onDiscard?: (files: GitFileStatus[]) => void;
+  onIgnore?: (files: GitFileStatus[]) => void;
 }) {
   if (node.kind === "directory") {
     const expanded = expandedPaths.has(node.path);
     return (
       <>
         <GitDirectoryRow node={node} depth={depth} expanded={expanded} onToggle={() => onToggleDirectory(node.path)} />
-        {expanded && node.children.map((child) => (
-          <GitFileTreeRow
-            key={`${child.kind}:${child.path}`}
-            node={child}
-            depth={depth + 1}
-            sectionKind={sectionKind}
-            expandedPaths={expandedPaths}
-            rootPath={rootPath}
-            selectedId={selectedId}
-            primaryLabel={primaryLabel}
-            onToggleDirectory={onToggleDirectory}
-            onSelect={onSelect}
-            onOpenDiff={onOpenDiff}
-            onPrimary={onPrimary}
-            onDiscard={onDiscard}
-            onIgnore={onIgnore}
-          />
-        ))}
+        {expanded &&
+          node.children.map((child) => (
+            <GitFileTreeRow
+              key={`${child.kind}:${child.path}`}
+              node={child}
+              depth={depth + 1}
+              sectionKind={sectionKind}
+              expandedPaths={expandedPaths}
+              rootPath={rootPath}
+              selectedIds={selectedIds}
+              selectedFiles={selectedFiles}
+              primaryLabel={primaryLabel}
+              onToggleDirectory={onToggleDirectory}
+              onSelect={onSelect}
+              onOpenDiff={onOpenDiff}
+              onPrimary={onPrimary}
+              onDiscard={onDiscard}
+              onIgnore={onIgnore}
+            />
+          ))}
       </>
     );
   }
   const meta = gitFileBadge(node.file, sectionKind);
-  const id = `${sectionKind}:${node.file.path}`;
+  const id = gitFileNodeId(sectionKind, node.file.path);
+  const rowSelected = selectedIds.has(id);
+  const contextFiles = rowSelected && selectedFiles.length > 1 ? selectedFiles : [node.file];
   return (
     <FileRow
       path={node.file.path}
@@ -1249,13 +1678,17 @@ function GitFileTreeRow({
       tone={meta.tone}
       depth={depth}
       rootPath={rootPath}
-      selected={selectedId === id}
+      selected={rowSelected}
+      selectionCount={contextFiles.length}
       primaryLabel={primaryLabel}
-      onSelect={() => onSelect?.(node.file)}
+      onSelect={(modifiers) => onSelect?.(node.file, modifiers)}
+      onContextSelect={() => {
+        if (!rowSelected) onSelect?.(node.file);
+      }}
       onOpenDiff={() => onOpenDiff?.(node.file)}
-      onPrimary={onPrimary ? () => onPrimary(node.file) : undefined}
-      onDiscard={onDiscard ? () => onDiscard(node.file) : undefined}
-      onIgnore={onIgnore ? () => onIgnore(node.file) : undefined}
+      onPrimary={onPrimary ? () => onPrimary(contextFiles) : undefined}
+      onDiscard={onDiscard ? () => onDiscard(contextFiles) : undefined}
+      onIgnore={onIgnore ? () => onIgnore(contextFiles) : undefined}
     />
   );
 }
@@ -1278,7 +1711,11 @@ function GitDirectoryRow({
         style={{ paddingLeft: `${12 + depth * 14}px` }}
         onPressUp={onToggle}
       >
-        {expanded ? <ChevronDown size={12} className="text-ink-faint" /> : <ChevronRight size={12} className="text-ink-faint" />}
+        {expanded ? (
+          <ChevronDown size={12} className="text-ink-faint" />
+        ) : (
+          <ChevronRight size={12} className="text-ink-faint" />
+        )}
         <Folder size={13} className="text-brand-blue/85" />
         <span className="min-w-0 flex-1 truncate font-medium">{node.name}</span>
         <span className="text-[11px] text-ink-faint tabular-nums">{node.count}</span>
@@ -1402,11 +1839,9 @@ function formatDecorations(value?: string | null) {
 }
 
 function compactGitDecorations(decorations: string[]) {
-  return decorations.slice(0, 1).map((decoration) =>
-    decoration
-      .replace(/^HEAD -> /, "HEAD→")
-      .replace(/^origin\//, "o/"),
-  );
+  return decorations
+    .slice(0, 1)
+    .map((decoration) => decoration.replace(/^HEAD -> /, "HEAD→").replace(/^origin\//, "o/"));
 }
 
 function generateCommitMessage(snapshot: GitStatusSnapshot) {
@@ -1502,7 +1937,9 @@ function CommitRow({
             <div className="grid gap-1">
               <div className="font-semibold leading-snug text-ink">{commit.title}</div>
               <div className="font-mono text-[10.5px] text-ink-faint">{commit.hash}</div>
-              <div className="text-ink-mute">{commit.author} · {commit.relativeTime}</div>
+              <div className="text-ink-mute">
+                {commit.author} · {commit.relativeTime}
+              </div>
               {allDecorations.length > 0 && <div className="text-brand-blue">{allDecorations.join(" · ")}</div>}
             </div>
           }
@@ -1543,17 +1980,59 @@ function CommitRow({
         menu={contextMenu.menu}
         onClose={contextMenu.closeMenu}
       >
-        <ContextMenuItem label={tm("git.history.copy_commit_hash", "Copy Commit Hash")} onSelect={() => onAction("copy")}>
+        <ContextMenuItem
+          label={tm("git.history.copy_commit_hash", "Copy Commit Hash")}
+          onSelect={() => onAction("copy")}
+        >
           {tm("git.history.copy_commit_hash", "Copy Commit Hash")}
         </ContextMenuItem>
-        <ContextMenuItem label={tm("git.history.checkout_commit", "Check Out This Commit")} onSelect={() => onAction("checkout")}>{tm("git.history.checkout_commit", "Check Out This Commit")}</ContextMenuItem>
-        <ContextMenuItem label={tm("git.history.create_branch_from_commit", "Create Branch from This Commit")} onSelect={() => onAction("branch")}>{tm("git.history.create_branch_from_commit", "Create Branch from This Commit")}</ContextMenuItem>
-        {isHead && <ContextMenuItem label={tm("git.history.undo_last_commit", "Undo Last Commit")} onSelect={() => onAction("undo")}>{tm("git.history.undo_last_commit", "Undo Last Commit")}</ContextMenuItem>}
-        {isHead && <ContextMenuItem label={tm("git.history.edit_last_commit_message", "Edit Last Commit Message")} onSelect={() => onAction("amend")}>{tm("git.history.edit_last_commit_message", "Edit Last Commit Message")}</ContextMenuItem>}
+        <ContextMenuItem
+          label={tm("git.history.checkout_commit", "Check Out This Commit")}
+          onSelect={() => onAction("checkout")}
+        >
+          {tm("git.history.checkout_commit", "Check Out This Commit")}
+        </ContextMenuItem>
+        <ContextMenuItem
+          label={tm("git.history.create_branch_from_commit", "Create Branch from This Commit")}
+          onSelect={() => onAction("branch")}
+        >
+          {tm("git.history.create_branch_from_commit", "Create Branch from This Commit")}
+        </ContextMenuItem>
+        {isHead && (
+          <ContextMenuItem
+            label={tm("git.history.undo_last_commit", "Undo Last Commit")}
+            onSelect={() => onAction("undo")}
+          >
+            {tm("git.history.undo_last_commit", "Undo Last Commit")}
+          </ContextMenuItem>
+        )}
+        {isHead && (
+          <ContextMenuItem
+            label={tm("git.history.edit_last_commit_message", "Edit Last Commit Message")}
+            onSelect={() => onAction("amend")}
+          >
+            {tm("git.history.edit_last_commit_message", "Edit Last Commit Message")}
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
-        <ContextMenuItem label={tm("git.history.revert_commit", "Revert This Commit")} onSelect={() => onAction("revert")}>{tm("git.history.revert_commit", "Revert This Commit")}</ContextMenuItem>
-        <ContextMenuItem label={tm("git.history.restore_local", "Restore Locally")} onSelect={() => onAction("restoreLocal")}>{tm("git.history.restore_local", "Restore Locally")}</ContextMenuItem>
-        <ContextMenuItem label={tm("git.history.restore_remote", "Restore Remote")} onSelect={() => onAction("restoreRemote")}>{tm("git.history.restore_remote", "Restore Remote")}</ContextMenuItem>
+        <ContextMenuItem
+          label={tm("git.history.revert_commit", "Revert This Commit")}
+          onSelect={() => onAction("revert")}
+        >
+          {tm("git.history.revert_commit", "Revert This Commit")}
+        </ContextMenuItem>
+        <ContextMenuItem
+          label={tm("git.history.restore_local", "Restore Locally")}
+          onSelect={() => onAction("restoreLocal")}
+        >
+          {tm("git.history.restore_local", "Restore Locally")}
+        </ContextMenuItem>
+        <ContextMenuItem
+          label={tm("git.history.restore_remote", "Restore Remote")}
+          onSelect={() => onAction("restoreRemote")}
+        >
+          {tm("git.history.restore_remote", "Restore Remote")}
+        </ContextMenuItem>
       </ContextMenu>
     </div>
   );
@@ -1578,15 +2057,7 @@ function GitGraphPrefix({ prefix }: { prefix: string }) {
   );
 }
 
-function GitGraphToken({
-  char,
-  index,
-  centerX,
-}: {
-  char: string;
-  index: number;
-  centerX: number;
-}) {
+function GitGraphToken({ char, index, centerX }: { char: string; index: number; centerX: number }) {
   const tone = graphTone(index);
   const centerStyle: CSSProperties = { left: centerX };
   if (char === "|" || char === "*" || char === "o") {
@@ -1636,13 +2107,8 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
   const [selectionAnchorPath, setSelectionAnchorPath] = useState("");
   const [pendingDeletePaths, setPendingDeletePaths] = useState<string[]>([]);
   const [copiedPath, setCopiedPath] = useState("");
-  const [fileStatus, setFileStatus] = useState<{ tone: "neutral" | "success" | "warning" | "danger"; message: string }>({
-    tone: "neutral",
-    message: tm("files.panel.status.ready", "Ready"),
-  });
   const [isDraggingExternalFiles, setDraggingExternalFiles] = useState(false);
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
   const [inlineEdit, setInlineEdit] = useState<FileInlineEdit | null>(null);
   const expandedPathsRef = useRef(expandedPaths);
   const fileTreeRef = useRef<HTMLDivElement | null>(null);
@@ -1654,15 +2120,21 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
   const inlineEditRef = useRef<FileInlineEdit | null>(null);
   const fileTreeStateRef = useRef(new Map<string, { expandedPaths: Set<string>; selectedPath: string }>());
 
-  const updateStatus = useCallback((message: string, tone: "neutral" | "success" | "warning" | "danger" = "neutral") => {
-    setFileStatus({ tone, message });
-  }, []);
+  const updateStatus = useCallback(
+    (message: string, tone: "neutral" | "success" | "warning" | "danger" = "neutral") => {
+      void message;
+      void tone;
+    },
+    [],
+  );
 
-  const handleFileError = useCallback((nextError: unknown) => {
-    const message = nextError instanceof Error ? nextError.message : String(nextError);
-    setError(message);
-    updateStatus(message, "danger");
-  }, [updateStatus]);
+  const handleFileError = useCallback(
+    (nextError: unknown) => {
+      const message = nextError instanceof Error ? nextError.message : String(nextError);
+      updateStatus(message, "danger");
+    },
+    [updateStatus],
+  );
 
   useEffect(() => {
     if (!rootPath) return;
@@ -1692,7 +2164,6 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
       if (!rootPath) return false;
       const key = directoryPath || rootPath;
       setLoadingPaths((current) => new Set(current).add(key));
-      setError(null);
       try {
         const children = await listFileChildren(rootPath, directoryPath);
         setChildrenByPath((current) => ({
@@ -1715,6 +2186,9 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
   );
 
   useEffect(() => {
+    let disposed = false;
+    let idleHandle: number | undefined;
+    let timerHandle: number | undefined;
     const stored = fileTreeStateRef.current.get(rootPath);
     setChildrenByPath({});
     setSelectedPath(stored?.selectedPath ?? "");
@@ -1722,7 +2196,6 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     setSelectionAnchorPath(stored?.selectedPath ?? "");
     setPendingDeletePaths([]);
     setCopiedPath("");
-    setError(null);
     if (!rootPath) {
       setExpandedPaths(new Set());
       updateStatus(tm("files.panel.no_project", "No Project Selected"));
@@ -1731,35 +2204,51 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     const nextExpanded = stored?.expandedPaths.size ? new Set(stored.expandedPaths) : new Set([rootPath]);
     setExpandedPaths(nextExpanded);
     updateStatus(tm("files.panel.status.ready", "Ready"));
-    void Promise.all([
-      loadChildren(),
-      ...Array.from(nextExpanded)
-        .filter((path) => path !== rootPath)
-        .map((path) => loadChildren(path)),
-    ]);
+    void loadChildren();
+    const expandedDirectories = Array.from(nextExpanded).filter((path) => path !== rootPath);
+    if (expandedDirectories.length > 0) {
+      const restoreExpandedDirectories = () => {
+        if (disposed) return;
+        void Promise.all(expandedDirectories.map((path) => loadChildren(path)));
+      };
+      if (typeof window.requestIdleCallback === "function") {
+        idleHandle = window.requestIdleCallback(restoreExpandedDirectories, { timeout: 700 });
+      } else {
+        timerHandle = globalThis.setTimeout(restoreExpandedDirectories, 120);
+      }
+    }
+    return () => {
+      disposed = true;
+      if (idleHandle !== undefined && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleHandle);
+      }
+      if (timerHandle !== undefined) {
+        globalThis.clearTimeout(timerHandle);
+      }
+    };
   }, [loadChildren, rootPath, updateStatus]);
 
   const rows = useMemo(
     () => flattenFileRows(rootPath, childrenByPath, expandedPaths),
     [childrenByPath, expandedPaths, rootPath],
   );
-  const fileTreeLabels = useMemo<FileTreeLabels>(() => ({
-    open: tm("files.panel.open", "Open"),
-    edit: tm("files.panel.edit", "Edit"),
-    insertPathTerminal: tm("files.panel.insert_path_terminal", "Insert Path into Terminal"),
-    copyPath: tm("files.panel.copy_path", "Copy Path"),
-    copy: tm("files.panel.copy", "Copy"),
-    cut: tm("files.panel.cut", "Cut"),
-    paste: tm("files.panel.paste", "Paste"),
-    reveal: tm("files.panel.reveal_finder", "Reveal in Finder"),
-    rename: tm("common.rename", "Rename"),
-    delete: tm("files.panel.delete", "Delete"),
-    actions: tm("files.panel.actions", "Actions"),
-  }), []);
-  const selectedEntry = useMemo(
-    () => rows.find((row) => row.entry.path === selectedPath)?.entry,
-    [rows, selectedPath],
+  const fileTreeLabels = useMemo<FileTreeLabels>(
+    () => ({
+      open: tm("files.panel.open", "Open"),
+      edit: tm("files.panel.edit", "Edit"),
+      insertPathTerminal: tm("files.panel.insert_path_terminal", "Insert Path into Terminal"),
+      copyPath: tm("files.panel.copy_path", "Copy Path"),
+      copy: tm("files.panel.copy", "Copy"),
+      cut: tm("files.panel.cut", "Cut"),
+      paste: tm("files.panel.paste", "Paste"),
+      reveal: tm("files.panel.reveal_finder", "Reveal in Finder"),
+      rename: tm("common.rename", "Rename"),
+      delete: tm("files.panel.delete", "Delete"),
+      actions: tm("files.panel.actions", "Actions"),
+    }),
+    [],
   );
+  const selectedEntry = useMemo(() => rows.find((row) => row.entry.path === selectedPath)?.entry, [rows, selectedPath]);
   const selectedEntries = useMemo(
     () => rows.filter((row) => selectedPaths.has(row.entry.path)).map((row) => row.entry),
     [rows, selectedPaths],
@@ -1769,7 +2258,11 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     [pendingDeletePaths, rows],
   );
   const pendingDeleteMessage = useMemo(
-    () => formatI18n(tm("files.panel.delete.pending_count_format", "%d item(s) marked for delete"), pendingDeletePaths.length),
+    () =>
+      formatI18n(
+        tm("files.panel.delete.pending_count_format", "%d item(s) marked for delete"),
+        pendingDeletePaths.length,
+      ),
     [pendingDeletePaths.length],
   );
   useEffect(() => {
@@ -1800,7 +2293,6 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     }
     void Promise.all(loads).then((results) => {
       if (results.every(Boolean)) {
-        setError(null);
         updateStatus(tm("files.panel.status.refreshed", "Files refreshed"), "success");
       }
     });
@@ -1839,7 +2331,6 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
         setSelectedPath(next.path);
         setSelectedPaths(new Set([next.path]));
         setSelectionAnchorPath(next.path);
-        setError(null);
         setInlineEdit(null);
         updateStatus(formatI18n(tm("files.panel.status.renamed_format", "Renamed to %@"), next.name), "success");
         await loadChildren(parentPath(next.path, rootPath));
@@ -1856,7 +2347,6 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
       setSelectedPath(entry.path);
       setSelectedPaths(new Set([entry.path]));
       setSelectionAnchorPath(entry.path);
-      setError(null);
       setInlineEdit(null);
       updateStatus(formatI18n(tm("files.panel.status.created_format", "Created %@"), entry.name), "success");
       await loadChildren(inlineEdit.parentPath);
@@ -1865,58 +2355,66 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     }
   };
 
-  const renameEntry = async (entry?: FileEntry) => {
-    const target = entry ?? selectedEntry;
-    if (!rootPath || !target) return;
-    setInlineEdit({
-      mode: "rename",
-      entry: target,
-      parentPath: parentPath(target.path, rootPath),
-      value: target.name,
-    });
-  };
+  const renameEntry = useCallback(
+    (entry?: FileEntry) => {
+      const target = entry ?? selectedEntry;
+      if (!rootPath || !target) return;
+      setInlineEdit({
+        mode: "rename",
+        entry: target,
+        parentPath: parentPath(target.path, rootPath),
+        value: target.name,
+      });
+    },
+    [rootPath, selectedEntry],
+  );
 
-  const stageDeleteEntries = (entries: FileEntry[]) => {
-    if (!rootPath || entries.length === 0) return;
-    setPendingDeletePaths(entries.map((entry) => entry.path));
-  };
+  const stageDeleteEntries = useCallback(
+    (entries: FileEntry[]) => {
+      if (!rootPath || entries.length === 0) return;
+      setPendingDeletePaths(entries.map((entry) => entry.path));
+    },
+    [rootPath],
+  );
 
   const activateFilePanel = () => {
     filePanelActiveRef.current = true;
     fileTreeRef.current?.focus({ preventScroll: true });
   };
 
-  const scrollFileRowIntoView = (path: string) => {
+  const scrollFileRowIntoView = useCallback((path: string) => {
     window.requestAnimationFrame(() => {
       const row = fileTreeRef.current?.querySelector<HTMLElement>(`[data-file-path="${cssEscape(path)}"]`);
       row?.scrollIntoView({ block: "nearest" });
     });
-  };
+  }, []);
 
-  const selectEntryRange = (entry: FileEntry, extend: boolean) => {
-    setPendingDeletePaths([]);
-    const visibleRows = rowsRef.current;
-    if (extend) {
-      const anchorPath = selectionAnchorPath || selectedPathRef.current || entry.path;
-      const anchorIndex = visibleRows.findIndex((row) => row.entry.path === anchorPath);
-      const targetIndex = visibleRows.findIndex((row) => row.entry.path === entry.path);
-      if (anchorIndex >= 0 && targetIndex >= 0) {
-        const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
-        setSelectedPaths(new Set(visibleRows.slice(start, end + 1).map((row) => row.entry.path)));
-        setSelectedPath(entry.path);
-        scrollFileRowIntoView(entry.path);
-        return;
+  const selectEntryRange = useCallback(
+    (entry: FileEntry, extend: boolean) => {
+      setPendingDeletePaths([]);
+      const visibleRows = rowsRef.current;
+      if (extend) {
+        const anchorPath = selectionAnchorPath || selectedPathRef.current || entry.path;
+        const anchorIndex = visibleRows.findIndex((row) => row.entry.path === anchorPath);
+        const targetIndex = visibleRows.findIndex((row) => row.entry.path === entry.path);
+        if (anchorIndex >= 0 && targetIndex >= 0) {
+          const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+          setSelectedPaths(new Set(visibleRows.slice(start, end + 1).map((row) => row.entry.path)));
+          setSelectedPath(entry.path);
+          scrollFileRowIntoView(entry.path);
+          return;
+        }
       }
-    }
-    setSelectedPath(entry.path);
-    setSelectedPaths(new Set([entry.path]));
-    setSelectionAnchorPath(entry.path);
-    scrollFileRowIntoView(entry.path);
-  };
-
-  const entriesForContextAction = (entry: FileEntry) => (
-    selectedPaths.has(entry.path) && selectedEntries.length > 1 ? selectedEntries : [entry]
+      setSelectedPath(entry.path);
+      setSelectedPaths(new Set([entry.path]));
+      setSelectionAnchorPath(entry.path);
+      scrollFileRowIntoView(entry.path);
+    },
+    [scrollFileRowIntoView, selectionAnchorPath],
   );
+
+  const entriesForContextAction = (entry: FileEntry) =>
+    selectedPaths.has(entry.path) && selectedEntries.length > 1 ? selectedEntries : [entry];
 
   const focusContextEntry = (entry: FileEntry) => {
     setPendingDeletePaths([]);
@@ -1930,16 +2428,19 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     setSelectionAnchorPath(entry.path);
   };
 
-  const copyEntryPaths = (entries: FileEntry[]) => {
-    if (entries.length === 0) return;
-    void navigator.clipboard?.writeText(entries.map((entry) => entry.path).join("\n"));
-    updateStatus(
-      entries.length === 1
-        ? formatI18n(tm("files.panel.status.copied_format", "Copied %@"), entries[0].name)
-        : formatI18n(tm("files.panel.status.copied_paths_count_format", "Copied %d paths"), entries.length),
-      "success",
-    );
-  };
+  const copyEntryPaths = useCallback(
+    (entries: FileEntry[]) => {
+      if (entries.length === 0) return;
+      void navigator.clipboard?.writeText(entries.map((entry) => entry.path).join("\n"));
+      updateStatus(
+        entries.length === 1
+          ? formatI18n(tm("files.panel.status.copied_format", "Copied %@"), entries[0].name)
+          : formatI18n(tm("files.panel.status.copied_paths_count_format", "Copied %d paths"), entries.length),
+        "success",
+      );
+    },
+    [updateStatus],
+  );
 
   const confirmDeleteEntries = async () => {
     if (!rootPath || pendingDeleteEntries.length === 0) return;
@@ -1955,7 +2456,6 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
         setSelectionAnchorPath("");
       }
       setPendingDeletePaths([]);
-      setError(null);
       updateStatus(
         targets.length === 1
           ? formatI18n(tm("files.panel.status.trashed_format", "Deleted %@"), targets[0].name)
@@ -1968,7 +2468,7 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     }
   };
 
-  const pasteCopiedPath = async () => {
+  const pasteCopiedPath = useCallback(async () => {
     if (!rootPath || !copiedPath) return;
     try {
       const entry = await copyFile(rootPath, copiedPath, targetDirectory);
@@ -1976,13 +2476,12 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
       setSelectedPath(entry.path);
       setSelectedPaths(new Set([entry.path]));
       setSelectionAnchorPath(entry.path);
-      setError(null);
       updateStatus(formatI18n(tm("files.panel.status.pasted_format", "Pasted %@"), entry.name), "success");
       await loadChildren(targetDirectory);
     } catch (nextError) {
       handleFileError(nextError);
     }
-  };
+  }, [copiedPath, handleFileError, loadChildren, rootPath, targetDirectory, updateStatus]);
 
   const importFilesIntoTarget = useCallback(
     async (paths: string[], targetDirectoryPath = targetDirectory) => {
@@ -1993,8 +2492,10 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
         setSelectedPath(imported[0]?.path ?? "");
         setSelectedPaths(imported[0]?.path ? new Set([imported[0].path]) : new Set());
         setSelectionAnchorPath(imported[0]?.path ?? "");
-        setError(null);
-        updateStatus(formatI18n(tm("files.panel.status.imported_count_format", "Imported %d item(s)"), imported.length), "success");
+        updateStatus(
+          formatI18n(tm("files.panel.status.imported_count_format", "Imported %d item(s)"), imported.length),
+          "success",
+        );
         await loadChildren(targetDirectoryPath);
       } catch (nextError) {
         handleFileError(nextError);
@@ -2007,30 +2508,33 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     if (!rootPath || !window.__TAURI_INTERNALS__) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void getCurrentWindow().onDragDropEvent((event) => {
-      if (disposed) return;
-      if (event.payload.type === "enter" || event.payload.type === "over") {
-        setDraggingExternalFiles(true);
-        updateStatus(tm("files.panel.status.drop_ready", "Release to copy into the current project"));
-        return;
-      }
-      if (event.payload.type === "leave") {
-        setDraggingExternalFiles(false);
-        return;
-      }
-      if (event.payload.type === "drop") {
-        setDraggingExternalFiles(false);
-        void importFilesIntoTarget(event.payload.paths);
-      }
-    }).then((nextUnlisten) => {
-      if (disposed) {
-        nextUnlisten();
-      } else {
-        unlisten = nextUnlisten;
-      }
-    }).catch((nextError) => {
-      handleFileError(nextError);
-    });
+    void getCurrentWindow()
+      .onDragDropEvent((event) => {
+        if (disposed) return;
+        if (event.payload.type === "enter" || event.payload.type === "over") {
+          setDraggingExternalFiles(true);
+          updateStatus(tm("files.panel.status.drop_ready", "Release to copy into the current project"));
+          return;
+        }
+        if (event.payload.type === "leave") {
+          setDraggingExternalFiles(false);
+          return;
+        }
+        if (event.payload.type === "drop") {
+          setDraggingExternalFiles(false);
+          void importFilesIntoTarget(event.payload.paths);
+        }
+      })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+        } else {
+          unlisten = nextUnlisten;
+        }
+      })
+      .catch((nextError) => {
+        handleFileError(nextError);
+      });
     return () => {
       disposed = true;
       unlisten?.();
@@ -2089,164 +2593,185 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
     };
   }, [handleFileError, loadChildren, rootPath]);
 
-  const selectEntry = (entry: FileEntry, options?: { extend?: boolean; toggle?: boolean }) => {
-    setPendingDeletePaths([]);
-    if (options?.extend && selectionAnchorPath) {
-      const anchorIndex = rows.findIndex((row) => row.entry.path === selectionAnchorPath);
-      const targetIndex = rows.findIndex((row) => row.entry.path === entry.path);
-      if (anchorIndex >= 0 && targetIndex >= 0) {
-        const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
-        setSelectedPaths(new Set(rows.slice(start, end + 1).map((row) => row.entry.path)));
-        setSelectedPath(entry.path);
+  const selectEntry = useCallback(
+    (entry: FileEntry, options?: { extend?: boolean; toggle?: boolean }) => {
+      setPendingDeletePaths([]);
+      if (options?.extend && selectionAnchorPath) {
+        const anchorIndex = rows.findIndex((row) => row.entry.path === selectionAnchorPath);
+        const targetIndex = rows.findIndex((row) => row.entry.path === entry.path);
+        if (anchorIndex >= 0 && targetIndex >= 0) {
+          const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+          setSelectedPaths(new Set(rows.slice(start, end + 1).map((row) => row.entry.path)));
+          setSelectedPath(entry.path);
+          return;
+        }
+      }
+      if (options?.toggle) {
+        setSelectedPaths((current) => {
+          const next = new Set(current);
+          if (next.has(entry.path)) {
+            next.delete(entry.path);
+          } else {
+            next.add(entry.path);
+          }
+          if (next.size === 0) {
+            setSelectedPath(entry.path);
+            return new Set([entry.path]);
+          }
+          const nextPaths = Array.from(next);
+          setSelectedPath(next.has(entry.path) ? entry.path : (nextPaths[nextPaths.length - 1] ?? entry.path));
+          return next;
+        });
+        setSelectionAnchorPath(entry.path);
         return;
       }
-    }
-    if (options?.toggle) {
-      setSelectedPaths((current) => {
+      setSelectedPath(entry.path);
+      setSelectedPaths(new Set([entry.path]));
+      setSelectionAnchorPath(entry.path);
+      if (!entry.isDirectory) return;
+      setExpandedPaths((current) => {
         const next = new Set(current);
         if (next.has(entry.path)) {
           next.delete(entry.path);
         } else {
           next.add(entry.path);
+          if (!childrenByPath[entry.path]) void loadChildren(entry.path);
         }
-        if (next.size === 0) {
-          setSelectedPath(entry.path);
-          return new Set([entry.path]);
-        }
-        const nextPaths = Array.from(next);
-        setSelectedPath(next.has(entry.path) ? entry.path : nextPaths[nextPaths.length - 1] ?? entry.path);
         return next;
       });
+    },
+    [childrenByPath, loadChildren, rows, selectionAnchorPath],
+  );
+
+  const openEntry = useCallback(
+    (entry: FileEntry) => {
+      setSelectedPath(entry.path);
+      setSelectedPaths(new Set([entry.path]));
       setSelectionAnchorPath(entry.path);
-      return;
-    }
-    setSelectedPath(entry.path);
-    setSelectedPaths(new Set([entry.path]));
-    setSelectionAnchorPath(entry.path);
-    if (!entry.isDirectory) return;
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      if (next.has(entry.path)) {
-        next.delete(entry.path);
-      } else {
-        next.add(entry.path);
-        if (!childrenByPath[entry.path]) void loadChildren(entry.path);
-      }
-      return next;
-    });
-  };
-
-  const openEntry = (entry: FileEntry) => {
-    setSelectedPath(entry.path);
-    setSelectedPaths(new Set([entry.path]));
-    setSelectionAnchorPath(entry.path);
-    if (entry.isDirectory) {
-      selectEntry(entry);
-      return;
-    }
-    broadcastWorkspaceCommand({
-      type: "open-file",
-      rootPath,
-      path: entry.path,
-    });
-  };
-
-  const handleFileShortcutKeyDown = useCallback((event: KeyboardEvent) => {
-    if (!filePanelActiveRef.current || inlineEditRef.current) return;
-    const target = event.target;
-    if (target instanceof HTMLElement) {
-      const tagName = target.tagName.toLowerCase();
-      if (target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select") return;
-    }
-    const selected = selectedEntryRef.current;
-    const visibleRows = rowsRef.current;
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
-      event.preventDefault();
-      if (visibleRows.length === 0) return;
-      setPendingDeletePaths([]);
-      setSelectedPaths(new Set(visibleRows.map((row) => row.entry.path)));
-      const nextEntry = selected ?? visibleRows[0].entry;
-      setSelectedPath(nextEntry.path);
-      if (!selectionAnchorPath) setSelectionAnchorPath(nextEntry.path);
-      scrollFileRowIntoView(nextEntry.path);
-      return;
-    }
-    if (visibleRows.length > 0 && (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "Home" || event.key === "End")) {
-      event.preventDefault();
-      const selectedIndex = visibleRows.findIndex((row) => row.entry.path === selectedPathRef.current);
-      const currentIndex = selectedIndex >= 0 ? selectedIndex : event.key === "ArrowUp" ? visibleRows.length : -1;
-      const nextIndex =
-        event.key === "Home"
-          ? 0
-          : event.key === "End"
-            ? visibleRows.length - 1
-            : Math.min(
-                visibleRows.length - 1,
-                Math.max(0, currentIndex + (event.key === "ArrowDown" ? 1 : -1)),
-              );
-      selectEntryRange(visibleRows[nextIndex].entry, event.shiftKey);
-      return;
-    }
-    if (!selected) return;
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      if (selected.isDirectory) {
-        if (!expandedPathsRef.current.has(selected.path)) {
-          setExpandedPaths((current) => new Set(current).add(selected.path));
-          if (!childrenByPath[selected.path]) void loadChildren(selected.path);
-          return;
-        }
-        const currentIndex = visibleRows.findIndex((row) => row.entry.path === selected.path);
-        const firstChild = currentIndex >= 0 ? visibleRows[currentIndex + 1] : undefined;
-        if (firstChild && firstChild.depth > (visibleRows[currentIndex]?.depth ?? -1)) {
-          selectEntryRange(firstChild.entry, event.shiftKey);
-        }
-      }
-      return;
-    }
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      if (selected.isDirectory && expandedPathsRef.current.has(selected.path)) {
-        setExpandedPaths((current) => {
-          const next = new Set(current);
-          next.delete(selected.path);
-          return next;
-        });
+      if (entry.isDirectory) {
+        selectEntry(entry);
         return;
       }
-      const parent = parentPath(selected.path, rootPath);
-      const parentEntry = visibleRows.find((row) => row.entry.path === parent)?.entry;
-      if (parentEntry) selectEntryRange(parentEntry, event.shiftKey);
-      return;
-    }
-    if (event.key === "Enter" || event.key === "F2") {
-      event.preventDefault();
-      void renameEntry(selected);
-      return;
-    }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
-      event.preventDefault();
-      openEntry(selected);
-      return;
-    }
-    if (event.key === "Delete" || event.key === "Backspace") {
-      event.preventDefault();
-      const entries = selectedEntriesRef.current.length ? selectedEntriesRef.current : [selected];
-      stageDeleteEntries(entries);
-      return;
-    }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
-      event.preventDefault();
-      const entries = selectedEntriesRef.current.length ? selectedEntriesRef.current : [selected];
-      setCopiedPath(entries.length === 1 ? entries[0].path : "");
-      copyEntryPaths(entries);
-      return;
-    }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") {
-      event.preventDefault();
-      void pasteCopiedPath();
-    }
-  }, [childrenByPath, loadChildren, openEntry, pasteCopiedPath, renameEntry, rootPath, selectionAnchorPath, selectEntryRange, stageDeleteEntries, updateStatus]);
+      broadcastWorkspaceCommand({
+        type: "open-file",
+        rootPath,
+        path: entry.path,
+      });
+    },
+    [rootPath, selectEntry],
+  );
+
+  const handleFileShortcutKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (!filePanelActiveRef.current || inlineEditRef.current) return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tagName = target.tagName.toLowerCase();
+        if (target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select") return;
+      }
+      const selected = selectedEntryRef.current;
+      const visibleRows = rowsRef.current;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        if (visibleRows.length === 0) return;
+        setPendingDeletePaths([]);
+        setSelectedPaths(new Set(visibleRows.map((row) => row.entry.path)));
+        const nextEntry = selected ?? visibleRows[0].entry;
+        setSelectedPath(nextEntry.path);
+        if (!selectionAnchorPath) setSelectionAnchorPath(nextEntry.path);
+        scrollFileRowIntoView(nextEntry.path);
+        return;
+      }
+      if (
+        visibleRows.length > 0 &&
+        (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "Home" || event.key === "End")
+      ) {
+        event.preventDefault();
+        const selectedIndex = visibleRows.findIndex((row) => row.entry.path === selectedPathRef.current);
+        const currentIndex = selectedIndex >= 0 ? selectedIndex : event.key === "ArrowUp" ? visibleRows.length : -1;
+        const nextIndex =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? visibleRows.length - 1
+              : Math.min(visibleRows.length - 1, Math.max(0, currentIndex + (event.key === "ArrowDown" ? 1 : -1)));
+        selectEntryRange(visibleRows[nextIndex].entry, event.shiftKey);
+        return;
+      }
+      if (!selected) return;
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        if (selected.isDirectory) {
+          if (!expandedPathsRef.current.has(selected.path)) {
+            setExpandedPaths((current) => new Set(current).add(selected.path));
+            if (!childrenByPath[selected.path]) void loadChildren(selected.path);
+            return;
+          }
+          const currentIndex = visibleRows.findIndex((row) => row.entry.path === selected.path);
+          const firstChild = currentIndex >= 0 ? visibleRows[currentIndex + 1] : undefined;
+          if (firstChild && firstChild.depth > (visibleRows[currentIndex]?.depth ?? -1)) {
+            selectEntryRange(firstChild.entry, event.shiftKey);
+          }
+        }
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        if (selected.isDirectory && expandedPathsRef.current.has(selected.path)) {
+          setExpandedPaths((current) => {
+            const next = new Set(current);
+            next.delete(selected.path);
+            return next;
+          });
+          return;
+        }
+        const parent = parentPath(selected.path, rootPath);
+        const parentEntry = visibleRows.find((row) => row.entry.path === parent)?.entry;
+        if (parentEntry) selectEntryRange(parentEntry, event.shiftKey);
+        return;
+      }
+      if (event.key === "Enter" || event.key === "F2") {
+        event.preventDefault();
+        void renameEntry(selected);
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
+        event.preventDefault();
+        openEntry(selected);
+        return;
+      }
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        const entries = selectedEntriesRef.current.length ? selectedEntriesRef.current : [selected];
+        stageDeleteEntries(entries);
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        const entries = selectedEntriesRef.current.length ? selectedEntriesRef.current : [selected];
+        setCopiedPath(entries.length === 1 ? entries[0].path : "");
+        copyEntryPaths(entries);
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") {
+        event.preventDefault();
+        void pasteCopiedPath();
+      }
+    },
+    [
+      childrenByPath,
+      copyEntryPaths,
+      loadChildren,
+      openEntry,
+      pasteCopiedPath,
+      renameEntry,
+      rootPath,
+      scrollFileRowIntoView,
+      selectionAnchorPath,
+      selectEntryRange,
+      stageDeleteEntries,
+    ],
+  );
 
   useEffect(() => {
     window.addEventListener("keydown", handleFileShortcutKeyDown);
@@ -2274,8 +2799,16 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
         }
         trailing={
           <>
-            <PanelIconButton icon={FileText} tooltip={tm("files.panel.new_file", "New File")} onClick={() => void createItem("file")} />
-            <PanelIconButton icon={FolderPlus} tooltip={tm("files.panel.new_folder", "New Folder")} onClick={() => void createItem("directory")} />
+            <PanelIconButton
+              icon={FileText}
+              tooltip={tm("files.panel.new_file", "New File")}
+              onClick={() => void createItem("file")}
+            />
+            <PanelIconButton
+              icon={FolderPlus}
+              tooltip={tm("files.panel.new_folder", "New Folder")}
+              onClick={() => void createItem("directory")}
+            />
             <PanelIconButton icon={RefreshCw} tooltip={tm("files.panel.refresh", "Refresh Files")} onClick={refresh} />
           </>
         }
@@ -2295,13 +2828,18 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
         ) : rows.length > 0 || inlineEdit ? (
           <>
             {inlineEdit?.mode === "create" && inlineEdit.parentPath === rootPath && (
-              <FileInlineEditRow edit={inlineEdit} depth={0} onChange={setInlineEdit} onCancel={() => setInlineEdit(null)} onSubmit={() => void submitInlineEdit()} />
+              <FileInlineEditRow
+                edit={inlineEdit}
+                depth={0}
+                onChange={setInlineEdit}
+                onCancel={() => setInlineEdit(null)}
+                onSubmit={() => void submitInlineEdit()}
+              />
             )}
             {rows.map((row) => (
               <FileTreeFragment
                 key={row.entry.path}
                 row={row}
-                rootPath={rootPath}
                 inlineEdit={inlineEdit}
                 selected={selectedPaths.has(row.entry.path)}
                 contextSelectionCount={selectedPaths.has(row.entry.path) ? selectedEntries.length : 1}
@@ -2320,10 +2858,17 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                   focusContextEntry(row.entry);
                 }}
                 onKeyAction={(event) => {
-                  if (event.key !== "Enter" && event.key !== "F2" && event.key !== "Delete" && event.key !== "Backspace") return;
+                  if (
+                    event.key !== "Enter" &&
+                    event.key !== "F2" &&
+                    event.key !== "Delete" &&
+                    event.key !== "Backspace"
+                  )
+                    return;
                   event.preventDefault();
                   event.stopPropagation();
-                  const targets = selectedPaths.has(row.entry.path) && selectedEntries.length > 1 ? selectedEntries : [row.entry];
+                  const targets =
+                    selectedPaths.has(row.entry.path) && selectedEntries.length > 1 ? selectedEntries : [row.entry];
                   setSelectedPath(row.entry.path);
                   setSelectedPaths(new Set(targets.map((entry) => entry.path)));
                   setSelectionAnchorPath(row.entry.path);
@@ -2374,7 +2919,10 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                   setSelectionAnchorPath(row.entry.path);
                   setCopiedPath(row.entry.path);
                   void navigator.clipboard?.writeText(row.entry.path);
-                  updateStatus(formatI18n(tm("files.panel.status.copied_format", "Copied %@"), row.entry.name), "success");
+                  updateStatus(
+                    formatI18n(tm("files.panel.status.copied_format", "Copied %@"), row.entry.name),
+                    "success",
+                  );
                 }}
                 onReveal={() => {
                   setSelectedPath(row.entry.path);
@@ -2383,36 +2931,43 @@ function FilesPanel({ project }: { project?: WorkspaceProject }) {
                   setSelectionAnchorPath(row.entry.path);
                   void Promise.all(targets.map((entry) => revealFile(rootPath, entry.path))).catch(handleFileError);
                 }}
-                onPaste={copiedPath ? () => {
-                  setSelectedPath(row.entry.path);
-                  setSelectedPaths(new Set([row.entry.path]));
-                  setSelectionAnchorPath(row.entry.path);
-                  void copyFile(rootPath, copiedPath, row.entry.isDirectory ? row.entry.path : parentPath(row.entry.path, rootPath))
-                    .then((entry) => {
-                      const parent = parentPath(entry.path, rootPath);
-                      setSelectedPath(entry.path);
-                      setSelectedPaths(new Set([entry.path]));
-                      setSelectionAnchorPath(entry.path);
-                      setExpandedPaths((current) => new Set(current).add(parent));
-                      setError(null);
-                      updateStatus(formatI18n(tm("files.panel.status.pasted_format", "Pasted %@"), entry.name), "success");
-                      return loadChildren(parent);
-                    })
-                    .catch((nextError) => {
-                      handleFileError(nextError);
-                    });
-                } : undefined}
+                onPaste={
+                  copiedPath
+                    ? () => {
+                        setSelectedPath(row.entry.path);
+                        setSelectedPaths(new Set([row.entry.path]));
+                        setSelectionAnchorPath(row.entry.path);
+                        void copyFile(
+                          rootPath,
+                          copiedPath,
+                          row.entry.isDirectory ? row.entry.path : parentPath(row.entry.path, rootPath),
+                        )
+                          .then((entry) => {
+                            const parent = parentPath(entry.path, rootPath);
+                            setSelectedPath(entry.path);
+                            setSelectedPaths(new Set([entry.path]));
+                            setSelectionAnchorPath(entry.path);
+                            setExpandedPaths((current) => new Set(current).add(parent));
+                            updateStatus(
+                              formatI18n(tm("files.panel.status.pasted_format", "Pasted %@"), entry.name),
+                              "success",
+                            );
+                            return loadChildren(parent);
+                          })
+                          .catch((nextError) => {
+                            handleFileError(nextError);
+                          });
+                      }
+                    : undefined
+                }
               />
             ))}
           </>
         ) : (
           <div className="px-2 py-3 text-xs text-ink-faint">
-            {loadingPaths.has(rootPath) ? tm("files.panel.loading", "Reading files") : tm("files.panel.empty", "No Files")}
-          </div>
-        )}
-        {error && (
-          <div className="mx-1 mt-2 rounded-md border border-brand-red/30 bg-brand-red/10 px-2.5 py-2 text-xs text-brand-red">
-            {error}
+            {loadingPaths.has(rootPath)
+              ? tm("files.panel.loading", "Reading files")
+              : tm("files.panel.empty", "No Files")}
           </div>
         )}
         {isDraggingExternalFiles && (
@@ -2457,7 +3012,7 @@ type FileRowModel = {
   depth: number;
 };
 
-type FileInlineEdit = (
+type FileInlineEdit =
   | {
       mode: "create";
       kind: "file" | "directory";
@@ -2469,8 +3024,7 @@ type FileInlineEdit = (
       entry: FileEntry;
       parentPath: string;
       value: string;
-    }
-);
+    };
 
 type FileTreeLabels = {
   open: string;
@@ -2493,7 +3047,6 @@ type FileSelectionModifiers = {
 
 function FileTreeFragment({
   row,
-  rootPath,
   inlineEdit,
   selected,
   contextSelectionCount,
@@ -2517,7 +3070,6 @@ function FileTreeFragment({
   onPaste,
 }: {
   row: FileRowModel;
-  rootPath: string;
   inlineEdit: FileInlineEdit | null;
   selected: boolean;
   contextSelectionCount: number;
@@ -2540,13 +3092,8 @@ function FileTreeFragment({
   onReveal?: () => void;
   onPaste?: () => void;
 }) {
-  const editAfter =
-    inlineEdit?.mode === "create" &&
-    inlineEdit.parentPath === row.entry.path &&
-    row.entry.isDirectory;
-  const isRenaming =
-    inlineEdit?.mode === "rename" &&
-    inlineEdit.entry.path === row.entry.path;
+  const editAfter = inlineEdit?.mode === "create" && inlineEdit.parentPath === row.entry.path && row.entry.isDirectory;
+  const isRenaming = inlineEdit?.mode === "rename" && inlineEdit.entry.path === row.entry.path;
 
   return (
     <>
@@ -2728,29 +3275,49 @@ function FileTreeRow({
           <span className="truncate text-xs">{entry.name}</span>
           {loading && <Spinner size="sm" color="current" className="ml-1 text-ink-faint" />}
         </PressableButton>
-        <ContextMenu ariaLabel={`${entry.name} ${labels.actions}`} menu={contextMenu.menu} onClose={contextMenu.closeMenu}>
-          <ContextMenuItem label={labels.open} disabled={entry.isDirectory || isMultiContext} onSelect={onOpen}>{labels.open}</ContextMenuItem>
-          <ContextMenuItem label={labels.edit} disabled={entry.isDirectory || isMultiContext} onSelect={onEdit}>{labels.edit}</ContextMenuItem>
-          <ContextMenuItem label={labels.insertPathTerminal} onSelect={onInsertPathIntoTerminal}>{labels.insertPathTerminal}</ContextMenuItem>
-          <ContextMenuItem label={labels.copyPath} onSelect={onCopyPath}>{labels.copyPath}</ContextMenuItem>
-          <ContextMenuItem label={labels.copy} disabled={isMultiContext} onSelect={onCopy}>{labels.copy}</ContextMenuItem>
-          <ContextMenuItem label={labels.cut} disabled>{labels.cut}</ContextMenuItem>
-          <ContextMenuItem label={labels.rename} disabled={isMultiContext} onSelect={onRename}>{labels.rename}</ContextMenuItem>
-          <ContextMenuItem label={labels.paste} disabled={!onPaste} onSelect={onPaste}>{labels.paste}</ContextMenuItem>
-          <ContextMenuItem label={labels.reveal} onSelect={onReveal}>{labels.reveal}</ContextMenuItem>
+        <ContextMenu
+          ariaLabel={`${entry.name} ${labels.actions}`}
+          menu={contextMenu.menu}
+          onClose={contextMenu.closeMenu}
+        >
+          <ContextMenuItem label={labels.open} disabled={entry.isDirectory || isMultiContext} onSelect={onOpen}>
+            {labels.open}
+          </ContextMenuItem>
+          <ContextMenuItem label={labels.edit} disabled={entry.isDirectory || isMultiContext} onSelect={onEdit}>
+            {labels.edit}
+          </ContextMenuItem>
+          <ContextMenuItem label={labels.insertPathTerminal} onSelect={onInsertPathIntoTerminal}>
+            {labels.insertPathTerminal}
+          </ContextMenuItem>
+          <ContextMenuItem label={labels.copyPath} onSelect={onCopyPath}>
+            {labels.copyPath}
+          </ContextMenuItem>
+          <ContextMenuItem label={labels.copy} disabled={isMultiContext} onSelect={onCopy}>
+            {labels.copy}
+          </ContextMenuItem>
+          <ContextMenuItem label={labels.cut} disabled>
+            {labels.cut}
+          </ContextMenuItem>
+          <ContextMenuItem label={labels.rename} disabled={isMultiContext} onSelect={onRename}>
+            {labels.rename}
+          </ContextMenuItem>
+          <ContextMenuItem label={labels.paste} disabled={!onPaste} onSelect={onPaste}>
+            {labels.paste}
+          </ContextMenuItem>
+          <ContextMenuItem label={labels.reveal} onSelect={onReveal}>
+            {labels.reveal}
+          </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem label={labels.delete} onSelect={onDelete}>{labels.delete}</ContextMenuItem>
+          <ContextMenuItem label={labels.delete} onSelect={onDelete}>
+            {labels.delete}
+          </ContextMenuItem>
         </ContextMenu>
       </div>
     </Tooltip>
   );
 }
 
-function flattenFileRows(
-  rootPath: string,
-  childrenByPath: Record<string, FileEntry[]>,
-  expandedPaths: Set<string>,
-) {
+function flattenFileRows(rootPath: string, childrenByPath: Record<string, FileEntry[]>, expandedPaths: Set<string>) {
   if (!rootPath) return [];
   const rows: FileRowModel[] = [];
   const visit = (directoryPath: string, depth: number) => {
@@ -2772,11 +3339,6 @@ function parentPath(path: string, rootPath: string) {
   if (index <= 0) return rootPath;
   const parent = path.slice(0, index);
   return parent.startsWith(rootPath) ? parent : rootPath;
-}
-
-function fileNameFromPath(path: string) {
-  const normalized = normalizeInspectorPath(path);
-  return normalized.split("/").filter(Boolean).pop() || normalized || path;
 }
 
 function normalizeInspectorPath(value: string) {
@@ -2806,27 +3368,39 @@ function shellQuote(value: string) {
 }
 
 function AIPanel({ project }: { project?: WorkspaceProject }) {
-  const { sessions, projectTotals, globalTotals } = useAIRuntimeSnapshot(project?.id);
+  const { sessions, projectTotals } = useAIRuntimeSnapshot(project?.id);
   const history = useAIHistorySnapshot(project);
+  const [statisticsMode, setStatisticsMode] = useState<AIStatisticsMode>(
+    () => readAppSettings().statisticsMode as AIStatisticsMode,
+  );
   const [isManualRefreshFeedbackVisible, setManualRefreshFeedbackVisible] = useState(false);
+  const [selectedHistorySessionId, setSelectedHistorySessionId] = useState("");
+  const [historySessionTitleOverrides, setHistorySessionTitleOverrides] = useState<Record<string, string>>({});
+  const [hiddenHistorySessionIds, setHiddenHistorySessionIds] = useState<Set<string>>(() => new Set());
   const manualRefreshStartedAtRef = useRef(0);
   const isRefreshingAIHistory = history.isLoading || isManualRefreshFeedbackVisible;
   const isForegroundAIIndexing = history.isForegroundLoading || isManualRefreshFeedbackVisible;
-  const displayedProgress =
-    isManualRefreshFeedbackVisible && !history.isLoading ? 1 : history.progress;
+  const displayedProgress = isManualRefreshFeedbackVisible && !history.isLoading ? 1 : history.progress;
   const historySnapshot = history.snapshot;
-  const liveProjectTokens = projectTotals.totalTokens;
-  const liveTodayTokens = globalTotals.totalTokens;
-  const projectTotalTokens = historySnapshot.projectSummary.projectTotalTokens + liveProjectTokens;
-  const todayTotalTokens = historySnapshot.projectSummary.todayTotalTokens + liveTodayTokens;
-  const toolRankingRows = toolRows(sessions, historySnapshot.toolBreakdown);
-  const modelRankingRows = modelRows(sessions, historySnapshot.modelBreakdown);
-  const recentHistorySessions = historySnapshot.sessions.slice(0, MAX_VISIBLE_AI_SESSIONS);
+  const liveProjectTokens = displayedProjectTotals(projectTotals, statisticsMode);
+  const projectTotalTokens =
+    displayedProjectSummaryTotal(historySnapshot.projectSummary, statisticsMode) + liveProjectTokens;
+  const todayTotalTokens =
+    displayedProjectSummaryToday(historySnapshot.projectSummary, statisticsMode) + liveProjectTokens;
+  const toolRankingRows = toolRows(sessions, historySnapshot.toolBreakdown, statisticsMode);
+  const modelRankingRows = modelRows(sessions, historySnapshot.modelBreakdown, statisticsMode);
+  const recentHistorySessions = historySnapshot.sessions
+    .filter((session) => !hiddenHistorySessionIds.has(session.sessionId))
+    .slice(0, MAX_VISIBLE_AI_SESSIONS)
+    .map((session) => ({
+      ...session,
+      sessionTitle: historySessionTitleOverrides[session.sessionId] ?? session.sessionTitle,
+    }));
   const refreshAIHistory = useCallback(async () => {
     manualRefreshStartedAtRef.current = Date.now();
     setManualRefreshFeedbackVisible(true);
     await history.refresh();
-  }, [history.refresh]);
+  }, [history]);
 
   useEffect(() => {
     if (!isManualRefreshFeedbackVisible || history.isLoading) return;
@@ -2841,28 +3415,45 @@ function AIPanel({ project }: { project?: WorkspaceProject }) {
   useEffect(() => {
     manualRefreshStartedAtRef.current = 0;
     setManualRefreshFeedbackVisible(false);
+    setSelectedHistorySessionId("");
+    setHistorySessionTitleOverrides({});
+    setHiddenHistorySessionIds(new Set());
   }, [project?.id]);
+
+  useEffect(
+    () =>
+      subscribeAppSettings((settings) => {
+        setStatisticsMode(settings.statisticsMode as AIStatisticsMode);
+      }),
+    [],
+  );
 
   return (
     <>
       <PanelHeader
-        title={tm("ai.panel.title", "AI Assistant")}
+        title={
+          <span className="truncate">{tm("ai.panel.statistics_title", "AI Stats")}</span>
+        }
         trailing={
           <PanelIconButton
             icon={RefreshCw}
-            tooltip={isRefreshingAIHistory ? tm("ai.action.stop_refresh", "Stop the current AI stats refresh.") : tm("ai.action.refresh_current_project", "Refresh AI stats for the current project.")}
+            tooltip={
+              isRefreshingAIHistory
+                ? tm("ai.action.stop_refresh", "Stop the current AI stats refresh.")
+                : tm("ai.action.refresh_current_project", "Refresh AI stats for the current project.")
+            }
             busy={isRefreshingAIHistory}
             disabled={isRefreshingAIHistory}
             onClick={() => void refreshAIHistory()}
           />
         }
       />
-      <div className="flex-1 overflow-y-auto scrollbar-overlay p-3 flex flex-col gap-3">
-        <PanelCard title={tm("ai.live_sessions", "Current Session Totals")}>
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-overlay p-3 pb-5 flex flex-col gap-3">
+        <PanelCard title={tm("ai.live_sessions", "Current Session Totals")} divider={false}>
           {sessions.length > 0 ? (
             <div className="flex flex-col gap-2">
               {sessions.map((session) => (
-                <LiveSessionRow key={session.terminalId} session={session} />
+                <LiveSessionRow key={session.terminalId} session={session} mode={statisticsMode} />
               ))}
             </div>
           ) : (
@@ -2873,26 +3464,30 @@ function AIPanel({ project }: { project?: WorkspaceProject }) {
         </PanelCard>
 
         <div className="grid grid-cols-2 gap-3">
-          <Tooltip label={tm("ai.summary.current_project", "Current Project")} placement="bottom" triggerClassName="block w-full">
+          <Tooltip
+            label={tm("ai.summary.current_project", "Current Project")}
+            placement="bottom"
+            triggerClassName="block w-full"
+          >
             <PanelCard>
               <div className="text-xs text-ink-mute">{tm("ai.summary.current_project", "Current Project")}</div>
-              <div className="text-lg font-semibold mt-1 tabular-nums">
-                {formatTokens(projectTotalTokens)}
-              </div>
+              <div className="text-lg font-semibold mt-1 tabular-nums">{formatTokens(projectTotalTokens)}</div>
             </PanelCard>
           </Tooltip>
-          <Tooltip label={tm("ai.summary.today_total", "Today's Total")} placement="bottom" triggerClassName="block w-full">
+          <Tooltip
+            label={tm("ai.summary.today_total", "Today's Total")}
+            placement="bottom"
+            triggerClassName="block w-full"
+          >
             <PanelCard>
               <div className="text-xs text-ink-mute">{tm("ai.summary.today_total", "Today's Total")}</div>
-              <div className="text-lg font-semibold mt-1 tabular-nums">
-                {formatTokens(todayTotalTokens)}
-              </div>
+              <div className="text-lg font-semibold mt-1 tabular-nums">{formatTokens(todayTotalTokens)}</div>
             </PanelCard>
           </Tooltip>
         </div>
 
         <PanelCard title={tm("ai.today_usage", "Today's Usage")}>
-          <BarsRow sessions={sessions} buckets={historySnapshot.todayTimeBuckets} />
+          <BarsRow sessions={sessions} buckets={historySnapshot.todayTimeBuckets} mode={statisticsMode} />
           <div className="flex justify-between mt-1 text-xs text-ink-faint">
             <span>00:00</span>
             <span>06:00</span>
@@ -2903,7 +3498,7 @@ function AIPanel({ project }: { project?: WorkspaceProject }) {
         </PanelCard>
 
         <PanelCard title={tm("ai.recent_usage", "Recent Usage")}>
-          <HeatmapGrid sessions={sessions} days={historySnapshot.heatmap} />
+          <HeatmapGrid sessions={sessions} days={historySnapshot.heatmap} mode={statisticsMode} />
         </PanelCard>
 
         <PanelCard title={tm("ai.breakdown.tool_ranking", "Tool Ranking")}>
@@ -2945,9 +3540,64 @@ function AIPanel({ project }: { project?: WorkspaceProject }) {
           }
           bodyPadding={false}
         >
-          {recentHistorySessions.map((session) => (
-            <HistorySessionRow key={session.sessionId} session={session} />
-          ))}
+          <div className="max-h-[236px] overflow-y-auto scrollbar-overlay pb-1">
+            {recentHistorySessions.map((session) => (
+              <HistorySessionRow
+                key={session.sessionId}
+                session={session}
+                mode={statisticsMode}
+                selected={selectedHistorySessionId === session.sessionId}
+                onSelect={() => setSelectedHistorySessionId(session.sessionId)}
+                onRestore={() => restoreHistorySession(project, session)}
+                onRename={() => {
+                  const nextTitle = window.prompt(tm("common.rename", "Rename"), session.sessionTitle)?.trim();
+                  if (!nextTitle) return;
+                  if (!project || !window.__TAURI_INTERNALS__) {
+                    setHistorySessionTitleOverrides((current) => ({
+                      ...current,
+                      [session.sessionId]: nextTitle,
+                    }));
+                    return;
+                  }
+                  void invoke("ai_history_session_rename", {
+                    project: {
+                      id: project.id,
+                      name: project.name,
+                      path: project.path,
+                    },
+                    sessionId: session.sessionId,
+                    title: nextTitle,
+                  }).catch((error) => console.error("failed to rename ai history session", error));
+                }}
+                onDelete={() => {
+                  void systemConfirm(
+                    formatI18n(tm("ai.sessions.delete_confirm_format", "Delete %@?"), session.sessionTitle),
+                    {
+                      title: tm("common.delete", "Delete"),
+                      kind: "warning",
+                      okLabel: tm("common.delete", "Delete"),
+                      cancelLabel: tm("common.cancel", "Cancel"),
+                    },
+                  ).then((confirmed) => {
+                    if (!confirmed) return;
+                    if (!project || !window.__TAURI_INTERNALS__) {
+                      setHiddenHistorySessionIds((current) => new Set(current).add(session.sessionId));
+                      setSelectedHistorySessionId((current) => (current === session.sessionId ? "" : current));
+                      return;
+                    }
+                    void invoke("ai_history_session_remove", {
+                      project: {
+                        id: project.id,
+                        name: project.name,
+                        path: project.path,
+                      },
+                      sessionId: session.sessionId,
+                    }).catch((error) => console.error("failed to remove ai history session", error));
+                  });
+                }}
+              />
+            ))}
+          </div>
           {recentHistorySessions.length === 0 && (
             <div className="px-3 py-3 text-xs text-ink-faint">
               {history.isLoading
@@ -3055,7 +3705,7 @@ function EmptyMetricRow({ label }: { label: string }) {
   return <div className="text-xs text-ink-faint">{label}</div>;
 }
 
-function LiveSessionRow({ session }: { session: AISessionSnapshot }) {
+function LiveSessionRow({ session, mode }: { session: AISessionSnapshot; mode: AIStatisticsMode }) {
   const model = session.model || "-";
   return (
     <Tooltip label={session.sessionTitle} placement="left" triggerClassName="block w-full">
@@ -3066,7 +3716,7 @@ function LiveSessionRow({ session }: { session: AISessionSnapshot }) {
         </div>
         <div className="flex-shrink-0 text-right">
           <div className="text-base font-semibold tabular-nums text-ink leading-none">
-            {formatTokens(liveSessionTotalTokens(session))}
+            {formatTokens(displayedLiveSessionTotal(session, mode))}
           </div>
           <div className="mt-1 text-xs text-ink-faint">{tm("ai.metric.session_total", "Session Total")}</div>
         </div>
@@ -3075,28 +3725,29 @@ function LiveSessionRow({ session }: { session: AISessionSnapshot }) {
   );
 }
 
-function toolRows(sessions: AISessionSnapshot[], historyRows: AIUsageBreakdownItem[]) {
-  return rankRows(sessions, historyRows, (session) => session.tool);
+function toolRows(sessions: AISessionSnapshot[], historyRows: AIUsageBreakdownItem[], mode: AIStatisticsMode) {
+  return rankRows(sessions, historyRows, (session) => session.tool, mode);
 }
 
-function modelRows(sessions: AISessionSnapshot[], historyRows: AIUsageBreakdownItem[]) {
-  return rankRows(sessions, historyRows, (session) => normalizeRankModelName(session.model));
+function modelRows(sessions: AISessionSnapshot[], historyRows: AIUsageBreakdownItem[], mode: AIStatisticsMode) {
+  return rankRows(sessions, historyRows, (session) => normalizeRankModelName(session.model), mode);
 }
 
 function rankRows(
   sessions: AISessionSnapshot[],
   historyRows: AIUsageBreakdownItem[],
   keyOf: (session: AISessionSnapshot) => string | null,
+  mode: AIStatisticsMode,
 ) {
   const totals = new Map<string, number>();
   for (const row of historyRows) {
     if (!isDisplayableModelOrToolKey(row.key)) continue;
-    totals.set(row.key, (totals.get(row.key) ?? 0) + row.totalTokens);
+    totals.set(row.key, (totals.get(row.key) ?? 0) + displayedBreakdownTokens(row, mode));
   }
   for (const session of sessions) {
     const key = keyOf(session);
     if (!key || !isDisplayableModelOrToolKey(key)) continue;
-    const value = sessionDeltaTokens(session);
+    const value = displayedSessionDeltaTokens(session, mode);
     totals.set(key, (totals.get(key) ?? 0) + value);
   }
   const max = Math.max(...totals.values(), 1);
@@ -3132,7 +3783,64 @@ function sessionDeltaTokens(session: AISessionSnapshot) {
   return Math.max(0, session.totalTokens - session.baselineTotalTokens);
 }
 
-function BarsRow({ sessions, buckets }: { sessions: AISessionSnapshot[]; buckets: AITimeBucket[] }) {
+function displayedSessionDeltaTokens(session: AISessionSnapshot, mode: AIStatisticsMode) {
+  return sessionDeltaTokens(session) + (mode === "includingCache" ? Math.max(0, session.cachedInputTokens) : 0);
+}
+
+function displayedLiveSessionTotal(session: AISessionSnapshot, mode: AIStatisticsMode) {
+  return Math.max(0, session.totalTokens) + (mode === "includingCache" ? Math.max(0, session.cachedInputTokens) : 0);
+}
+
+function displayedProjectTotals(
+  totals: { totalTokens: number; cachedInputTokens?: number | null },
+  mode: AIStatisticsMode,
+) {
+  return Math.max(0, totals.totalTokens) + (mode === "includingCache" ? Math.max(0, totals.cachedInputTokens ?? 0) : 0);
+}
+
+function displayedProjectSummaryTotal(
+  summary: { projectTotalTokens: number; projectCachedInputTokens: number },
+  mode: AIStatisticsMode,
+) {
+  return summary.projectTotalTokens + (mode === "includingCache" ? summary.projectCachedInputTokens : 0);
+}
+
+function displayedProjectSummaryToday(
+  summary: { todayTotalTokens: number; todayCachedInputTokens: number },
+  mode: AIStatisticsMode,
+) {
+  return summary.todayTotalTokens + (mode === "includingCache" ? summary.todayCachedInputTokens : 0);
+}
+
+function displayedBucketTokens(bucket: AITimeBucket, mode: AIStatisticsMode) {
+  return bucket.totalTokens + (mode === "includingCache" ? bucket.cachedInputTokens : 0);
+}
+
+function displayedHeatmapTokens(day: AIHeatmapDay, mode: AIStatisticsMode) {
+  return day.totalTokens + (mode === "includingCache" ? day.cachedInputTokens : 0);
+}
+
+function displayedBreakdownTokens(row: AIUsageBreakdownItem, mode: AIStatisticsMode) {
+  return row.totalTokens + (mode === "includingCache" ? row.cachedInputTokens : 0);
+}
+
+function displayedHistorySessionTotal(session: AIHistorySessionSummary, mode: AIStatisticsMode) {
+  return session.totalTokens + (mode === "includingCache" ? session.cachedInputTokens : 0);
+}
+
+function displayedHistorySessionToday(session: AIHistorySessionSummary, mode: AIStatisticsMode) {
+  return session.todayTokens + (mode === "includingCache" ? session.todayCachedInputTokens : 0);
+}
+
+function BarsRow({
+  sessions,
+  buckets,
+  mode,
+}: {
+  sessions: AISessionSnapshot[];
+  buckets: AITimeBucket[];
+  mode: AIStatisticsMode;
+}) {
   const data = useMemo(() => {
     const today = startOfLocalDay(new Date());
     const todayEnd = endOfLocalDay(today);
@@ -3149,16 +3857,16 @@ function BarsRow({ sessions, buckets }: { sessions: AISessionSnapshot[]; buckets
       const date = new Date(bucket.start * 1000);
       if (startOfLocalDay(date).getTime() !== today.getTime()) continue;
       const index = todayBucketIndex(date);
-      values[index].value += bucket.totalTokens;
+      values[index].value += displayedBucketTokens(bucket, mode);
       values[index].requestCount += bucket.requestCount;
     }
     for (const session of sessions) {
       const date = new Date(session.updatedAt * 1000);
       if (startOfLocalDay(date).getTime() !== today.getTime()) continue;
-      values[todayBucketIndex(date)].value += sessionDeltaTokens(session);
+      values[todayBucketIndex(date)].value += displayedSessionDeltaTokens(session, mode);
     }
     return values;
-  }, [buckets, sessions]);
+  }, [buckets, mode, sessions]);
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
     <div className="flex items-end gap-px h-[64px]">
@@ -3171,7 +3879,9 @@ function BarsRow({ sessions, buckets }: { sessions: AISessionSnapshot[]; buckets
             label={
               <span>
                 {formatTime(d.start)} - {formatBucketEndTime(d.end, d.index)} · {formatTokens(d.value)}
-                {d.requestCount > 0 ? ` · ${formatI18n(tm("common.requests_format", "Requests %@"), d.requestCount)}` : ""}
+                {d.requestCount > 0
+                  ? ` · ${formatI18n(tm("common.requests_format", "Requests %@"), d.requestCount)}`
+                  : ""}
               </span>
             }
             placement="top"
@@ -3180,9 +3890,7 @@ function BarsRow({ sessions, buckets }: { sessions: AISessionSnapshot[]; buckets
             <div className="flex items-end h-full w-full">
               <div
                 className={`w-full rounded-[3px] transition-colors ${
-                  hasValue
-                    ? "bg-brand-blue/70 hover:bg-brand-blue"
-                    : "bg-brand-blue/18 hover:bg-brand-blue/35"
+                  hasValue ? "bg-brand-blue/70 hover:bg-brand-blue" : "bg-brand-blue/18 hover:bg-brand-blue/35"
                 }`}
                 style={{ height: `${h}px` }}
               />
@@ -3198,7 +3906,15 @@ const HEATMAP_GAP = 3;
 const HEATMAP_BASE_CELL = 9;
 const HEATMAP_DEFAULT_LAYOUT = { columns: 15, cellSize: 9 };
 
-function HeatmapGrid({ sessions, days }: { sessions: AISessionSnapshot[]; days: AIHeatmapDay[] }) {
+function HeatmapGrid({
+  sessions,
+  days,
+  mode,
+}: {
+  sessions: AISessionSnapshot[];
+  days: AIHeatmapDay[];
+  mode: AIStatisticsMode;
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [layout, setLayout] = useState(HEATMAP_DEFAULT_LAYOUT);
   const { columns, cellSize } = layout;
@@ -3214,10 +3930,7 @@ function HeatmapGrid({ sessions, days }: { sessions: AISessionSnapshot[]; days: 
       const nextColumns = Math.max(2, Math.floor((width + HEATMAP_GAP) / (HEATMAP_BASE_CELL + HEATMAP_GAP)));
       const nextCellSize = Math.max(
         8,
-        Math.min(
-          10,
-          Math.floor((width - HEATMAP_GAP * Math.max(nextColumns - 1, 0)) / nextColumns),
-        ),
+        Math.min(10, Math.floor((width - HEATMAP_GAP * Math.max(nextColumns - 1, 0)) / nextColumns)),
       );
 
       setLayout((current) =>
@@ -3241,7 +3954,7 @@ function HeatmapGrid({ sessions, days }: { sessions: AISessionSnapshot[]; days: 
     const values = new Map<number, { value: number; requestCount: number }>();
     for (const day of days) {
       values.set(startOfLocalDay(new Date(day.day * 1000)).getTime(), {
-        value: day.totalTokens,
+        value: displayedHeatmapTokens(day, mode),
         requestCount: day.requestCount,
       });
     }
@@ -3249,7 +3962,7 @@ function HeatmapGrid({ sessions, days }: { sessions: AISessionSnapshot[]; days: 
       const day = startOfLocalDay(new Date(session.updatedAt * 1000));
       const existing = values.get(day.getTime()) ?? { value: 0, requestCount: 0 };
       values.set(day.getTime(), {
-        value: existing.value + sessionDeltaTokens(session),
+        value: existing.value + displayedSessionDeltaTokens(session, mode),
         requestCount: existing.requestCount,
       });
     }
@@ -3266,9 +3979,13 @@ function HeatmapGrid({ sessions, days }: { sessions: AISessionSnapshot[]; days: 
         };
       }),
     );
-    const nonZero = cells.flat().map((item) => item.value).filter((value) => value > 0).sort((a, b) => a - b);
+    const nonZero = cells
+      .flat()
+      .map((item) => item.value)
+      .filter((value) => value > 0)
+      .sort((a, b) => a - b);
     return { cells, nonZero };
-  }, [columns, days, sessions]);
+  }, [columns, days, mode, sessions]);
 
   const intensity = (v: number) => {
     if (v <= 0) return 0.14;
@@ -3310,7 +4027,9 @@ function HeatmapGrid({ sessions, days }: { sessions: AISessionSnapshot[]; days: 
                 label={
                   <span>
                     {formatHeatmapDate(item.day)} · {formatTokens(item.value)}
-                    {item.requestCount > 0 ? ` · ${formatI18n(tm("common.requests_format", "Requests %@"), item.requestCount)}` : ""}
+                    {item.requestCount > 0
+                      ? ` · ${formatI18n(tm("common.requests_format", "Requests %@"), item.requestCount)}`
+                      : ""}
                   </span>
                 }
                 placement="top"
@@ -3364,17 +4083,7 @@ function formatHeatmapDate(date: Date) {
   }).format(date);
 }
 
-function RankRow({
-  name,
-  value,
-  pct,
-  tooltip,
-}: {
-  name: string;
-  value: string;
-  pct: number;
-  tooltip?: string;
-}) {
+function RankRow({ name, value, pct, tooltip }: { name: string; value: string; pct: number; tooltip?: string }) {
   const body = (
     <div className="py-1.5 cursor-default">
       <div className="flex items-center justify-between gap-3 text-[13px] leading-5">
@@ -3385,10 +4094,7 @@ function RankRow({
         </span>
       </div>
       <div className="mt-1.5 h-1 rounded-full bg-fill/[0.08] overflow-hidden">
-        <div
-          className="h-full rounded-full bg-brand-blue/65"
-          style={{ width: `${pct}%` }}
-        />
+        <div className="h-full rounded-full bg-brand-blue/65" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -3402,28 +4108,103 @@ function RankRow({
   return body;
 }
 
-function HistorySessionRow({ session }: { session: AIHistorySessionSummary }) {
+function HistorySessionRow({
+  session,
+  mode,
+  selected,
+  onSelect,
+  onRestore,
+  onRename,
+  onDelete,
+}: {
+  session: AIHistorySessionSummary;
+  mode: AIStatisticsMode;
+  selected?: boolean;
+  onSelect: () => void;
+  onRestore: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const contextMenu = useContextMenu();
   const tool = session.lastTool || "-";
   const model = normalizeRankModelName(session.lastModel) ?? "-";
   const lastSeenLabel = sessionTimeLabel(session.lastSeenAt);
-  const todayLabel = formatI18n(tm("common.today_format", "Today %@"), formatTokens(session.todayTokens));
+  const todayLabel = formatI18n(
+    tm("common.today_format", "Today %@"),
+    formatTokens(displayedHistorySessionToday(session, mode)),
+  );
 
   return (
-    <div className="px-3 py-2.5 flex items-start justify-between gap-3 text-xs border-b border-line last:border-b-0 hover:bg-fill/[0.03]">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-semibold text-ink truncate">{session.sessionTitle}</div>
-        <div className="mt-1 grid gap-0.5">
-          <div className="text-xs font-medium text-ink-soft truncate">{tool}</div>
-          <div className="text-[11px] font-medium text-ink-faint truncate">{model}</div>
+    <div className="relative">
+      <button
+        type="button"
+        className={`w-full px-3 py-2.5 flex items-start justify-between gap-3 text-left text-xs border-b border-line last:border-b-0 outline-none ${
+          selected ? "bg-brand-blue/12" : "hover:bg-fill/[0.03]"
+        }`}
+        onClick={onSelect}
+        onDoubleClick={onRestore}
+        onContextMenu={(event) => {
+          onSelect();
+          contextMenu.openMenu(event);
+        }}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold text-ink truncate">{session.sessionTitle}</div>
+          <div className="mt-1 grid gap-0.5">
+            <div className="text-xs font-medium text-ink-soft truncate">{tool}</div>
+            <div className="text-[11px] font-medium text-ink-faint truncate">{model}</div>
+          </div>
         </div>
-      </div>
-      <div className="flex-shrink-0 text-right">
-        <div className="text-[11px] font-medium text-ink-soft whitespace-nowrap">{lastSeenLabel}</div>
-        <div className="mt-1 text-sm font-medium tabular-nums text-ink">{formatTokens(session.totalTokens)}</div>
-        <div className="mt-0.5 text-[11px] font-medium text-ink-faint whitespace-nowrap">{todayLabel}</div>
-      </div>
+        <div className="flex-shrink-0 text-right">
+          <div className="text-[11px] font-medium text-ink-soft whitespace-nowrap">{lastSeenLabel}</div>
+          <div className="mt-1 text-sm font-medium tabular-nums text-ink">
+            {formatTokens(displayedHistorySessionTotal(session, mode))}
+          </div>
+          <div className="mt-0.5 text-[11px] font-medium text-ink-faint whitespace-nowrap">{todayLabel}</div>
+        </div>
+      </button>
+      <ContextMenu
+        ariaLabel={formatI18n(tm("ai.sessions.actions_format", "%@ Actions"), session.sessionTitle)}
+        menu={contextMenu.menu}
+        onClose={contextMenu.closeMenu}
+      >
+        <ContextMenuItem label={tm("common.open", "Open")} onSelect={onRestore}>
+          {tm("common.open", "Open")}
+        </ContextMenuItem>
+        <ContextMenuItem label={tm("common.rename", "Rename")} onSelect={onRename}>
+          {tm("common.rename", "Rename")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem label={tm("common.delete", "Delete")} onSelect={onDelete}>
+          {tm("common.delete", "Delete")}
+        </ContextMenuItem>
+      </ContextMenu>
     </div>
   );
+}
+
+function restoreHistorySession(project: WorkspaceProject | undefined, session: AIHistorySessionSummary) {
+  if (!project) return;
+  const command = historySessionRestoreCommand(session);
+  broadcastWorkspaceCommand({
+    type: "add-top-terminal-split",
+    projectId: project.id,
+    projectPath: project.path,
+    projectName: project.name,
+    title: session.sessionTitle,
+    command,
+  });
+}
+
+function historySessionRestoreCommand(session: AIHistorySessionSummary) {
+  const tool = (session.lastTool || "").toLowerCase();
+  const id = session.externalSessionId || session.sessionId;
+  const quotedId = shellQuote(id);
+  if (tool.includes("codex")) return `codex resume ${quotedId}`;
+  if (tool.includes("claude")) return `claude --resume ${quotedId}`;
+  if (tool.includes("gemini")) return `gemini resume ${quotedId}`;
+  if (tool.includes("opencode")) return `opencode run --session ${quotedId}`;
+  return `codex resume ${quotedId}`;
 }
 
 function sessionTimeLabel(timestamp: number) {
@@ -3484,13 +4265,16 @@ function SSHPanel({ project }: { project?: WorkspaceProject }) {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<SSHProfileDraft | null>(null);
   const [isSaving, setSaving] = useState(false);
-  const sshRowLabels = useMemo<SSHRowLabels>(() => ({
-    connect: tm("ssh.profile.connect", "Connect"),
-    copy: tm("common.copy", "Copy"),
-    edit: tm("ssh.profile.edit", "Edit SSH Connection"),
-    remove: tm("common.remove", "Remove"),
-    actions: tm("files.panel.actions", "Actions"),
-  }), []);
+  const sshRowLabels = useMemo<SSHRowLabels>(
+    () => ({
+      connect: tm("ssh.profile.connect", "Connect"),
+      copy: tm("common.copy", "Copy"),
+      edit: tm("ssh.profile.edit", "Edit SSH Connection"),
+      remove: tm("common.remove", "Remove"),
+      actions: tm("files.panel.actions", "Actions"),
+    }),
+    [],
+  );
 
   const handleSshError = useCallback((nextError: unknown) => {
     const message = nextError instanceof Error ? nextError.message : String(nextError);
@@ -3533,7 +4317,7 @@ function SSHPanel({ project }: { project?: WorkspaceProject }) {
       directory: false,
     });
     if (!selected || Array.isArray(selected)) return;
-    setDraft((current) => current ? { ...current, privateKeyPath: selected } : current);
+    setDraft((current) => (current ? { ...current, privateKeyPath: selected } : current));
   };
 
   const upsertProfile = async (nextDraft: SSHProfileDraft) => {
@@ -3568,13 +4352,20 @@ function SSHPanel({ project }: { project?: WorkspaceProject }) {
 
   const deleteProfile = async (profile: SSHConnectionProfile) => {
     if (
-      !(await systemConfirm(formatI18n(tm("ssh.profile.delete.message_format", "Delete %@? The saved local credential will also be removed."), sshDisplayName(profile)), {
-        title: tm("ssh.profile.delete", "Delete SSH Connection"),
-        kind: "warning",
-        okLabel: tm("common.delete", "Delete"),
-        cancelLabel: tm("common.cancel", "Cancel"),
-      }))
-    ) return;
+      !(await systemConfirm(
+        formatI18n(
+          tm("ssh.profile.delete.message_format", "Delete %@? The saved local credential will also be removed."),
+          sshDisplayName(profile),
+        ),
+        {
+          title: tm("ssh.profile.delete", "Delete SSH Connection"),
+          kind: "warning",
+          okLabel: tm("common.delete", "Delete"),
+          cancelLabel: tm("common.cancel", "Cancel"),
+        },
+      ))
+    )
+      return;
     try {
       const snapshot = await invoke<SSHProfilesSnapshot>("ssh_profile_delete", {
         profileId: profile.id,
@@ -3617,16 +4408,31 @@ function SSHPanel({ project }: { project?: WorkspaceProject }) {
         }
         trailing={
           <>
-            <PanelIconButton icon={Plus} tooltip={tm("ssh.profile.add", "Add SSH Connection")} onClick={() => startProfileEdit()} />
-            <PanelIconButton icon={RefreshCw} tooltip={tm("common.refresh", "Refresh")} onClick={() => void refresh()} />
+            <PanelIconButton
+              icon={Plus}
+              tooltip={tm("ssh.profile.add", "Add SSH Connection")}
+              onClick={() => startProfileEdit()}
+            />
+            <PanelIconButton
+              icon={RefreshCw}
+              tooltip={tm("common.refresh", "Refresh")}
+              onClick={() => void refresh()}
+            />
           </>
         }
       />
       {profiles.length === 0 && !draft ? (
         <PanelEmptyState
           icon={Server}
-          title={isLoading ? tm("ssh.panel.loading", "Reading SSH connections") : tm("ssh.panel.empty.title", "No SSH Connections")}
-          description={tm("ssh.panel.empty.help", "Add a global SSH profile and double-click it to connect in a terminal.")}
+          title={
+            isLoading
+              ? tm("ssh.panel.loading", "Reading SSH connections")
+              : tm("ssh.panel.empty.title", "No SSH Connections")
+          }
+          description={tm(
+            "ssh.panel.empty.help",
+            "Add a global SSH profile and double-click it to connect in a terminal.",
+          )}
           action={
             <HeroButton size="sm" variant="primary" onPress={() => startProfileEdit()}>
               {tm("ssh.profile.add", "Add SSH Connection")}
@@ -3817,15 +4623,7 @@ function SSHProfileEditor({
   );
 }
 
-function SSHFormField({
-  label,
-  required,
-  children,
-}: {
-  label: ReactNode;
-  required?: boolean;
-  children: ReactNode;
-}) {
+function SSHFormField({ label, required, children }: { label: ReactNode; required?: boolean; children: ReactNode }) {
   return (
     <label className="grid gap-1">
       <span className="text-[11px] font-semibold text-ink-soft">
@@ -3899,7 +4697,9 @@ function SSHProfileRow({
             </button>
           }
         >
-          <DesktopMenuItem disabled={disabled} label={labels.connect} onSelect={onConnect}>{labels.connect}</DesktopMenuItem>
+          <DesktopMenuItem disabled={disabled} label={labels.connect} onSelect={onConnect}>
+            {labels.connect}
+          </DesktopMenuItem>
           <DesktopMenuItem
             label={labels.copy}
             onSelect={() => {
@@ -3909,8 +4709,12 @@ function SSHProfileRow({
           >
             {labels.copy}
           </DesktopMenuItem>
-          <DesktopMenuItem label={labels.edit} onSelect={onEdit}>{labels.edit}</DesktopMenuItem>
-          <DesktopMenuItem label={labels.remove} onSelect={onDelete}>{labels.remove}</DesktopMenuItem>
+          <DesktopMenuItem label={labels.edit} onSelect={onEdit}>
+            {labels.edit}
+          </DesktopMenuItem>
+          <DesktopMenuItem label={labels.remove} onSelect={onDelete}>
+            {labels.remove}
+          </DesktopMenuItem>
         </DesktopMenu>
       </div>
     </div>

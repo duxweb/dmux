@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useRef } from "react";
+import { useRuntimeStore } from "../runtimeStore";
 import type { WorkspaceProject } from "../types";
 
 export type WorktreeTaskStatus =
@@ -18,6 +20,8 @@ export interface ProjectWorktreeGitSummary {
   changes: number;
   incoming: number;
   outgoing: number;
+  additions: number;
+  deletions: number;
 }
 
 export interface ProjectWorktreeSnapshot {
@@ -49,8 +53,15 @@ export interface WorktreeSnapshot {
   projectId: string;
   selectedWorktreeId: string;
   worktrees: ProjectWorktreeSnapshot[];
+  /** @deprecated Worktree is the task entity; kept only for old persisted snapshots. */
   tasks: WorktreeTaskSnapshot[];
   error?: string | null;
+}
+
+export interface WorktreeSnapshotEvent {
+  projectId: string;
+  projectPath: string;
+  snapshot: WorktreeSnapshot;
 }
 
 export interface WorktreeCreateInput {
@@ -58,7 +69,6 @@ export interface WorktreeCreateInput {
   projectPath: string;
   baseBranch?: string | null;
   branchName: string;
-  taskTitle?: string | null;
 }
 
 export interface WorktreeRemoveInput {
@@ -68,6 +78,32 @@ export interface WorktreeRemoveInput {
 }
 
 const worktreeSnapshotRequests = new Map<string, Promise<WorktreeSnapshot>>();
+let worktreeSnapshotListenerPromise: Promise<() => void> | null = null;
+
+function worktreeSnapshotKey(projectId: string, projectPath: string) {
+  return projectId && projectPath ? `${projectId}:${projectPath}` : "";
+}
+
+function cacheWorktreeSnapshot(projectId: string, projectPath: string, snapshot: WorktreeSnapshot) {
+  const key = worktreeSnapshotKey(projectId, projectPath);
+  if (!key) return;
+  useRuntimeStore.getState().setWorktreeSnapshot(key, {
+    snapshot,
+    error: snapshot.error ?? null,
+    updatedAt: Date.now(),
+  });
+}
+
+export function ensureWorktreeSnapshotEventCacheSubscription() {
+  if (!window.__TAURI_INTERNALS__ || worktreeSnapshotListenerPromise) return;
+  worktreeSnapshotListenerPromise = listen<WorktreeSnapshotEvent>("worktree:snapshot", (event) => {
+    cacheWorktreeSnapshot(event.payload.projectId, event.payload.projectPath, event.payload.snapshot);
+  }).catch((error) => {
+    worktreeSnapshotListenerPromise = null;
+    console.error("failed to cache worktree snapshot events", error);
+    return () => {};
+  });
+}
 
 export function emptyWorktreeSnapshot(project?: WorkspaceProject): WorktreeSnapshot {
   if (!project) {
@@ -97,6 +133,8 @@ export function emptyWorktreeSnapshot(project?: WorkspaceProject): WorktreeSnaps
           changes: project.changes,
           incoming: 0,
           outgoing: 0,
+          additions: 0,
+          deletions: 0,
         },
       },
     ],
@@ -106,84 +144,114 @@ export function emptyWorktreeSnapshot(project?: WorkspaceProject): WorktreeSnaps
 }
 
 export function useWorktreeSnapshot(project?: WorkspaceProject) {
-  const [snapshot, setSnapshot] = useState<WorktreeSnapshot>(() =>
-    emptyWorktreeSnapshot(project),
-  );
-  const [isLoading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const projectId = project?.id ?? "";
+  const projectPath = project?.path ?? "";
+  const projectBranch = project?.branch ?? "";
+  const projectChanges = project?.changes ?? 0;
+  const cacheKey = worktreeSnapshotKey(projectId, projectPath);
+  const cachedEntry = useRuntimeStore((state) => (cacheKey ? state.worktreeSnapshotByKey[cacheKey] : undefined));
+  const snapshot = cachedEntry?.snapshot ?? emptyWorktreeSnapshot(project);
+  const isLoading = useRuntimeStore((state) => (cacheKey ? (state.worktreeLoadingByKey[cacheKey] ?? false) : false));
+  const error = useRuntimeStore((state) => (cacheKey ? (state.worktreeErrorByKey[cacheKey] ?? null) : null));
+  const projectKeyRef = useRef(cacheKey);
 
-  const refresh = useCallback(async () => {
-    if (!project?.id || !project.path) {
-      const next = emptyWorktreeSnapshot(project);
-      setSnapshot(next);
-      setError(null);
-      return next;
-    }
-    if (!window.__TAURI_INTERNALS__) {
-      const next = emptyWorktreeSnapshot(project);
-      setSnapshot(next);
-      setError(null);
-      return next;
-    }
-    setLoading(true);
-    try {
-      const requestKey = `${project.id}:${project.path}`;
-      let request = worktreeSnapshotRequests.get(requestKey);
-      if (!request) {
-        request = invoke<WorktreeSnapshot>("worktree_snapshot", {
-          projectId: project.id,
-          projectPath: project.path,
-        }).finally(() => {
-          worktreeSnapshotRequests.delete(requestKey);
-        });
-        worktreeSnapshotRequests.set(requestKey, request);
+  useEffect(() => {
+    projectKeyRef.current = cacheKey;
+  }, [cacheKey]);
+
+  const applySnapshot = useCallback((key: string, next: WorktreeSnapshot) => {
+    if (!key) return next;
+    useRuntimeStore.getState().setWorktreeSnapshot(key, {
+      snapshot: next,
+      error: next.error ?? null,
+      updatedAt: Date.now(),
+    });
+    return next;
+  }, []);
+
+  const refresh = useCallback(
+    async (force = false) => {
+      if (!projectId || !projectPath) {
+        const next = emptyWorktreeSnapshot(project);
+        if (cacheKey) applySnapshot(cacheKey, next);
+        return next;
       }
-      const next = await request;
-      setSnapshot(next);
-      setError(next.error ?? null);
-      return next;
-    } catch (nextError) {
-      const message = nextError instanceof Error ? nextError.message : String(nextError);
-      const next = { ...emptyWorktreeSnapshot(project), error: message };
-      setSnapshot(next);
-      setError(message);
-      return next;
-    } finally {
-      setLoading(false);
-    }
-  }, [project?.id, project?.path, project?.branch, project?.changes]);
+      if (!window.__TAURI_INTERNALS__) {
+        const next = emptyWorktreeSnapshot(project);
+        applySnapshot(cacheKey, next);
+        return next;
+      }
+      const requestKey = `${projectId}:${projectPath}`;
+      const cached = useRuntimeStore.getState().worktreeSnapshotByKey[requestKey]?.snapshot;
+      if (cached && !force) return cached;
+      useRuntimeStore.getState().setWorktreeLoading(requestKey, true);
+      try {
+        let request = force ? undefined : worktreeSnapshotRequests.get(requestKey);
+        if (!request) {
+          request = invoke<WorktreeSnapshot>("worktree_snapshot", {
+            projectId,
+            projectPath,
+          }).finally(() => {
+            worktreeSnapshotRequests.delete(requestKey);
+          });
+          worktreeSnapshotRequests.set(requestKey, request);
+        }
+        const next = await request;
+        if (projectKeyRef.current !== requestKey) return next;
+        applySnapshot(requestKey, next);
+        return next;
+      } catch (nextError) {
+        const message = nextError instanceof Error ? nextError.message : String(nextError);
+        const next = { ...emptyWorktreeSnapshot(project), error: message };
+        if (projectKeyRef.current === requestKey) {
+          applySnapshot(requestKey, next);
+        }
+        return next;
+      } finally {
+        if (projectKeyRef.current === requestKey) {
+          useRuntimeStore.getState().setWorktreeLoading(requestKey, false);
+        }
+      }
+    },
+    [applySnapshot, cacheKey, project, projectId, projectPath],
+  );
 
   const create = useCallback(
     async (input: WorktreeCreateInput) => {
       if (!window.__TAURI_INTERNALS__) return snapshot;
-      const next = await invoke<WorktreeSnapshot>("worktree_create", { request: input });
-      setSnapshot(next);
-      setError(next.error ?? null);
-      return next;
+      const requestKey = `${input.projectId}:${input.projectPath}`;
+      useRuntimeStore.getState().setWorktreeLoading(requestKey, true);
+      try {
+        const next = await invoke<WorktreeSnapshot>("worktree_create", { request: input });
+        applySnapshot(requestKey, next);
+        return next;
+      } finally {
+        useRuntimeStore.getState().setWorktreeLoading(requestKey, false);
+      }
     },
-    [snapshot],
+    [applySnapshot, snapshot],
   );
 
   const remove = useCallback(
     async (input: WorktreeRemoveInput) => {
       if (!window.__TAURI_INTERNALS__) return snapshot;
       const next = await invoke<WorktreeSnapshot>("worktree_remove", { request: input });
-      setSnapshot(next);
-      setError(next.error ?? null);
+      applySnapshot(`${input.projectId}:${input.projectPath}`, next);
       return next;
     },
-    [snapshot],
+    [applySnapshot, snapshot],
   );
 
   useEffect(() => {
+    if (!cacheKey) {
+      return;
+    }
+    if (useRuntimeStore.getState().worktreeSnapshotByKey[cacheKey]) {
+      useRuntimeStore.getState().setWorktreeLoading(cacheKey, false);
+      return;
+    }
     void refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    if (!project?.path || !window.__TAURI_INTERNALS__) return;
-    const timer = window.setInterval(() => void refresh(), 7000);
-    return () => window.clearInterval(timer);
-  }, [project?.path, refresh]);
+  }, [cacheKey, projectBranch, projectChanges, refresh]);
 
   return {
     snapshot,

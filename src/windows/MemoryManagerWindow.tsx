@@ -107,6 +107,7 @@ export function MemoryManagerWindow() {
 
   return (
     <WindowFrame
+      title={tm("memory.manager.window.title", "Memory Manager")}
       mainClassName="px-0 py-0"
       mainScrollable={false}
     >

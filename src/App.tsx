@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { aggregateProjectPhase, phaseToAIState, resolveDisplayedProjectPhase } from "./ai/projectPhase";
+import { ensureAIHistoryEventCacheSubscription } from "./ai/history";
 import { usePetLedger } from "./ai/petState";
 import { aiRuntime } from "./ai/runtime";
 import {
@@ -18,19 +19,12 @@ import { Titlebar } from "./components/Titlebar";
 import { Workspace } from "./components/Workspace";
 import { fallbackProjects } from "./data/mock";
 import { installTerminalFocusEventTrace, logTerminalFocusDebug } from "./debug/terminalFocusDebug";
-import {
-  readCachedProjectListSnapshot,
-  writeCachedProjectListSnapshot,
-} from "./projectSnapshotCache";
-import {
-  dispatchShortcut,
-  isConfiguredShortcut,
-  registerShortcutHandler,
-  type ShortcutScope,
-} from "./shortcuts";
+import { ensureGitStatusEventCacheSubscription } from "./git/status";
+import { readCachedProjectListSnapshot, writeCachedProjectListSnapshot } from "./projectSnapshotCache";
+import { dispatchShortcut, isConfiguredShortcut, registerShortcutHandler, type ShortcutScope } from "./shortcuts";
 import { openAppWindow, revealMainAppWindow } from "./windowing";
 import { listenWorkspaceCommand } from "./workspaceCommands";
-import { useWorktreeSnapshot } from "./worktree/snapshot";
+import { ensureWorktreeSnapshotEventCacheSubscription, useWorktreeSnapshot } from "./worktree/snapshot";
 import { subscribeAppSettings } from "./settings";
 import { systemConfirm } from "./systemDialog";
 import { tm } from "./i18n";
@@ -45,7 +39,8 @@ import type {
 } from "./types";
 import type { ProjectWorktreeSnapshot } from "./worktree/snapshot";
 
-type HydratableProject = ProjectSummary & Partial<Pick<WorkspaceProject, "branch" | "aiState" | "terminals" | "changes">>;
+type HydratableProject = ProjectSummary &
+  Partial<Pick<WorkspaceProject, "branch" | "aiState" | "terminals" | "changes">>;
 
 let projectListSnapshotPromise: Promise<ProjectListSnapshot> | null = null;
 let remoteStatusPromise: Promise<RemoteStatus> | null = null;
@@ -88,8 +83,8 @@ function App() {
   const [projects, setProjects] = useState<WorkspaceProject[]>(() => initialProjects.map(hydrate));
   const [selectedProjectId, setSelectedProjectId] = useState(() =>
     window.__TAURI_INTERNALS__
-      ? cachedProjectSnapshot?.selectedProjectId ?? initialProjects[0]?.id ?? ""
-      : fallbackProjects[0]?.id ?? "",
+      ? (cachedProjectSnapshot?.selectedProjectId ?? initialProjects[0]?.id ?? "")
+      : (fallbackProjects[0]?.id ?? ""),
   );
   const [mainView, setMainView] = useState<MainView>("terminal");
   const [isSidebarExpanded, setSidebarExpanded] = useState(false);
@@ -100,6 +95,7 @@ function App() {
   const [selectedWorktreeByProject, setSelectedWorktreeByProject] = useState<Record<string, string>>({});
   const [terminalFocusRequest, setTerminalFocusRequest] = useState(0);
   const [taskCreateRequest, setTaskCreateRequest] = useState(0);
+  const [isCreatingWorktree, setCreatingWorktree] = useState(false);
   const [aiVersion, setAiVersion] = useState(0);
   const focusScopeRef = useRef<ShortcutScope>("workspace");
 
@@ -122,6 +118,9 @@ function App() {
   useEffect(() => {
     const unsubscribe = aiRuntime.subscribe(() => setAiVersion((current) => current + 1));
     if (!window.__TAURI_INTERNALS__) return unsubscribe;
+    ensureAIHistoryEventCacheSubscription();
+    ensureGitStatusEventCacheSubscription();
+    ensureWorktreeSnapshotEventCacheSubscription();
     let isDisposed = false;
     let unlistenProjects: (() => void) | undefined;
     void loadProjectListSnapshot()
@@ -151,10 +150,9 @@ function App() {
   const projectsWithAIState = useMemo(
     () =>
       projects.map((project) => {
-        const phase = aggregateProjectPhase(
-          project.id,
-          selectedWorktreeByProject[project.id],
-          (id) => resolveDisplayedProjectPhase(aiRuntime.projectPhase(id), aiRuntime.completedPhase(id)),
+        void aiVersion;
+        const phase = aggregateProjectPhase(project.id, selectedWorktreeByProject[project.id], (id) =>
+          resolveDisplayedProjectPhase(aiRuntime.projectPhase(id), aiRuntime.completedPhase(id)),
         );
         return { ...project, aiState: phaseToAIState(phase) };
       }),
@@ -163,8 +161,7 @@ function App() {
   const pet = usePetLedger(projectsWithAIState);
 
   const selectedProjectWithAIState = useMemo(
-    () =>
-      projectsWithAIState.find((p) => p.id === selectedProjectId) ?? projectsWithAIState[0],
+    () => projectsWithAIState.find((p) => p.id === selectedProjectId) ?? projectsWithAIState[0],
     [projectsWithAIState, selectedProjectId],
   );
 
@@ -181,21 +178,28 @@ function App() {
   );
   const worktree = useWorktreeSnapshot(selectedProjectWithAIState);
   const worktreeSnapshot = worktree.snapshot;
-  const selectedWorktreeId =
-    selectedProjectWithAIState
-      ? selectedWorktreeByProject[selectedProjectWithAIState.id] ||
-        worktreeSnapshot.selectedWorktreeId ||
-        selectedProjectWithAIState.id
-      : "";
+  const worktreeAIStateById = useMemo(() => {
+    void aiVersion;
+    return Object.fromEntries(
+      worktreeSnapshot.worktrees.map((item) => [
+        item.id,
+        phaseToAIState(
+          resolveDisplayedProjectPhase(aiRuntime.projectPhase(item.id), aiRuntime.completedPhase(item.id)),
+        ),
+      ]),
+    );
+  }, [aiVersion, worktreeSnapshot.worktrees]);
+  const selectedWorktreeId = selectedProjectWithAIState
+    ? selectedWorktreeByProject[selectedProjectWithAIState.id] ||
+      worktreeSnapshot.selectedWorktreeId ||
+      selectedProjectWithAIState.id
+    : "";
   const selectedWorktree =
-    worktreeSnapshot.worktrees.find((item) => item.id === selectedWorktreeId) ??
-    worktreeSnapshot.worktrees[0];
-  const selectedWorktreeTask = selectedWorktree
-    ? worktreeSnapshot.tasks.find((task) => task.worktreeId === selectedWorktree.id)
-    : undefined;
+    worktreeSnapshot.worktrees.find((item) => item.id === selectedWorktreeId) ?? worktreeSnapshot.worktrees[0];
   const selectedWorkspaceProject = useMemo<WorkspaceProject | undefined>(() => {
     if (!selectedProjectWithAIState) return undefined;
     if (!selectedWorktree) return selectedProjectWithAIState;
+    void aiVersion;
     const phase = aiRuntime.projectPhase(selectedWorktree.id);
     return {
       ...selectedProjectWithAIState,
@@ -207,14 +211,15 @@ function App() {
         : `${selectedProjectWithAIState.name} · ${selectedWorktree.name}`,
       path: selectedWorktree.path,
       branch: selectedWorktree.branch || selectedProjectWithAIState.branch,
-      baseBranch: selectedWorktreeTask?.baseBranch ?? null,
+      baseBranch: selectedWorktree.isDefault ? null : selectedProjectWithAIState.branch,
       isDefaultWorktree: selectedWorktree.isDefault,
       changes: selectedWorktree.gitSummary.changes,
       aiState: phaseToAIState(phase),
       badgeSymbol: selectedProjectWithAIState.badgeSymbol,
       badgeColorHex: selectedProjectWithAIState.badgeColorHex,
+      gitDefaultPushRemoteName: selectedProjectWithAIState.gitDefaultPushRemoteName,
     };
-  }, [aiVersion, selectedProjectWithAIState, selectedWorktree, selectedWorktreeTask]);
+  }, [aiVersion, selectedProjectWithAIState, selectedWorktree]);
 
   useEffect(() => {
     if (!selectedProjectWithAIState || worktreeSnapshot.worktrees.length === 0) return;
@@ -224,8 +229,7 @@ function App() {
     }
     setSelectedWorktreeByProject((existing) => ({
       ...existing,
-      [selectedProjectWithAIState.id]:
-        worktreeSnapshot.selectedWorktreeId || worktreeSnapshot.worktrees[0].id,
+      [selectedProjectWithAIState.id]: worktreeSnapshot.selectedWorktreeId || worktreeSnapshot.worktrees[0].id,
     }));
   }, [selectedProjectWithAIState, selectedWorktreeByProject, worktreeSnapshot]);
 
@@ -242,18 +246,10 @@ function App() {
         changes: 0,
         badgeSymbol: selectedWorkspaceProject.badgeSymbol ?? null,
         badgeColorHex: selectedWorkspaceProject.badgeColorHex ?? null,
+        gitDefaultPushRemoteName: selectedWorkspaceProject.gitDefaultPushRemoteName ?? null,
       },
     }).catch((error) => console.error("failed to mark active project", error));
-  }, [
-    selectedWorkspaceProject?.id,
-    selectedWorkspaceProject?.name,
-    selectedWorkspaceProject?.path,
-    selectedWorkspaceProject?.branch,
-    selectedWorkspaceProject?.badge,
-    selectedWorkspaceProject?.status,
-    selectedWorkspaceProject?.badgeSymbol,
-    selectedWorkspaceProject?.badgeColorHex,
-  ]);
+  }, [selectedWorkspaceProject]);
 
   const toggleRightPanel = (next: RightPanelKind) => {
     setRightPanel((current) => (current === next ? null : next));
@@ -332,55 +328,72 @@ function App() {
     return installTerminalFocusEventTrace();
   }, []);
 
-  const selectProject = (id: string) => {
-    aiRuntime.dismissCompletion(id);
-    const worktreeId = selectedWorktreeByProject[id];
-    if (worktreeId && worktreeId !== id) {
-      aiRuntime.dismissCompletion(worktreeId);
-    }
-    setSelectedProjectId(id);
-    if (window.__TAURI_INTERNALS__) {
-      void invoke<ProjectListSnapshot>("project_select", { projectId: id })
-        .then(applyProjectSnapshot)
-        .catch((error) => console.error("failed to select project", error));
-    }
-    if (mainView === "terminal") {
-      requestTerminalFocus();
-    }
-  };
+  const selectProject = useCallback(
+    (id: string) => {
+      aiRuntime.dismissCompletion(id);
+      const worktreeId = selectedWorktreeByProject[id];
+      if (worktreeId && worktreeId !== id) {
+        aiRuntime.dismissCompletion(worktreeId);
+      }
+      startTransition(() => {
+        setSelectedProjectId(id);
+      });
+      if (window.__TAURI_INTERNALS__) {
+        void invoke<ProjectListSnapshot>("project_select", { projectId: id })
+          .then(applyProjectSnapshot)
+          .catch((error) => console.error("failed to select project", error));
+      }
+      if (mainView === "terminal") {
+        requestTerminalFocus();
+      }
+    },
+    [applyProjectSnapshot, mainView, requestTerminalFocus, selectedWorktreeByProject],
+  );
 
-  const selectWorktree = (id: string) => {
-    if (!selectedProjectWithAIState) return;
-    setSelectedWorktreeByProject((existing) => ({
-      ...existing,
-      [selectedProjectWithAIState.id]: id,
-    }));
-    if (window.__TAURI_INTERNALS__) {
-      void invoke<ProjectListSnapshot>("project_select_worktree", {
-        request: {
-          projectId: selectedProjectWithAIState.id,
-          worktreeId: id,
-        },
-      }).catch((error) => console.error("failed to select worktree", error));
-    }
-    if (mainView === "terminal") {
-      requestTerminalFocus();
-    }
-  };
+  const selectWorktree = useCallback(
+    (id: string) => {
+      if (!selectedProjectWithAIState) return;
+      startTransition(() => {
+        setSelectedWorktreeByProject((existing) => {
+          if (existing[selectedProjectWithAIState.id] === id) return existing;
+          return {
+            ...existing,
+            [selectedProjectWithAIState.id]: id,
+          };
+        });
+      });
+      if (window.__TAURI_INTERNALS__) {
+        void invoke<ProjectListSnapshot>("project_select_worktree", {
+          request: {
+            projectId: selectedProjectWithAIState.id,
+            worktreeId: id,
+          },
+        }).catch((error) => console.error("failed to select worktree", error));
+      }
+      if (mainView === "terminal") {
+        requestTerminalFocus();
+      }
+    },
+    [mainView, requestTerminalFocus, selectedProjectWithAIState],
+  );
 
-  const createWorktreeForSelectedProject = async (input?: { branchName: string; taskTitle: string }) => {
+  const createWorktreeForSelectedProject = async (input?: { branchName: string; baseBranch?: string | null }) => {
     if (!selectedProjectWithAIState) return;
     const branchName = input?.branchName.trim();
     if (!branchName) return;
-    const taskTitle = input?.taskTitle.trim() || branchName.split("/").filter(Boolean).pop() || "New Task";
+    const baseBranch = input?.baseBranch?.trim() || selectedWorktree?.branch || selectedProjectWithAIState.branch;
+    setCreatingWorktree(true);
     try {
       const next = await worktree.create({
         projectId: selectedProjectWithAIState.id,
         projectPath: selectedProjectWithAIState.path,
-        baseBranch: selectedWorktree?.branch || selectedProjectWithAIState.branch,
+        baseBranch,
         branchName,
-        taskTitle,
       });
+      await worktree.refresh(true);
+      if (window.__TAURI_INTERNALS__) {
+        await loadProjectListSnapshot().then(applyProjectSnapshot);
+      }
       const created = next.worktrees.find((item) => item.branch === branchName);
       if (created) {
         setSelectedWorktreeByProject((existing) => ({
@@ -390,18 +403,27 @@ function App() {
       }
     } catch (error) {
       console.error("failed to create worktree", error);
+      throw error;
+    } finally {
+      setCreatingWorktree(false);
     }
   };
 
   const removeWorktreeForSelectedProject = async (target: ProjectWorktreeSnapshot) => {
     if (!selectedProjectWithAIState || target.isDefault) return;
     if (
-      !(await systemConfirm(tm("worktree.remove.message_format", "Remove %@ from Codux and the Git worktree list? The branch will not be deleted.").replace("%@", target.branch || target.name), {
-        title: tm("worktree.remove.title", "Remove Worktree"),
-        kind: "warning",
-        okLabel: tm("worktree.menu.remove", "Remove"),
-        cancelLabel: tm("common.cancel", "Cancel"),
-      }))
+      !(await systemConfirm(
+        tm(
+          "worktree.remove.message_format",
+          "Remove %@ from Codux and the Git worktree list? The branch will not be deleted.",
+        ).replace("%@", target.branch || target.name),
+        {
+          title: tm("worktree.remove.title", "Remove Worktree"),
+          kind: "warning",
+          okLabel: tm("worktree.menu.remove", "Remove"),
+          cancelLabel: tm("common.cancel", "Cancel"),
+        },
+      ))
     ) {
       return;
     }
@@ -504,8 +526,7 @@ function App() {
           projectsWithAIState.findIndex((project) => project.id === selectedProjectId),
         );
         const delta = event.key === "ArrowDown" ? 1 : -1;
-        const nextIndex =
-          (currentIndex + delta + projectsWithAIState.length) % projectsWithAIState.length;
+        const nextIndex = (currentIndex + delta + projectsWithAIState.length) % projectsWithAIState.length;
         selectProject(projectsWithAIState[nextIndex].id);
         return true;
       }
@@ -606,10 +627,7 @@ function App() {
         pet={pet}
       />
 
-      <div
-        className="absolute inset-x-0 bottom-0 flex"
-        style={{ top: "var(--titlebar-height)" }}
-      >
+      <div className="absolute inset-x-0 bottom-0 flex" style={{ top: "var(--titlebar-height)" }}>
         <ProjectSidebar
           projects={projectsWithAIState}
           selectedProjectId={selectedProjectWithAIState?.id ?? ""}
@@ -628,27 +646,33 @@ function App() {
 
         <div className="flex-1 min-w-0 flex">
           <div className="flex-1 min-w-0 flex rounded-tl-workspace overflow-hidden border-t border-l border-line-strong bg-surface-terminal/95">
-            {isTaskSidebarExpanded && (
-              <aside
-                className="w-[216px] flex-shrink-0 border-r border-line bg-fill/[0.025]"
-                onPointerDown={() => setShortcutFocusScope("task-sidebar")}
-                onFocusCapture={() => setShortcutFocusScope("task-sidebar")}
-              >
+            <aside
+              className={`flex-shrink-0 overflow-hidden border-r border-line bg-fill/[0.025] transition-[width,opacity] duration-150 ${
+                isTaskSidebarExpanded ? "w-[216px] opacity-100" : "w-0 opacity-0 pointer-events-none"
+              }`}
+              aria-hidden={!isTaskSidebarExpanded}
+              onPointerDown={() => setShortcutFocusScope("task-sidebar")}
+              onFocusCapture={() => setShortcutFocusScope("task-sidebar")}
+            >
+              <div className="h-full w-[216px]">
                 <TaskSidebar
                   selectedProject={selectedProjectWithAIState}
                   worktrees={worktreeSnapshot.worktrees}
-                  tasks={worktreeSnapshot.tasks}
                   selectedWorktreeId={selectedWorktreeId}
+                  aiStateByWorktreeId={worktreeAIStateById}
                   onSelectWorktree={selectWorktree}
                   onCreateWorktree={createWorktreeForSelectedProject}
                   onRemoveWorktree={removeWorktreeForSelectedProject}
                   onOpenWorktreeTerminal={openWorktreeTerminal}
                   onReviewWorktree={reviewWorktree}
-                  isBusy={worktree.isLoading}
+                  onRefreshWorktrees={() => {
+                    void worktree.refresh(true);
+                  }}
+                  isBusy={worktree.isLoading || isCreatingWorktree}
                   createRequest={taskCreateRequest}
                 />
-              </aside>
-            )}
+              </div>
+            </aside>
             <div
               className="flex-1 min-w-0"
               onPointerDown={() => setShortcutFocusScope("workspace")}

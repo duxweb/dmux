@@ -83,6 +83,7 @@ export function GitDiffWindow() {
 
   return (
     <WindowFrame
+      title={tm("git.diff.window.title", "Diff")}
       footer={
         <>
           <Button

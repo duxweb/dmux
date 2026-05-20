@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
+import { useRuntimeStore } from "../runtimeStore";
 import { AIRuntimeIngressService } from "./ingressService";
 import { AIRuntimePollingService } from "./pollingService";
 import { AISessionStore, type SessionStoreListener } from "./sessionStore";
@@ -123,17 +124,22 @@ export class AIRuntimeStore {
 
   private async startRustStateListener() {
     if (this.unlistenState) return;
-    this.runtimeState = await invoke<AIRuntimeStateSnapshot>("ai_runtime_state_snapshot").catch(
+    this.setRuntimeState(await invoke<AIRuntimeStateSnapshot>("ai_runtime_state_snapshot").catch(
       (error) => {
         console.error("failed to load ai runtime state", error);
         return undefined;
       },
-    );
+    ));
     this.emit();
     this.unlistenState = await listen<AIRuntimeStateSnapshot>("ai-runtime:state", (event) => {
-      this.runtimeState = event.payload;
+      this.setRuntimeState(event.payload);
       this.emit();
     });
+  }
+
+  private setRuntimeState(snapshot: AIRuntimeStateSnapshot | undefined) {
+    this.runtimeState = snapshot;
+    useRuntimeStore.getState().setAIRuntimeSnapshot(snapshot ?? null);
   }
 
   private projectState(projectId: string) {
@@ -165,5 +171,5 @@ function idlePhase(): AIProjectPhase {
 }
 
 function emptyTotals(): AIProjectTotals {
-  return { totalTokens: 0, running: 0, needsInput: 0, completed: 0 };
+  return { totalTokens: 0, cachedInputTokens: 0, running: 0, needsInput: 0, completed: 0 };
 }

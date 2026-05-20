@@ -177,11 +177,11 @@ pub async fn update_status(app: &AppHandle, settings: &AppSettings) -> UpdateSta
             "disabled".to_string()
         },
         message: if signed_updater_configured {
-            "Signed updater configuration is present, but automatic installation is not enabled in this build.".to_string()
+            "GitHub update channel is configured for this build.".to_string()
         } else if settings.update.enabled {
-            "Update settings are enabled, but no update endpoint is configured. Add a manifest endpoint or configure the signed Tauri updater endpoint/public key for this build.".to_string()
+            "Unable to check the GitHub update channel for this build.".to_string()
         } else {
-            "Update channel is not configured. Configure Tauri updater endpoints and signing public key before enabling update checks.".to_string()
+            "Update checks are turned off.".to_string()
         },
     }
 }

@@ -258,6 +258,15 @@ pub struct GitRepositoryChangeEvent {
     pub changed_paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitStatusEvent {
+    project_id: String,
+    project_name: String,
+    project_path: String,
+    snapshot: GitStatusSnapshot,
+}
+
 pub struct GitWatchManager {
     watchers: Mutex<HashMap<String, GitRepositoryWatcher>>,
 }
@@ -328,6 +337,20 @@ impl GitWatchManager {
                     changed_paths,
                 },
             );
+            let app_handle = app_handle.clone();
+            let project_path = project_path_for_event.clone();
+            std::thread::spawn(move || {
+                let snapshot = git_status(project_path.clone());
+                let _ = app_handle.emit(
+                    "git:status",
+                    GitStatusEvent {
+                        project_id: String::new(),
+                        project_name: String::new(),
+                        project_path,
+                        snapshot,
+                    },
+                );
+            });
         })
         .map_err(|error| error.to_string())?;
 
@@ -891,16 +914,19 @@ pub fn git_branches(project_path: String) -> GitBranchesSnapshot {
         .ok()
         .and_then(|value| normalized(value.trim()))
         .unwrap_or_else(|| "HEAD".to_string());
-    let local = parse_branch_refs(
-        &git_output(
-            Path::new(&root),
-            &[
-                "for-each-ref",
-                "--format=%(refname:short)%1f%(upstream:short)%1f%(objectname:short)",
-                "refs/heads",
-            ],
-        )
-        .unwrap_or_default(),
+    let local = ensure_current_local_branch(
+        parse_branch_refs(
+            &git_output(
+                Path::new(&root),
+                &[
+                    "for-each-ref",
+                    "--format=%(refname:short)%1f%(upstream:short)%1f%(objectname:short)",
+                    "refs/heads",
+                ],
+            )
+            .unwrap_or_default(),
+            &current,
+        ),
         &current,
     );
     let remote = parse_branch_refs(
@@ -1327,14 +1353,26 @@ pub fn git_review_file_content(request: GitReviewContentRequest) -> GitReviewCon
     let worktree_content = read_worktree_file(Path::new(&root), path).unwrap_or_default();
     let diff = if let Some(base) = base {
         let range = format!("{base}...HEAD");
-        git_output_permissive(Path::new(&root), &["diff", "--unified=0", range.as_str(), "--", path])
-            .or_else(|_| git_output_permissive(Path::new(&root), &["diff", "--unified=0", base, "HEAD", "--", path]))
-            .unwrap_or_default()
+        git_output_permissive(
+            Path::new(&root),
+            &["diff", "--unified=0", range.as_str(), "--", path],
+        )
+        .or_else(|_| {
+            git_output_permissive(
+                Path::new(&root),
+                &["diff", "--unified=0", base, "HEAD", "--", path],
+            )
+        })
+        .unwrap_or_default()
     } else {
         let unstaged =
-            git_output_permissive(Path::new(&root), &["diff", "--unified=0", "--", path]).unwrap_or_default();
-        let staged = git_output_permissive(Path::new(&root), &["diff", "--unified=0", "--cached", "--", path])
-            .unwrap_or_default();
+            git_output_permissive(Path::new(&root), &["diff", "--unified=0", "--", path])
+                .unwrap_or_default();
+        let staged = git_output_permissive(
+            Path::new(&root),
+            &["diff", "--unified=0", "--cached", "--", path],
+        )
+        .unwrap_or_default();
         match (staged.trim().is_empty(), unstaged.trim().is_empty()) {
             (true, _) => unstaged,
             (_, true) => staged,
@@ -1422,13 +1460,34 @@ pub fn git_review(project_path: String, base_branch: Option<String>) -> GitRevie
     let mut seen_paths = HashSet::new();
     let mut files = Vec::new();
     for file in &status.staged {
-        push_review_file_from_status(&mut files, &mut seen_paths, file, "staged", &stats, root_path);
+        push_review_file_from_status(
+            &mut files,
+            &mut seen_paths,
+            file,
+            "staged",
+            &stats,
+            root_path,
+        );
     }
     for file in &status.unstaged {
-        push_review_file_from_status(&mut files, &mut seen_paths, file, "modified", &stats, root_path);
+        push_review_file_from_status(
+            &mut files,
+            &mut seen_paths,
+            file,
+            "modified",
+            &stats,
+            root_path,
+        );
     }
     for file in &status.untracked {
-        push_review_file_from_status(&mut files, &mut seen_paths, file, "added", &stats, root_path);
+        push_review_file_from_status(
+            &mut files,
+            &mut seen_paths,
+            file,
+            "added",
+            &stats,
+            root_path,
+        );
     }
     GitReviewSnapshot {
         mode: "workingTreeAudit".to_string(),
@@ -1461,7 +1520,9 @@ fn git_blob(root: &str, reference: &str, path: &str) -> Result<String, String> {
 fn read_worktree_file(root: &Path, path: &str) -> Result<String, String> {
     let full_path = root.join(path);
     let root = root.canonicalize().map_err(|error| error.to_string())?;
-    let full_path = full_path.canonicalize().map_err(|error| error.to_string())?;
+    let full_path = full_path
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
     if !full_path.starts_with(&root) || !full_path.is_file() {
         return Ok(String::new());
     }
@@ -1492,8 +1553,14 @@ fn parse_diff_line_numbers(diff: &str) -> (Vec<i64>, Vec<i64>) {
 
 fn diff_range_lines(range: &str) -> Vec<i64> {
     let mut parts = range.split(',');
-    let start = parts.next().and_then(|value| value.parse::<i64>().ok()).unwrap_or(0);
-    let count = parts.next().and_then(|value| value.parse::<i64>().ok()).unwrap_or(1);
+    let start = parts
+        .next()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
+    let count = parts
+        .next()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(1);
     if start <= 0 || count <= 0 {
         return Vec::new();
     }
@@ -1570,18 +1637,35 @@ fn parse_git_log(value: &str) -> Vec<GitCommitSummary> {
 }
 
 fn local_branches(root: &Path, current: &str) -> Vec<GitBranchSummary> {
-    parse_branch_refs(
-        &git_output(
-            root,
-            &[
-                "for-each-ref",
-                "--format=%(refname:short)%1f%(upstream:short)%1f%(objectname:short)",
-                "refs/heads",
-            ],
-        )
-        .unwrap_or_default(),
+    ensure_current_local_branch(
+        parse_branch_refs(
+            &git_output(
+                root,
+                &[
+                    "for-each-ref",
+                    "--format=%(refname:short)%1f%(upstream:short)%1f%(objectname:short)",
+                    "refs/heads",
+                ],
+            )
+            .unwrap_or_default(),
+            current,
+        ),
         current,
     )
+}
+
+fn ensure_current_local_branch(
+    mut branches: Vec<GitBranchSummary>,
+    current: &str,
+) -> Vec<GitBranchSummary> {
+    let current = current.trim();
+    if current.is_empty() || current == "HEAD" || current == "uninitialized" {
+        return branches;
+    }
+    for branch in &mut branches {
+        branch.is_current = branch.name == current;
+    }
+    branches
 }
 
 fn remote_branch_names(root: &Path) -> Vec<String> {
@@ -1689,9 +1773,8 @@ fn parse_numstat(value: &str) -> std::collections::HashMap<String, (i64, i64)> {
 }
 
 fn working_tree_review_stats(root: &Path) -> HashMap<String, (i64, i64)> {
-    let mut stats = parse_numstat(
-        &git_output(root, &["diff", "--cached", "--numstat"]).unwrap_or_default(),
-    );
+    let mut stats =
+        parse_numstat(&git_output(root, &["diff", "--cached", "--numstat"]).unwrap_or_default());
     merge_numstat(
         &mut stats,
         &parse_numstat(&git_output(root, &["diff", "--numstat"]).unwrap_or_default()),

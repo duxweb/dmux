@@ -7,7 +7,6 @@ use std::time::Instant;
 pub struct PerformanceSnapshot {
     pub cpu_percent: f64,
     pub memory_bytes: u64,
-    pub graphics_bytes: u64,
 }
 
 #[derive(Default)]
@@ -20,7 +19,6 @@ struct RawSample {
     captured_at: Instant,
     cpu_seconds: f64,
     memory_bytes: u64,
-    graphics_bytes: u64,
 }
 
 impl PerformanceMonitor {
@@ -29,7 +27,6 @@ impl PerformanceMonitor {
             return PerformanceSnapshot {
                 cpu_percent: 0.0,
                 memory_bytes: 0,
-                graphics_bytes: 0,
             };
         };
 
@@ -37,7 +34,6 @@ impl PerformanceMonitor {
         PerformanceSnapshot {
             cpu_percent,
             memory_bytes: raw.memory_bytes,
-            graphics_bytes: raw.graphics_bytes,
         }
     }
 
@@ -49,13 +45,12 @@ impl PerformanceMonitor {
         let percent = previous
             .as_ref()
             .map(|previous| {
-                let cpu_delta = (raw.cpu_seconds - previous.cpu_seconds).max(0.0);
                 let wall_delta = raw
                     .captured_at
                     .duration_since(previous.captured_at)
                     .as_secs_f64()
                     .max(0.001);
-                ((cpu_delta / wall_delta) * 100.0 * 10.0).round() / 10.0
+                percent_delta(raw.cpu_seconds, previous.cpu_seconds, wall_delta)
             })
             .unwrap_or(0.0);
         *previous = Some(raw.clone());
@@ -63,119 +58,221 @@ impl PerformanceMonitor {
     }
 }
 
-#[cfg(target_os = "macos")]
-#[allow(deprecated)]
-fn capture_raw_sample() -> Option<RawSample> {
-    use libc::{
-        integer_t, mach_msg_type_number_t, mach_task_self, mach_vm_address_t, mach_vm_size_t,
-        natural_t, task_info, task_thread_times_info_data_t, KERN_SUCCESS, TASK_THREAD_TIMES_INFO,
-    };
-    use std::mem;
-
-    const TASK_VM_INFO: natural_t = 22;
-
-    #[repr(C)]
-    struct TaskVmInfo {
-        virtual_size: mach_vm_size_t,
-        region_count: integer_t,
-        page_size: integer_t,
-        resident_size: mach_vm_size_t,
-        resident_size_peak: mach_vm_size_t,
-        device: mach_vm_size_t,
-        device_peak: mach_vm_size_t,
-        internal: mach_vm_size_t,
-        internal_peak: mach_vm_size_t,
-        external: mach_vm_size_t,
-        external_peak: mach_vm_size_t,
-        reusable: mach_vm_size_t,
-        reusable_peak: mach_vm_size_t,
-        purgeable_volatile_pmap: mach_vm_size_t,
-        purgeable_volatile_resident: mach_vm_size_t,
-        purgeable_volatile_virtual: mach_vm_size_t,
-        compressed: mach_vm_size_t,
-        compressed_peak: mach_vm_size_t,
-        compressed_lifetime: mach_vm_size_t,
-        phys_footprint: mach_vm_size_t,
-        min_address: mach_vm_address_t,
-        max_address: mach_vm_address_t,
-        ledger_phys_footprint_peak: i64,
-        ledger_purgeable_nonvolatile: i64,
-        ledger_purgeable_novolatile_compressed: i64,
-        ledger_purgeable_volatile: i64,
-        ledger_purgeable_volatile_compressed: i64,
-        ledger_tag_network_nonvolatile: i64,
-        ledger_tag_network_nonvolatile_compressed: i64,
-        ledger_tag_network_volatile: i64,
-        ledger_tag_network_volatile_compressed: i64,
-        ledger_tag_media_footprint: i64,
-        ledger_tag_media_footprint_compressed: i64,
-        ledger_tag_media_nofootprint: i64,
-        ledger_tag_media_nofootprint_compressed: i64,
-        ledger_tag_graphics_footprint: i64,
-        ledger_tag_graphics_footprint_compressed: i64,
-        ledger_tag_graphics_nofootprint: i64,
-        ledger_tag_graphics_nofootprint_compressed: i64,
-        ledger_tag_neural_footprint: i64,
-        ledger_tag_neural_footprint_compressed: i64,
-        ledger_tag_neural_nofootprint: i64,
-        ledger_tag_neural_nofootprint_compressed: i64,
-        limit_bytes_remaining: u64,
-        decompressions: integer_t,
-        ledger_swapins: i64,
-        ledger_tag_neural_nofootprint_total: i64,
-        ledger_tag_neural_nofootprint_peak: i64,
-    }
-
-    let captured_at = Instant::now();
-    unsafe {
-        let mut thread_info = mem::zeroed::<task_thread_times_info_data_t>();
-        let mut thread_count = (mem::size_of::<task_thread_times_info_data_t>()
-            / mem::size_of::<natural_t>()) as mach_msg_type_number_t;
-        let thread_result = task_info(
-            mach_task_self(),
-            TASK_THREAD_TIMES_INFO,
-            &mut thread_info as *mut _ as *mut integer_t,
-            &mut thread_count,
-        );
-        if thread_result != KERN_SUCCESS {
-            return None;
-        }
-
-        let mut vm_info = mem::zeroed::<TaskVmInfo>();
-        let mut vm_count =
-            (mem::size_of::<TaskVmInfo>() / mem::size_of::<natural_t>()) as mach_msg_type_number_t;
-        let vm_result = task_info(
-            mach_task_self(),
-            TASK_VM_INFO,
-            &mut vm_info as *mut _ as *mut integer_t,
-            &mut vm_count,
-        );
-        if vm_result != KERN_SUCCESS {
-            return None;
-        }
-
-        let cpu_seconds =
-            time_value_seconds(thread_info.user_time) + time_value_seconds(thread_info.system_time);
-        let total_memory = if vm_info.phys_footprint > 0 {
-            vm_info.phys_footprint
-        } else {
-            vm_info.resident_size
-        };
-        let graphics_bytes = vm_info.ledger_tag_graphics_footprint.max(0) as u64;
-        let memory_bytes = total_memory.saturating_sub(graphics_bytes);
-
-        Some(RawSample {
-            captured_at,
-            cpu_seconds,
-            memory_bytes,
-            graphics_bytes,
-        })
-    }
+fn percent_delta(current: f64, previous: f64, wall_delta: f64) -> f64 {
+    let cpu_delta = (current - previous).max(0.0);
+    ((cpu_delta / wall_delta) * 100.0 * 10.0).round() / 10.0
 }
 
 #[cfg(target_os = "macos")]
-fn time_value_seconds(value: libc::time_value_t) -> f64 {
-    value.seconds as f64 + value.microseconds as f64 / 1_000_000.0
+#[allow(deprecated)]
+fn capture_raw_sample() -> Option<RawSample> {
+    use libc::{c_char, c_int, c_void, gid_t, pid_t, uid_t};
+    use std::{ffi::CStr, mem};
+
+    const PROC_ALL_PIDS: u32 = 1;
+    const PROC_PIDTASKINFO: c_int = 4;
+    const PROC_PIDTBSDINFO: c_int = 3;
+    const MAXCOMLEN: usize = 16;
+    const PROC_PIDPATHINFO_MAXSIZE: usize = 4096;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct ProcTaskInfo {
+        virtual_size: u64,
+        resident_size: u64,
+        total_user: u64,
+        total_system: u64,
+        threads_user: u64,
+        threads_system: u64,
+        policy: i32,
+        faults: i32,
+        pageins: i32,
+        cow_faults: i32,
+        messages_sent: i32,
+        messages_received: i32,
+        syscalls_mach: i32,
+        syscalls_unix: i32,
+        csw: i32,
+        threadnum: i32,
+        numrunning: i32,
+        priority: i32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct ProcBsdInfo {
+        flags: u32,
+        status: u32,
+        xstatus: u32,
+        pid: u32,
+        ppid: u32,
+        uid: uid_t,
+        gid: gid_t,
+        ruid: uid_t,
+        rgid: gid_t,
+        svuid: uid_t,
+        svgid: gid_t,
+        rfu_1: u32,
+        comm: [c_char; MAXCOMLEN],
+        name: [c_char; MAXCOMLEN * 2],
+        nfiles: u32,
+        pgid: u32,
+        pjobc: u32,
+        e_tdev: u32,
+        e_tpgid: u32,
+        nice: i32,
+        start_tvsec: u64,
+        start_tvusec: u64,
+    }
+
+    #[link(name = "proc")]
+    extern "C" {
+        fn proc_listpids(
+            typeinfo: u32,
+            typeinfo2: u32,
+            buffer: *mut c_void,
+            buffersize: c_int,
+        ) -> c_int;
+        fn proc_pidinfo(
+            pid: c_int,
+            flavor: c_int,
+            arg: u64,
+            buffer: *mut c_void,
+            buffersize: c_int,
+        ) -> c_int;
+        fn proc_pidpath(pid: c_int, buffer: *mut c_void, buffersize: u32) -> c_int;
+    }
+
+    #[derive(Clone)]
+    struct ProcessSample {
+        pid: pid_t,
+        ppid: pid_t,
+        name: String,
+        path: String,
+        cpu_seconds: f64,
+        resident_bytes: u64,
+    }
+
+    fn process_sample(pid: pid_t) -> Option<ProcessSample> {
+        unsafe {
+            let mut task_info = mem::zeroed::<ProcTaskInfo>();
+            let task_size = mem::size_of::<ProcTaskInfo>() as c_int;
+            if proc_pidinfo(
+                pid,
+                PROC_PIDTASKINFO,
+                0,
+                &mut task_info as *mut _ as *mut c_void,
+                task_size,
+            ) != task_size
+            {
+                return None;
+            }
+
+            let mut bsd_info = mem::zeroed::<ProcBsdInfo>();
+            let bsd_size = mem::size_of::<ProcBsdInfo>() as c_int;
+            if proc_pidinfo(
+                pid,
+                PROC_PIDTBSDINFO,
+                0,
+                &mut bsd_info as *mut _ as *mut c_void,
+                bsd_size,
+            ) != bsd_size
+            {
+                return None;
+            }
+
+            let mut path_buffer = [0i8; PROC_PIDPATHINFO_MAXSIZE];
+            let path_len = proc_pidpath(
+                pid,
+                path_buffer.as_mut_ptr() as *mut c_void,
+                path_buffer.len() as u32,
+            );
+            let path = if path_len > 0 {
+                CStr::from_ptr(path_buffer.as_ptr())
+                    .to_string_lossy()
+                    .into_owned()
+            } else {
+                String::new()
+            };
+
+            Some(ProcessSample {
+                pid,
+                ppid: bsd_info.ppid as pid_t,
+                name: c_char_array_to_string(&bsd_info.name)
+                    .or_else(|| c_char_array_to_string(&bsd_info.comm))
+                    .unwrap_or_default(),
+                path,
+                cpu_seconds: (task_info.total_user + task_info.total_system) as f64
+                    / 1_000_000_000.0,
+                resident_bytes: task_info.resident_size,
+            })
+        }
+    }
+
+    fn c_char_array_to_string(chars: &[c_char]) -> Option<String> {
+        let bytes: Vec<u8> = chars
+            .iter()
+            .take_while(|&&ch| ch != 0)
+            .map(|&ch| ch as u8)
+            .collect();
+        if bytes.is_empty() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    fn list_pids() -> Vec<pid_t> {
+        unsafe {
+            let hint = proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0);
+            if hint <= 0 {
+                return Vec::new();
+            }
+            let mut pids = vec![0 as pid_t; hint as usize];
+            let bytes = proc_listpids(
+                PROC_ALL_PIDS,
+                0,
+                pids.as_mut_ptr() as *mut c_void,
+                (pids.len() * mem::size_of::<pid_t>()) as c_int,
+            );
+            if bytes <= 0 {
+                return Vec::new();
+            }
+            let count = (bytes as usize / mem::size_of::<pid_t>()).min(pids.len());
+            pids.truncate(count);
+            pids.into_iter().filter(|pid| *pid > 0).collect()
+        }
+    }
+
+    fn is_tauri_helper(sample: &ProcessSample, main: &ProcessSample) -> bool {
+        sample.ppid == main.pid
+            || (!main.path.is_empty() && sample.path.starts_with(&main.path))
+            || (!main.name.is_empty() && sample.name.starts_with(&main.name))
+    }
+
+    let captured_at = Instant::now();
+    let main = process_sample(unsafe { libc::getpid() })?;
+    let mut cpu_seconds = main.cpu_seconds;
+    let mut memory_bytes = main.resident_bytes;
+
+    for pid in list_pids() {
+        if pid == main.pid {
+            continue;
+        }
+        let Some(sample) = process_sample(pid) else {
+            continue;
+        };
+        if !is_tauri_helper(&sample, &main) {
+            continue;
+        }
+        cpu_seconds += sample.cpu_seconds;
+        memory_bytes = memory_bytes.saturating_add(sample.resident_bytes);
+    }
+
+    Some(RawSample {
+        captured_at,
+        cpu_seconds,
+        memory_bytes,
+    })
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -204,7 +301,6 @@ fn capture_raw_sample() -> Option<RawSample> {
             captured_at,
             cpu_seconds: timeval_seconds(usage.ru_utime) + timeval_seconds(usage.ru_stime),
             memory_bytes,
-            graphics_bytes: 0,
         })
     }
 }
@@ -220,6 +316,5 @@ fn capture_raw_sample() -> Option<RawSample> {
         captured_at: Instant::now(),
         cpu_seconds: 0.0,
         memory_bytes: 0,
-        graphics_bytes: 0,
     })
 }

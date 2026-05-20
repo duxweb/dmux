@@ -84,11 +84,12 @@ export class AISessionStore {
     return sessions.reduce(
       (total, session) => ({
         totalTokens: total.totalTokens + Math.max(0, session.totalTokens - session.baselineTotalTokens),
+        cachedInputTokens: total.cachedInputTokens + Math.max(0, session.cachedInputTokens),
         running: total.running + (session.state === "responding" ? 1 : 0),
         needsInput: total.needsInput + (session.state === "needsInput" ? 1 : 0),
         completed: total.completed + (session.hasCompletedTurn ? 1 : 0),
       }),
-      { totalTokens: 0, running: 0, needsInput: 0, completed: 0 },
+      { totalTokens: 0, cachedInputTokens: 0, running: 0, needsInput: 0, completed: 0 },
     );
   }
 

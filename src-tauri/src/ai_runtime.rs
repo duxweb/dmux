@@ -27,6 +27,8 @@ const RUNNING_STALE_SECONDS: f64 = 90.0;
 const POLL_INTERVAL_SECONDS: u64 = 12;
 const RUNNING_STATE_RENEWAL_SECONDS: f64 = 30.0;
 const CODEX_INTERVAL_POLL_MINIMUM_SECONDS: f64 = 60.0;
+const TRANSCRIPT_MONITOR_INTERVAL_MS: u64 = 750;
+const TRANSCRIPT_POLL_MINIMUM_SECONDS: f64 = 5.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -187,6 +189,7 @@ pub enum AIProjectPhase {
 #[serde(rename_all = "camelCase")]
 pub struct AIProjectTotals {
     pub total_tokens: i64,
+    pub cached_input_tokens: i64,
     pub running: usize,
     pub needs_input: usize,
     pub completed: usize,
@@ -257,7 +260,25 @@ pub struct AIRuntimeBridgeSnapshot {
     pub zdotdir_path: String,
     pub hook_script_path: String,
     pub managed_hook_script_path: String,
+    pub hook_config: AIRuntimeHookConfigStatus,
     pub terminals: Vec<AIRuntimeTerminalState>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIRuntimeHookConfigStatus {
+    pub codex: AIRuntimeToolHookConfigStatus,
+    pub claude: AIRuntimeToolHookConfigStatus,
+    pub gemini: AIRuntimeToolHookConfigStatus,
+    pub opencode: AIRuntimeToolHookConfigStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIRuntimeToolHookConfigStatus {
+    pub configured: bool,
+    pub config_path: String,
+    pub missing: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -443,26 +464,13 @@ impl AIRuntimeBridge {
                 .join("tool-wrapper.sh"),
             true,
         )?;
-        stage_runtime_asset(
-            "scripts/wrappers/opencode-config/package.json",
+        stage_runtime_dir(
+            "scripts/wrappers/opencode-config",
             &self
                 .root_dir
                 .join("scripts")
                 .join("wrappers")
-                .join("opencode-config")
-                .join("package.json"),
-            false,
-        )?;
-        stage_runtime_asset(
-            "scripts/wrappers/opencode-config/plugins/dmux-runtime.js",
-            &self
-                .root_dir
-                .join("scripts")
-                .join("wrappers")
-                .join("opencode-config")
-                .join("plugins")
-                .join("dmux-runtime.js"),
-            false,
+                .join("opencode-config"),
         )?;
 
         for bin_name in [
@@ -565,6 +573,7 @@ impl AIRuntimeBridge {
             zdotdir_path: self.zdotdir.display().to_string(),
             hook_script_path: self.hook_script.display().to_string(),
             managed_hook_script_path: self.managed_hook_script.display().to_string(),
+            hook_config: self.hook_config_status(),
             terminals: self.registry.snapshot(),
         }
     }
@@ -629,6 +638,54 @@ impl AIRuntimeBridge {
         Ok(())
     }
 
+    fn hook_config_status(&self) -> AIRuntimeHookConfigStatus {
+        AIRuntimeHookConfigStatus {
+            codex: tool_hook_config_status(
+                &home_dir().join(".codex").join("hooks.json"),
+                "codex",
+                &[
+                    ("SessionStart", "codex-session-start"),
+                    ("UserPromptSubmit", "codex-prompt-submit"),
+                    ("PermissionRequest", "codex-permission-request"),
+                    ("Stop", "codex-stop"),
+                ],
+            ),
+            claude: tool_hook_config_status(
+                &home_dir().join(".claude").join("settings.json"),
+                "claude",
+                &[
+                    ("SessionStart", "session-start"),
+                    ("UserPromptSubmit", "prompt-submit"),
+                    ("Stop", "stop"),
+                    ("StopFailure", "stop-failure"),
+                    ("SessionEnd", "session-end"),
+                    ("PermissionRequest", "permission-request"),
+                    ("PermissionDenied", "permission-denied"),
+                    ("Elicitation", "elicitation"),
+                    ("ElicitationResult", "elicitation-result"),
+                ],
+            ),
+            gemini: tool_hook_config_status(
+                &home_dir().join(".gemini").join("settings.json"),
+                "gemini",
+                &[
+                    ("SessionStart", "session-start"),
+                    ("BeforeAgent", "before-agent"),
+                    ("AfterAgent", "after-agent"),
+                    ("Notification", "notification"),
+                    ("SessionEnd", "session-end"),
+                ],
+            ),
+            opencode: opencode_hook_config_status(
+                &self
+                    .root_dir
+                    .join("scripts")
+                    .join("wrappers")
+                    .join("opencode-config"),
+            ),
+        }
+    }
+
     pub fn state_snapshot(&self) -> AIRuntimeStateSnapshot {
         self.supervisor.state_snapshot()
     }
@@ -646,12 +703,14 @@ impl AIRuntimeBridge {
 enum AIRuntimeSupervisorMessage {
     HookFrame(Vec<u8>),
     Poll,
+    TranscriptTail(Vec<String>),
 }
 
 struct AIRuntimeSupervisor {
     hook_tx: Sender<AIRuntimeSupervisorMessage>,
     hook_rx: Mutex<Option<Receiver<AIRuntimeSupervisorMessage>>>,
     state: Arc<AIRuntimeStateStore>,
+    transcript_monitors: Arc<Mutex<HashMap<String, TranscriptMonitor>>>,
     settings: Arc<AppSettingsStore>,
     memory: Arc<MemoryStore>,
     projects: Arc<ProjectStore>,
@@ -668,6 +727,7 @@ impl AIRuntimeSupervisor {
             hook_tx,
             hook_rx: Mutex::new(Some(hook_rx)),
             state: Arc::new(AIRuntimeStateStore::default()),
+            transcript_monitors: Arc::new(Mutex::new(HashMap::new())),
             settings,
             memory,
             projects,
@@ -687,13 +747,25 @@ impl AIRuntimeSupervisor {
             return Ok(());
         };
         let state = Arc::clone(&self.state);
+        let transcript_monitors = Arc::clone(&self.transcript_monitors);
         let settings = Arc::clone(&self.settings);
         let memory = Arc::clone(&self.memory);
         let projects = Arc::clone(&self.projects);
         let poll_tx = self.hook_tx.clone();
         start_ai_runtime_poll_loop(poll_tx);
+        start_ai_runtime_transcript_monitor_loop(
+            self.hook_tx.clone(),
+            Arc::clone(&transcript_monitors),
+        );
         tauri::async_runtime::spawn(ai_runtime_supervisor_loop(
-            hook_rx, app, registry, state, settings, memory, projects,
+            hook_rx,
+            app,
+            registry,
+            state,
+            transcript_monitors,
+            settings,
+            memory,
+            projects,
         ));
         Ok(())
     }
@@ -712,6 +784,7 @@ async fn ai_runtime_supervisor_loop(
     app: AppHandle,
     registry: Arc<AIRuntimeRegistry>,
     state: Arc<AIRuntimeStateStore>,
+    transcript_monitors: Arc<Mutex<HashMap<String, TranscriptMonitor>>>,
     settings: Arc<AppSettingsStore>,
     memory: Arc<MemoryStore>,
     projects: Arc<ProjectStore>,
@@ -732,6 +805,10 @@ async fn ai_runtime_supervisor_loop(
                 if mutation.did_change {
                     emit_runtime_state(&app, &state);
                 }
+                refresh_transcript_monitors(
+                    &transcript_monitors,
+                    &state.runtime_tracked_sessions(now_seconds()),
+                );
                 apply_runtime_window_state(&app, &state.snapshot(), &settings);
                 if let Some(completion) = mutation.completion {
                     handle_runtime_completion(
@@ -747,31 +824,49 @@ async fn ai_runtime_supervisor_loop(
                 let snapshot = state.snapshot();
                 let tracked = state.runtime_tracked_sessions(now_seconds());
                 if tracked.is_empty() {
+                    clear_transcript_monitors(&transcript_monitors);
                     apply_runtime_window_state(&app, &snapshot, &settings);
                     continue;
                 }
-                let terminal_snapshot = registry.snapshot();
-                let mut mutation = state.reconcile_bridge_snapshot(&terminal_snapshot);
-                for session in tracked {
-                    if !should_poll_session(&session, "interval", now_seconds()) {
-                        continue;
-                    }
-                    let request = probe_request_for_session(&session);
-                    let next = match canonical_tool_name(&request.tool).as_deref() {
-                        Some("codex") => probe_codex_runtime(&request),
-                        Some("claude") => probe_claude_runtime(&request),
-                        Some("gemini") => probe_gemini_runtime(&request),
-                        Some("opencode") => probe_opencode_runtime(&request),
-                        _ => None,
-                    };
-                    if let Some(snapshot) = next {
-                        mutation
-                            .merge(state.apply_runtime_snapshot(&session.terminal_id, snapshot));
-                    }
-                }
+                let mutation = poll_runtime_sessions(&state, &registry, "interval", None);
                 if mutation.did_change {
                     emit_runtime_state(&app, &state);
                 }
+                refresh_transcript_monitors(
+                    &transcript_monitors,
+                    &state.runtime_tracked_sessions(now_seconds()),
+                );
+                apply_runtime_window_state(&app, &state.snapshot(), &settings);
+                if let Some(completion) = mutation.completion {
+                    handle_runtime_completion(
+                        app.clone(),
+                        settings.clone(),
+                        memory.clone(),
+                        projects.clone(),
+                        completion,
+                    );
+                }
+            }
+            AIRuntimeSupervisorMessage::TranscriptTail(terminal_ids) => {
+                let terminal_ids = terminal_ids
+                    .into_iter()
+                    .collect::<std::collections::HashSet<_>>();
+                if terminal_ids.is_empty() {
+                    continue;
+                }
+                let mutation = poll_runtime_sessions(
+                    &state,
+                    &registry,
+                    "transcript-tail",
+                    Some(&terminal_ids),
+                );
+                if mutation.did_change {
+                    emit_runtime_state(&app, &state);
+                }
+                refresh_transcript_monitors(
+                    &transcript_monitors,
+                    &state.runtime_tracked_sessions(now_seconds()),
+                );
                 apply_runtime_window_state(&app, &state.snapshot(), &settings);
                 if let Some(completion) = mutation.completion {
                     handle_runtime_completion(
@@ -787,12 +882,72 @@ async fn ai_runtime_supervisor_loop(
     }
 }
 
+fn poll_runtime_sessions(
+    state: &AIRuntimeStateStore,
+    registry: &AIRuntimeRegistry,
+    reason: &str,
+    terminal_ids: Option<&std::collections::HashSet<String>>,
+) -> AIRuntimeStateMutation {
+    let terminal_snapshot = registry.snapshot();
+    let mut mutation = state.reconcile_bridge_snapshot(&terminal_snapshot);
+    let now = now_seconds();
+    for session in state.runtime_tracked_sessions(now) {
+        if terminal_ids
+            .map(|ids| !ids.contains(&session.terminal_id))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        if !should_poll_session(&session, reason, now_seconds()) {
+            continue;
+        }
+        let request = probe_request_for_session(&session);
+        let next = match canonical_tool_name(&request.tool).as_deref() {
+            Some("codex") => probe_codex_runtime(&request),
+            Some("claude") => probe_claude_runtime(&request),
+            Some("gemini") => probe_gemini_runtime(&request),
+            Some("opencode") => probe_opencode_runtime(&request),
+            _ => None,
+        };
+        if let Some(snapshot) = next {
+            mutation.merge(state.apply_runtime_snapshot(&session.terminal_id, snapshot));
+        }
+    }
+    mutation
+}
+
 fn start_ai_runtime_poll_loop(tx: Sender<AIRuntimeSupervisorMessage>) {
     let _ = thread::Builder::new()
         .name("codux-ai-runtime-poller".to_string())
         .spawn(move || loop {
             thread::sleep(std::time::Duration::from_secs(POLL_INTERVAL_SECONDS));
             if tx.blocking_send(AIRuntimeSupervisorMessage::Poll).is_err() {
+                break;
+            }
+        });
+}
+
+fn start_ai_runtime_transcript_monitor_loop(
+    tx: Sender<AIRuntimeSupervisorMessage>,
+    monitors: Arc<Mutex<HashMap<String, TranscriptMonitor>>>,
+) {
+    let _ = thread::Builder::new()
+        .name("codux-ai-runtime-transcript-monitor".to_string())
+        .spawn(move || loop {
+            thread::sleep(std::time::Duration::from_millis(
+                TRANSCRIPT_MONITOR_INTERVAL_MS,
+            ));
+            let changed = match monitors.lock() {
+                Ok(mut monitors) => scan_transcript_monitors(&mut monitors, now_seconds()),
+                Err(_) => Vec::new(),
+            };
+            if changed.is_empty() {
+                continue;
+            }
+            if tx
+                .blocking_send(AIRuntimeSupervisorMessage::TranscriptTail(changed))
+                .is_err()
+            {
                 break;
             }
         });
@@ -907,6 +1062,19 @@ struct AIRuntimeStateStore {
 struct AIRuntimeStateMutation {
     did_change: bool,
     completion: Option<AIRuntimeCompletionEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TranscriptSignature {
+    size: u64,
+    modified_millis: u128,
+}
+
+#[derive(Debug, Clone)]
+struct TranscriptMonitor {
+    path: String,
+    signature: Option<TranscriptSignature>,
+    last_poll_at: Option<f64>,
 }
 
 impl AIRuntimeStateMutation {
@@ -1692,6 +1860,7 @@ fn project_totals_unlocked(core: &AIRuntimeStateCore, project_id: Option<&str>) 
         })
         .fold(AIProjectTotals::default(), |mut total, session| {
             total.total_tokens += (session.total_tokens - session.baseline_total_tokens).max(0);
+            total.cached_input_tokens += session.cached_input_tokens.max(0);
             total.running += usize::from(session.state == "responding");
             total.needs_input += usize::from(session.state == "needsInput");
             total.completed += usize::from(session.has_completed_turn);
@@ -1801,6 +1970,87 @@ fn probe_request_for_session(session: &AISessionSnapshot) -> AIRuntimeProbeReque
         started_at: session.started_at,
         updated_at: session.updated_at,
     }
+}
+
+fn refresh_transcript_monitors(
+    monitors: &Arc<Mutex<HashMap<String, TranscriptMonitor>>>,
+    sessions: &[AISessionSnapshot],
+) {
+    let Ok(mut monitors) = monitors.lock() else {
+        return;
+    };
+    let desired = sessions
+        .iter()
+        .filter_map(|session| {
+            if canonical_tool_name(&session.tool).as_deref() != Some("codex") {
+                return None;
+            }
+            let path = normalized_string(session.transcript_path.as_deref())?;
+            Some((session.terminal_id.clone(), path))
+        })
+        .collect::<HashMap<_, _>>();
+    monitors.retain(|terminal_id, _| desired.contains_key(terminal_id));
+    for (terminal_id, path) in desired {
+        if monitors
+            .get(&terminal_id)
+            .map(|monitor| monitor.path == path)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        monitors.insert(
+            terminal_id,
+            TranscriptMonitor {
+                signature: transcript_signature(Path::new(&path)),
+                path,
+                last_poll_at: None,
+            },
+        );
+    }
+}
+
+fn clear_transcript_monitors(monitors: &Arc<Mutex<HashMap<String, TranscriptMonitor>>>) {
+    if let Ok(mut monitors) = monitors.lock() {
+        monitors.clear();
+    }
+}
+
+fn scan_transcript_monitors(
+    monitors: &mut HashMap<String, TranscriptMonitor>,
+    now: f64,
+) -> Vec<String> {
+    let mut changed = Vec::new();
+    for (terminal_id, monitor) in monitors.iter_mut() {
+        let signature = transcript_signature(Path::new(&monitor.path));
+        if signature == monitor.signature {
+            continue;
+        }
+        if monitor
+            .last_poll_at
+            .map(|last_poll_at| now - last_poll_at < TRANSCRIPT_POLL_MINIMUM_SECONDS)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        monitor.signature = signature;
+        monitor.last_poll_at = Some(now);
+        changed.push(terminal_id.clone());
+    }
+    changed
+}
+
+fn transcript_signature(path: &Path) -> Option<TranscriptSignature> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified_millis = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis();
+    Some(TranscriptSignature {
+        size: metadata.len(),
+        modified_millis,
+    })
 }
 
 fn should_poll_session(session: &AISessionSnapshot, reason: &str, now: f64) -> bool {
@@ -2038,6 +2288,11 @@ fn probe_claude_runtime(request: &AIRuntimeProbeRequest) -> Option<AIRuntimeCont
         });
     }
     let aggregate = aggregate?;
+    let started_at = aggregate.started_at();
+    let completed_at = aggregate.completed_at();
+    let response_state = aggregate.response_state();
+    let was_interrupted = aggregate.was_interrupted();
+    let has_completed_turn = aggregate.has_completed_turn();
     Some(AIRuntimeContextSnapshot {
         tool: "claude".to_string(),
         external_session_id: Some(external_id),
@@ -2048,11 +2303,11 @@ fn probe_claude_runtime(request: &AIRuntimeProbeRequest) -> Option<AIRuntimeCont
         cached_input_tokens: aggregate.cached_input_tokens,
         total_tokens: aggregate.total_tokens,
         updated_at: aggregate.updated_at.max(request.updated_at),
-        started_at: aggregate.started_at,
-        completed_at: aggregate.completed_at,
-        response_state: aggregate.response_state,
-        was_interrupted: aggregate.was_interrupted,
-        has_completed_turn: aggregate.has_completed_turn,
+        started_at,
+        completed_at,
+        response_state,
+        was_interrupted,
+        has_completed_turn,
         session_origin: "unknown".to_string(),
         source: "probe".to_string(),
     })
@@ -2104,9 +2359,13 @@ fn probe_gemini_runtime(request: &AIRuntimeProbeRequest) -> Option<AIRuntimeCont
     let mut state = if authoritative {
         preferred_match?
     } else {
-        current_launch_match
-            .or(preferred_match)
-            .or(candidate_match)?
+        current_launch_match.or(preferred_match).or_else(|| {
+            if request.started_at.is_none() {
+                candidate_match
+            } else {
+                None
+            }
+        })?
     };
     state.origin = if request
         .started_at
@@ -2123,7 +2382,7 @@ fn probe_gemini_runtime(request: &AIRuntimeProbeRequest) -> Option<AIRuntimeCont
         tool: "gemini".to_string(),
         external_session_id: Some(state.external_session_id),
         model: state.model,
-        assistant_preview: None,
+        assistant_preview: state.assistant_preview,
         input_tokens: state.input_tokens,
         output_tokens: state.output_tokens,
         cached_input_tokens: state.cached_input_tokens,
@@ -2183,6 +2442,7 @@ fn probe_opencode_runtime(request: &AIRuntimeProbeRequest) -> Option<AIRuntimeCo
     let mut updated_at = 0.0f64;
     let mut last_user_at = 0.0f64;
     let mut last_completion_at = 0.0f64;
+    let mut assistant_preview = None;
 
     for row in rows.flatten() {
         let (data, message_created_at, session_updated_at, session_directory) = row;
@@ -2237,10 +2497,13 @@ fn probe_opencode_runtime(request: &AIRuntimeProbeRequest) -> Option<AIRuntimeCo
 
         if role == "user" {
             last_user_at = last_user_at.max(created_at);
-        } else if role == "assistant"
-            && is_opencode_final_assistant_finish(finish_reason, completed_at)
-        {
-            last_completion_at = last_completion_at.max(completed_at.unwrap_or(created_at));
+        } else if role == "assistant" {
+            if assistant_preview.is_none() {
+                assistant_preview = opencode_assistant_preview(&payload);
+            }
+            if is_opencode_final_assistant_finish(finish_reason, completed_at) {
+                last_completion_at = last_completion_at.max(completed_at.unwrap_or(created_at));
+            }
         }
         updated_at = updated_at.max(created_at);
         updated_at = updated_at.max(completed_at.unwrap_or(0.0));
@@ -2266,7 +2529,7 @@ fn probe_opencode_runtime(request: &AIRuntimeProbeRequest) -> Option<AIRuntimeCo
         tool: "opencode".to_string(),
         external_session_id: Some(external_session_id),
         model: latest_model,
-        assistant_preview: None,
+        assistant_preview,
         input_tokens,
         output_tokens,
         cached_input_tokens,
@@ -2293,6 +2556,24 @@ fn is_opencode_final_assistant_finish(value: &str, completed_at: Option<f64>) ->
         return completed_at.is_some();
     }
     normalized != "tool-calls"
+}
+
+fn opencode_assistant_preview(payload: &serde_json::Value) -> Option<String> {
+    joined_preview_from_values(&[
+        payload.get("content"),
+        payload.get("text"),
+        payload.get("message"),
+        payload.get("parts"),
+    ])
+}
+
+fn gemini_assistant_preview(message: &serde_json::Value) -> Option<String> {
+    joined_preview_from_values(&[
+        message.get("content"),
+        message.get("text"),
+        message.get("message"),
+        message.get("parts"),
+    ])
 }
 
 fn opencode_value_timestamp(value: &serde_json::Value) -> Option<f64> {
@@ -2393,6 +2674,72 @@ fn install_tool_hooks(
 
     root.insert("hooks".to_string(), serde_json::Value::Object(hooks));
     write_json_object(path, root)
+}
+
+fn tool_hook_config_status(
+    path: &Path,
+    tool: &str,
+    definitions: &[(&str, &str)],
+) -> AIRuntimeToolHookConfigStatus {
+    let root = load_json_object(path).unwrap_or_default();
+    let hooks = root
+        .get("hooks")
+        .and_then(|value| value.as_object())
+        .cloned()
+        .unwrap_or_default();
+    let missing = definitions
+        .iter()
+        .filter_map(|(event_key, action)| {
+            has_managed_hook_for_event(&hooks, event_key, action, tool)
+                .then_some(())
+                .is_none()
+                .then(|| format!("{event_key}:{action}"))
+        })
+        .collect::<Vec<_>>();
+    AIRuntimeToolHookConfigStatus {
+        configured: missing.is_empty(),
+        config_path: path.display().to_string(),
+        missing,
+    }
+}
+
+fn has_managed_hook_for_event(
+    hooks: &serde_json::Map<String, serde_json::Value>,
+    event_key: &str,
+    action: &str,
+    tool: &str,
+) -> bool {
+    hooks
+        .get(event_key)
+        .and_then(|value| value.as_array())
+        .map(|groups| {
+            groups.iter().any(|group| {
+                group
+                    .get("hooks")
+                    .and_then(|value| value.as_array())
+                    .map(|items| items.iter().any(|item| is_managed_hook(item, action, tool)))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn opencode_hook_config_status(config_dir: &Path) -> AIRuntimeToolHookConfigStatus {
+    let expected = [
+        "package.json",
+        "plugins/dmux-runtime.js",
+        "node_modules/@opencode-ai/plugin/package.json",
+    ];
+    let missing = expected
+        .iter()
+        .filter(|relative| !config_dir.join(relative).exists())
+        .map(|relative| relative.to_string())
+        .collect::<Vec<_>>();
+    AIRuntimeToolHookConfigStatus {
+        configured: missing.is_empty(),
+        config_path: config_dir.display().to_string(),
+        missing,
+    }
 }
 
 fn removed_hook_definitions(tool: &str) -> &'static [(&'static str, &'static str)] {
@@ -2919,6 +3266,38 @@ fn stage_runtime_asset(
     Ok(())
 }
 
+fn stage_runtime_dir(relative_path: &str, destination: &Path) -> Result<(), String> {
+    let source = runtime_assets_root().join(relative_path);
+    if !source.is_dir() {
+        return Err(format!(
+            "runtime asset directory {} not found",
+            source.display()
+        ));
+    }
+    copy_runtime_dir(&source, destination)
+}
+
+fn copy_runtime_dir(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination).map_err(|error| error.to_string())?;
+    let entries = fs::read_dir(source).map_err(|error| error.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_runtime_dir(&source_path, &destination_path)?;
+        } else {
+            let relative = source_path
+                .strip_prefix(runtime_assets_root())
+                .ok()
+                .and_then(|path| path.to_str())
+                .unwrap_or_else(|| source_path.to_str().unwrap_or(""));
+            stage_runtime_asset(relative, &destination_path, false)?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 struct CodexParsedState {
     model: Option<String>,
@@ -2963,8 +3342,8 @@ fn parse_codex_runtime_state(
         let row_type = row.get("type").and_then(|value| value.as_str());
         let payload = row.get("payload").unwrap_or(&serde_json::Value::Null);
 
-        if state.assistant_preview.is_none() {
-            state.assistant_preview = codex_assistant_preview(row_type, payload);
+        if let Some(preview) = codex_assistant_preview(row_type, payload) {
+            state.assistant_preview = Some(preview);
         }
 
         if row_type == Some("turn_context") {
@@ -3186,6 +3565,28 @@ fn sanitized_preview_from_values(values: &[Option<&serde_json::Value>]) -> Optio
     None
 }
 
+fn joined_preview_from_values(values: &[Option<&serde_json::Value>]) -> Option<String> {
+    let mut lines = Vec::new();
+    'outer: for value in values.iter().flatten() {
+        for text in flatten_text(value) {
+            for line in text
+                .replace("\r\n", "\n")
+                .replace('\r', "\n")
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+            {
+                lines.push(line.to_string());
+                if lines.len() >= 3 {
+                    break 'outer;
+                }
+            }
+        }
+    }
+    let preview = lines.join("\n");
+    sanitized_preview(&preview)
+}
+
 fn flatten_text(value: &serde_json::Value) -> Vec<String> {
     match value {
         serde_json::Value::String(text) => vec![text.clone()],
@@ -3226,11 +3627,10 @@ struct ClaudeAggregate {
     cached_input_tokens: i64,
     total_tokens: i64,
     updated_at: f64,
-    started_at: Option<f64>,
-    completed_at: Option<f64>,
-    response_state: Option<String>,
-    was_interrupted: bool,
-    has_completed_turn: bool,
+    last_user_at: f64,
+    last_completion_at: f64,
+    last_interrupted_at: f64,
+    last_completed_turn_at: f64,
 }
 
 impl ClaudeAggregate {
@@ -3243,16 +3643,49 @@ impl ClaudeAggregate {
             cached_input_tokens: self.cached_input_tokens + other.cached_input_tokens,
             total_tokens: self.total_tokens + other.total_tokens,
             updated_at: self.updated_at.max(other.updated_at),
-            started_at: min_option(self.started_at, other.started_at),
-            completed_at: max_option(self.completed_at, other.completed_at),
-            response_state: if other.updated_at >= self.updated_at {
-                other.response_state
-            } else {
-                self.response_state
-            },
-            was_interrupted: self.was_interrupted || other.was_interrupted,
-            has_completed_turn: self.has_completed_turn || other.has_completed_turn,
+            last_user_at: self.last_user_at.max(other.last_user_at),
+            last_completion_at: self.last_completion_at.max(other.last_completion_at),
+            last_interrupted_at: self.last_interrupted_at.max(other.last_interrupted_at),
+            last_completed_turn_at: self
+                .last_completed_turn_at
+                .max(other.last_completed_turn_at),
         }
+    }
+
+    fn started_at(&self) -> Option<f64> {
+        (self.last_user_at > 0.0).then_some(self.last_user_at)
+    }
+
+    fn completed_at(&self) -> Option<f64> {
+        let completion = self.last_completed_turn_at.max(self.last_interrupted_at);
+        (completion > 0.0).then_some(completion)
+    }
+
+    fn response_state(&self) -> Option<String> {
+        if self.last_user_at <= 0.0 {
+            return None;
+        }
+        if self.last_user_at > self.last_completion_at {
+            Some("responding".to_string())
+        } else {
+            Some("idle".to_string())
+        }
+    }
+
+    fn was_interrupted(&self) -> bool {
+        if self.last_interrupted_at <= 0.0 {
+            return false;
+        }
+        let latest_conflicting_at = self.last_user_at.max(self.last_completed_turn_at);
+        self.last_interrupted_at >= latest_conflicting_at
+    }
+
+    fn has_completed_turn(&self) -> bool {
+        if self.last_completed_turn_at <= 0.0 {
+            return false;
+        }
+        let latest_conflicting_at = self.last_user_at.max(self.last_interrupted_at);
+        self.last_completed_turn_at >= latest_conflicting_at
     }
 }
 
@@ -3265,8 +3698,6 @@ fn parse_claude_log_runtime_state(
     let reader = BufReader::new(file);
     let mut aggregate = ClaudeAggregate::default();
     let mut matched = false;
-    let mut last_user_at: Option<f64> = None;
-    let mut last_assistant_at: Option<f64> = None;
 
     for line in reader.lines().map_while(Result::ok) {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(&line) else {
@@ -3287,22 +3718,33 @@ fn parse_claude_log_runtime_state(
             .and_then(parse_iso8601_seconds)
             .unwrap_or_else(now_seconds);
         aggregate.updated_at = aggregate.updated_at.max(timestamp);
-        aggregate.started_at = min_option(aggregate.started_at, Some(timestamp));
         let message = row.get("message").unwrap_or(&serde_json::Value::Null);
         let role = message
             .get("role")
             .and_then(|value| value.as_str())
             .or_else(|| row.get("type").and_then(|value| value.as_str()));
         if role == Some("user") {
-            last_user_at = Some(timestamp);
-        }
-        if role == Some("assistant") {
-            last_assistant_at = Some(timestamp);
-            aggregate.completed_at = Some(timestamp);
-            aggregate.has_completed_turn = true;
-            if aggregate.assistant_preview.is_none() {
-                aggregate.assistant_preview =
-                    sanitized_preview_from_values(&[message.get("content"), row.get("content")]);
+            if is_claude_interrupted_row(&row) {
+                aggregate.last_interrupted_at = aggregate.last_interrupted_at.max(timestamp);
+                aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
+            } else {
+                aggregate.last_user_at = aggregate.last_user_at.max(timestamp);
+            }
+        } else if role == Some("assistant") {
+            let stop_reason = message.get("stop_reason").and_then(|value| value.as_str());
+            if stop_reason == Some("end_turn") {
+                aggregate.last_completed_turn_at = aggregate.last_completed_turn_at.max(timestamp);
+                aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
+            }
+            if let Some(preview) =
+                sanitized_preview_from_values(&[message.get("content"), row.get("content")])
+            {
+                aggregate.assistant_preview = Some(preview);
+            }
+        } else if role == Some("system") {
+            let subtype = row.get("subtype").and_then(|value| value.as_str());
+            if matches!(subtype, Some("turn_duration" | "stop_hook_summary")) {
+                aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
             }
         }
         if let Some(model) = first_string_deep(&row, &["model"]) {
@@ -3318,23 +3760,10 @@ fn parse_claude_log_runtime_state(
                 + json_i64(usage.get("cache_creation_input_tokens"))
                 + json_i64(usage.get("cache_read_input_tokens"));
         }
-        if is_claude_interrupted_row(&row) {
-            aggregate.was_interrupted = true;
-            aggregate.has_completed_turn = false;
-            aggregate.completed_at = Some(timestamp);
-        }
     }
 
     if !matched {
         return None;
-    }
-    aggregate.response_state = match (last_user_at, last_assistant_at) {
-        (Some(user_at), Some(assistant_at)) if assistant_at >= user_at => Some("idle".to_string()),
-        (Some(_), _) => Some("responding".to_string()),
-        _ => Some("idle".to_string()),
-    };
-    if aggregate.response_state.as_deref() == Some("idle") && !aggregate.was_interrupted {
-        aggregate.has_completed_turn = true;
     }
     Some(aggregate)
 }
@@ -3348,6 +3777,7 @@ fn is_claude_interrupted_row(row: &serde_json::Value) -> bool {
 struct GeminiParsedState {
     external_session_id: String,
     model: Option<String>,
+    assistant_preview: Option<String>,
     input_tokens: i64,
     output_tokens: i64,
     cached_input_tokens: i64,
@@ -3410,6 +3840,7 @@ fn parse_gemini_runtime_state(file_path: &Path) -> Option<GeminiParsedState> {
     let mut cached_input_tokens = 0;
     let mut total_tokens = 0;
     let mut last_relevant_type: Option<String> = None;
+    let mut assistant_preview = None;
 
     for message in messages {
         if let Some(message_type) = message.get("type").and_then(|value| value.as_str()) {
@@ -3426,6 +3857,9 @@ fn parse_gemini_runtime_state(file_path: &Path) -> Option<GeminiParsedState> {
             .and_then(|value| normalized_string(Some(value)))
         {
             model = Some(candidate_model);
+        }
+        if let Some(preview) = gemini_assistant_preview(&message) {
+            assistant_preview = Some(preview);
         }
         let tokens = message.get("tokens").unwrap_or(&serde_json::Value::Null);
         let cached = json_i64(tokens.get("cached"));
@@ -3453,6 +3887,7 @@ fn parse_gemini_runtime_state(file_path: &Path) -> Option<GeminiParsedState> {
     Some(GeminiParsedState {
         external_session_id,
         model,
+        assistant_preview,
         input_tokens,
         output_tokens,
         cached_input_tokens,
@@ -3691,22 +4126,6 @@ fn json_i64(value: Option<&serde_json::Value>) -> i64 {
     value.and_then(|value| value.as_i64()).unwrap_or(0)
 }
 
-fn min_option(left: Option<f64>, right: Option<f64>) -> Option<f64> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left.min(right)),
-        (Some(value), None) | (None, Some(value)) => Some(value),
-        (None, None) => None,
-    }
-}
-
-fn max_option(left: Option<f64>, right: Option<f64>) -> Option<f64> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left.max(right)),
-        (Some(value), None) | (None, Some(value)) => Some(value),
-        (None, None) => None,
-    }
-}
-
 fn normalized_string(value: Option<&str>) -> Option<String> {
     let normalized = value?.trim();
     if normalized.is_empty() {
@@ -3731,6 +4150,7 @@ fn paths_equivalent(left: Option<&str>, right: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn codex_config_updater_preserves_user_config_and_manages_hook_state() {
@@ -3855,5 +4275,245 @@ model = "gpt-5.5"
         let frame = br#"{"kind":"unknown","payload":{}}"#;
 
         assert!(runtime_frame_to_hook(frame).is_none());
+    }
+
+    #[test]
+    fn codex_transcript_abort_parses_as_interrupted_turn() {
+        let transcript = write_temp_transcript(
+            "codex-abort",
+            &[
+                r#"{"timestamp":"2026-04-21T03:00:00Z","type":"turn_context","payload":{"model":"gpt-5.4","cwd":"/tmp/codex-project"}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:01Z","type":"event_msg","payload":{"type":"task_started","started_at":1713668401}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:03Z","type":"event_msg","payload":{"type":"turn_aborted","completed_at":1713668403}}"#,
+            ],
+        );
+
+        let parsed = parse_codex_runtime_state(&transcript, Some("/tmp/codex-project")).unwrap();
+
+        assert_eq!(parsed.response_state.as_deref(), Some("idle"));
+        assert!(parsed.was_interrupted);
+        assert!(!parsed.has_completed_turn);
+    }
+
+    #[test]
+    fn codex_probe_applies_interrupted_snapshot_without_stop_hook() {
+        let transcript = write_temp_transcript(
+            "codex-probe-abort",
+            &[
+                r#"{"timestamp":"2026-04-21T03:00:00Z","type":"turn_context","payload":{"model":"gpt-5.4","cwd":"/tmp/codex-project"}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:01Z","type":"event_msg","payload":{"type":"task_started","started_at":1713668401}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:03Z","type":"event_msg","payload":{"type":"turn_aborted","completed_at":1713668403}}"#,
+            ],
+        );
+        let mut core = AIRuntimeStateCore::default();
+        assert!(apply_hook_unlocked(
+            &mut core,
+            AIHookEventPayload {
+                kind: "promptSubmitted".to_string(),
+                terminal_id: "terminal-1".to_string(),
+                terminal_instance_id: Some("instance-1".to_string()),
+                project_id: "project-1".to_string(),
+                project_name: "Project".to_string(),
+                project_path: Some("/tmp/codex-project".to_string()),
+                session_title: "Codex".to_string(),
+                tool: "codex".to_string(),
+                ai_session_id: Some("session-1".to_string()),
+                model: Some("gpt-5.4".to_string()),
+                input_tokens: None,
+                output_tokens: None,
+                cached_input_tokens: None,
+                total_tokens: None,
+                updated_at: 1713668401.0,
+                metadata: Some(AIHookEventMetadata {
+                    transcript_path: Some(transcript.display().to_string()),
+                    ..AIHookEventMetadata {
+                        transcript_path: None,
+                        notification_type: None,
+                        source: None,
+                        reason: None,
+                        cwd: None,
+                        target_tool_name: None,
+                        message: None,
+                        was_interrupted: None,
+                        has_completed_turn: None,
+                    }
+                }),
+            }
+        ));
+        let request = probe_request_for_session(core.sessions.get("terminal-1").unwrap());
+        let snapshot = probe_codex_runtime(&request).unwrap();
+
+        assert!(apply_runtime_snapshot_unlocked(
+            &mut core,
+            "terminal-1",
+            snapshot
+        ));
+        let session = core.sessions.get("terminal-1").unwrap();
+        assert_eq!(session.state, "idle");
+        assert!(session.was_interrupted);
+        assert!(!session.has_completed_turn);
+        assert!(matches!(
+            completed_phase_unlocked(&core, "project-1"),
+            AIProjectPhase::Completed {
+                was_interrupted: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn transcript_monitor_detects_tail_change_once_per_minimum_interval() {
+        let transcript = write_temp_transcript("codex-tail", &["initial"]);
+        let path = transcript.display().to_string();
+        let mut monitors = HashMap::from([(
+            "terminal-1".to_string(),
+            TranscriptMonitor {
+                path: path.clone(),
+                signature: transcript_signature(Path::new(&path)),
+                last_poll_at: None,
+            },
+        )]);
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&transcript)
+            .unwrap()
+            .write_all(b"next\n")
+            .unwrap();
+
+        assert_eq!(
+            scan_transcript_monitors(&mut monitors, 100.0),
+            vec!["terminal-1".to_string()]
+        );
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&transcript)
+            .unwrap()
+            .write_all(b"again\n")
+            .unwrap();
+        assert!(scan_transcript_monitors(&mut monitors, 102.0).is_empty());
+        assert_eq!(
+            scan_transcript_monitors(&mut monitors, 106.0),
+            vec!["terminal-1".to_string()]
+        );
+    }
+
+    #[test]
+    fn claude_streaming_assistant_without_end_turn_stays_responding() {
+        let transcript = write_temp_transcript(
+            "claude-streaming",
+            &[
+                r#"{"timestamp":"2026-04-21T03:00:00Z","type":"user","cwd":"/tmp/claude-project","sessionId":"claude-1","message":{"role":"user","content":"hi"}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:02Z","type":"assistant","cwd":"/tmp/claude-project","sessionId":"claude-1","message":{"role":"assistant","content":"working","stop_reason":null}}"#,
+            ],
+        );
+
+        let parsed =
+            parse_claude_log_runtime_state(&transcript, "/tmp/claude-project", "claude-1").unwrap();
+
+        assert_eq!(parsed.response_state().as_deref(), Some("responding"));
+        assert!(!parsed.has_completed_turn());
+        assert!(!parsed.was_interrupted());
+        assert_eq!(parsed.completed_at(), None);
+    }
+
+    #[test]
+    fn claude_end_turn_and_interruption_follow_latest_event() {
+        let transcript = write_temp_transcript(
+            "claude-interrupt",
+            &[
+                r#"{"timestamp":"2026-04-21T03:00:00Z","type":"user","cwd":"/tmp/claude-project","sessionId":"claude-1","message":{"role":"user","content":"hi"}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:02Z","type":"assistant","cwd":"/tmp/claude-project","sessionId":"claude-1","message":{"role":"assistant","content":"done","stop_reason":"end_turn"}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:04Z","type":"user","cwd":"/tmp/claude-project","sessionId":"claude-1","message":{"role":"user","content":"again"}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:05Z","type":"user","cwd":"/tmp/claude-project","sessionId":"claude-1","message":{"role":"user","content":"[Request interrupted by user]"}}"#,
+            ],
+        );
+
+        let parsed =
+            parse_claude_log_runtime_state(&transcript, "/tmp/claude-project", "claude-1").unwrap();
+
+        assert_eq!(parsed.response_state().as_deref(), Some("idle"));
+        assert!(parsed.was_interrupted());
+        assert!(!parsed.has_completed_turn());
+    }
+
+    #[test]
+    fn gemini_runtime_state_extracts_assistant_preview() {
+        let transcript = write_temp_transcript(
+            "gemini-preview",
+            &[r#"{
+              "sessionId": "gemini-session",
+              "startTime": "2026-04-21T09:00:00Z",
+              "lastUpdated": "2026-04-21T09:00:06Z",
+              "messages": [
+                {
+                  "type": "user",
+                  "timestamp": "2026-04-21T09:00:00Z",
+                  "content": "hello"
+                },
+                {
+                  "type": "gemini",
+                  "timestamp": "2026-04-21T09:00:06Z",
+                  "model": "gemini-2.5-pro",
+                  "content": [{"text": "我先检查项目结构。"}, {"text": "然后确认入口和配置。"}],
+                  "tokens": {
+                    "input": 140,
+                    "output": 60,
+                    "thoughts": 15,
+                    "cached": 25,
+                    "total": 240
+                  }
+                }
+              ]
+            }"#],
+        );
+
+        let parsed = parse_gemini_runtime_state(&transcript).unwrap();
+
+        assert_eq!(
+            parsed.assistant_preview.as_deref(),
+            Some("我先检查项目结构。\n然后确认入口和配置。")
+        );
+    }
+
+    #[test]
+    fn opencode_assistant_preview_extracts_nested_text() {
+        let payload = serde_json::json!({
+            "role": "assistant",
+            "parts": [
+                { "type": "text", "text": "我先检查项目结构。" },
+                { "type": "text", "text": "然后确认入口和配置。" }
+            ]
+        });
+
+        assert_eq!(
+            opencode_assistant_preview(&payload).as_deref(),
+            Some("我先检查项目结构。\n然后确认入口和配置。")
+        );
+    }
+
+    #[test]
+    fn codex_runtime_state_keeps_latest_assistant_preview() {
+        let transcript = write_temp_transcript(
+            "codex-preview",
+            &[
+                r#"{"timestamp":"2026-04-21T03:00:00Z","type":"turn_context","payload":{"model":"gpt-5.4","cwd":"/tmp/codex-project"}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:01Z","type":"event_msg","payload":{"type":"agent_message","message":"旧的摘要"}}"#,
+                r#"{"timestamp":"2026-04-21T03:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"新的实时摘要"}}"#,
+            ],
+        );
+
+        let parsed = parse_codex_runtime_state(&transcript, Some("/tmp/codex-project")).unwrap();
+
+        assert_eq!(parsed.assistant_preview.as_deref(), Some("新的实时摘要"));
+    }
+
+    fn write_temp_transcript(prefix: &str, rows: &[&str]) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "{prefix}-{}-{}.jsonl",
+            std::process::id(),
+            now_seconds().to_bits()
+        ));
+        fs::write(&path, rows.join("\n") + "\n").unwrap();
+        path
     }
 }

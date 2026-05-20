@@ -150,6 +150,7 @@ export function PetClaimWindow() {
 
   return (
     <WindowFrame
+      title={tm("pet.claim.window.title", "Claim Pet")}
       mainClassName="px-0 py-0"
       mainScrollable={false}
       footer={

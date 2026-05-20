@@ -36,6 +36,8 @@ pub struct ProjectWorktreeGitSummary {
     pub changes: usize,
     pub incoming: i64,
     pub outgoing: i64,
+    pub additions: i64,
+    pub deletions: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -165,6 +167,9 @@ pub fn create_worktree(request: WorktreeCreateRequest) -> Result<WorktreeSnapsho
     }
     let root = repository_root(&request.project_path)
         .ok_or_else(|| "Not a Git repository.".to_string())?;
+    if !has_head_commit(&root) {
+        return Err("当前仓库还没有任何提交。请先创建初始提交后再创建 Worktree。".to_string());
+    }
     let destination = managed_worktree_path(&request.project_path, branch);
     if destination.exists() {
         return Err(format!(
@@ -233,6 +238,7 @@ fn project_worktree(
     now: i64,
 ) -> ProjectWorktreeSnapshot {
     let status_snapshot = git_brief_status(path.clone());
+    let (additions, deletions) = worktree_line_stats(&path);
     ProjectWorktreeSnapshot {
         id,
         project_id,
@@ -247,6 +253,8 @@ fn project_worktree(
             changes: status_snapshot.changes,
             incoming: status_snapshot.behind,
             outgoing: status_snapshot.ahead,
+            additions,
+            deletions,
         },
     }
 }
@@ -333,6 +341,36 @@ fn commit_hash(ref_name: &str, path: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn worktree_line_stats(path: &str) -> (i64, i64) {
+    let root = Path::new(path);
+    let staged = git_output(root, &["diff", "--cached", "--numstat"]).unwrap_or_default();
+    let unstaged = git_output(root, &["diff", "--numstat"]).unwrap_or_default();
+    merge_numstat(&staged, &unstaged)
+}
+
+fn merge_numstat(left: &str, right: &str) -> (i64, i64) {
+    let mut additions = 0;
+    let mut deletions = 0;
+    for value in [left, right] {
+        for line in value.lines() {
+            let mut parts = line.split('\t');
+            additions += parts
+                .next()
+                .and_then(|part| part.parse::<i64>().ok())
+                .unwrap_or(0);
+            deletions += parts
+                .next()
+                .and_then(|part| part.parse::<i64>().ok())
+                .unwrap_or(0);
+        }
+    }
+    (additions, deletions)
+}
+
+fn has_head_commit(path: &str) -> bool {
+    git_output(Path::new(path), &["rev-parse", "--verify", "HEAD^{commit}"]).is_ok()
 }
 
 fn git_output(cwd: &Path, args: &[&str]) -> Result<String, String> {

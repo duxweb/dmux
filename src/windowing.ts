@@ -1,8 +1,9 @@
 import { WebviewWindow, getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalPosition, LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import { formatI18n, tm } from "./i18n";
 
 export type AppWindowKind =
+  | "about"
   | "settings"
   | "project-create"
   | "desktop-pet"
@@ -40,6 +41,16 @@ type WindowConfig = {
 };
 
 const windowConfig: Record<AppWindowKind, WindowConfig> = {
+  about: {
+    label: "about",
+    titleKey: "menu.app.about_format",
+    titleFallback: "About Codux",
+    width: 320,
+    height: 380,
+    minWidth: 320,
+    minHeight: 380,
+    route: "/about",
+  },
   settings: {
     label: "settings",
     titleKey: "menu.settings",
@@ -133,16 +144,19 @@ export async function openAppWindow(kind: AppWindowKind) {
   }
 
   const appWindow = new WebviewWindow(config.label, {
-    title: tm(config.titleKey, config.titleFallback),
+    title: tm(config.titleKey, config.titleFallback).replace("%@", "Codux"),
     url: kind === "desktop-pet" ? config.route : `/#${config.route}`,
     width: config.width,
     height: config.height,
     minWidth: config.minWidth,
     minHeight: config.minHeight,
-    resizable: kind === "desktop-pet" || kind === "pet-claim" || kind === "pet-custom-install" ? false : true,
+    resizable: kind === "about" || kind === "desktop-pet" || kind === "pet-claim" || kind === "pet-custom-install" ? false : true,
     transparent: kind === "desktop-pet",
     decorations: kind === "desktop-pet" ? false : true,
+    titleBarStyle: kind === "desktop-pet" ? undefined : "overlay",
+    hiddenTitle: kind === "desktop-pet" ? undefined : true,
     acceptFirstMouse: true,
+    trafficLightPosition: kind === "desktop-pet" ? undefined : new LogicalPosition(14, 22),
     backgroundColor: kind === "desktop-pet" ? "#00000000" : opaqueAppWindowBackground,
     visible: false,
     focus: false,
@@ -152,6 +166,11 @@ export async function openAppWindow(kind: AppWindowKind) {
 
   appWindow.once("tauri://error", (event) => {
     console.error(`failed to create ${kind} window`, event.payload);
+  });
+  appWindow.once("tauri://created", () => {
+    void appWindow.show().then(() => appWindow.setFocus()).catch((error) => {
+      console.error(`failed to reveal ${kind} window`, error);
+    });
   });
 }
 
@@ -185,6 +204,9 @@ export async function openDetachedTerminalWindow(options: DetachedTerminalWindow
     resizable: true,
     transparent: false,
     decorations: true,
+    titleBarStyle: "overlay",
+    hiddenTitle: true,
+    trafficLightPosition: new LogicalPosition(14, 22),
     acceptFirstMouse: true,
     backgroundColor: "#171b22",
     visible: false,
@@ -193,6 +215,11 @@ export async function openDetachedTerminalWindow(options: DetachedTerminalWindow
 
   appWindow.once("tauri://error", (event) => {
     console.error("failed to create detached terminal window", event.payload);
+  });
+  appWindow.once("tauri://created", () => {
+    void appWindow.show().then(() => appWindow.setFocus()).catch((error) => {
+      console.error("failed to reveal detached terminal window", error);
+    });
   });
 }
 
@@ -226,6 +253,9 @@ export async function openGitDiffWindow(options: GitDiffWindowOptions) {
     resizable: true,
     transparent: false,
     decorations: true,
+    titleBarStyle: "overlay",
+    hiddenTitle: true,
+    trafficLightPosition: new LogicalPosition(14, 22),
     acceptFirstMouse: true,
     backgroundColor: opaqueAppWindowBackground,
     visible: false,
@@ -234,6 +264,11 @@ export async function openGitDiffWindow(options: GitDiffWindowOptions) {
 
   appWindow.once("tauri://error", (event) => {
     console.error("failed to create git diff window", event.payload);
+  });
+  appWindow.once("tauri://created", () => {
+    void appWindow.show().then(() => appWindow.setFocus()).catch((error) => {
+      console.error("failed to reveal git diff window", error);
+    });
   });
 }
 

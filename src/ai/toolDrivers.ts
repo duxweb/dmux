@@ -160,10 +160,6 @@ export class GeminiToolDriver extends BaseToolDriver {
 export class OpenCodeToolDriver extends BaseToolDriver {
   id = "opencode";
   aliases = new Set(["opencode"]);
-
-  runtimeSnapshot() {
-    return Promise.resolve(undefined);
-  }
 }
 
 export class AIToolDriverFactory {

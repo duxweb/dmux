@@ -10,7 +10,7 @@ import {
   Maximize2,
   RotateCcw,
   Search,
-  TerminalSquare,
+  Star,
   Undo2,
   Redo2,
   X,
@@ -19,6 +19,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { CSSProperties, MutableRefObject, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./Button";
+import { Checkbox, TextInput } from "./Form";
 import { PressableButton } from "./PressableButton";
 import { TabStrip } from "./TabStrip";
 import { TerminalView } from "./TerminalView";
@@ -35,7 +36,6 @@ import {
   countTopSplits,
   equalRatios,
   normalizeRatios,
-  resolvePrimaryTerminalId,
   restoreTerminalLayout,
   resolveActiveSlotId,
   snapshotTerminalLayout,
@@ -43,9 +43,7 @@ import {
   resolveVisibleTerminalId,
   loadTerminalLayoutSnapshot,
   rememberTerminalLayoutSnapshot,
-  type BottomTabLayout,
   type TerminalLayoutState,
-  type TopPaneLayout,
 } from "../terminalLayout";
 import { terminalRuntime } from "../terminal/runtime";
 import type { MainView, TerminalSession, WorkspaceProject } from "../types";
@@ -63,7 +61,7 @@ import {
   type FileChangeEvent,
   type FileReadResult,
 } from "../files/api";
-import { CodeEditor, type CodeEditorHandle, type CodeEditorScrollInfo } from "./CodeEditor";
+import { CodeEditor, type CodeEditorHandle, type CodeEditorScrollInfo, type CodeEditorSearchQuery } from "./CodeEditor";
 
 const MAX_TERMINAL_SPLITS = 6;
 const MIN_TOP_PANE_RATIO = 0.12;
@@ -71,6 +69,13 @@ const MIN_BOTTOM_RATIO = 0.18;
 const MAX_BOTTOM_RATIO = 0.72;
 const FALLBACK_PROJECT_ID = "00000000-0000-5000-8000-000000000001";
 const FILE_WATCH_DEBOUNCE_MS = 180;
+const DEFAULT_EDITOR_SEARCH_QUERY: CodeEditorSearchQuery = {
+  search: "",
+  replace: "",
+  caseSensitive: false,
+  regexp: false,
+  wholeWord: false,
+};
 
 type Props = {
   mainView: MainView;
@@ -79,8 +84,6 @@ type Props = {
   terminalFocusRequest?: number;
 };
 
-type BottomTab = BottomTabLayout;
-type TopPane = TopPaneLayout;
 type TerminalLaunchOptions = {
   title?: string;
   label?: string;
@@ -92,24 +95,21 @@ export function Workspace({ mainView, selectedProject, onSessionChange, terminal
   const canUsePreviewFallback = !window.__TAURI_INTERNALS__;
   const projectId = selectedProject?.id ?? (canUsePreviewFallback ? FALLBACK_PROJECT_ID : "");
   const cwd = selectedProject?.path ?? (canUsePreviewFallback ? "/Volumes/Web/codux-tauri" : "");
-  const fallbackProject = useMemo<WorkspaceProject | undefined>(
-    () => {
-      if (selectedProject) return selectedProject;
-      if (!canUsePreviewFallback) return undefined;
-      return {
-        id: projectId,
-        name: cwd.split("/").filter(Boolean).pop() ?? "Workspace",
-        path: cwd,
-        badge: "WS",
-        status: "active",
-        branch: "master",
-        aiState: "idle",
-        terminals: 0,
-        changes: 0,
-      };
-    },
-    [canUsePreviewFallback, cwd, projectId, selectedProject],
-  );
+  const fallbackProject = useMemo<WorkspaceProject | undefined>(() => {
+    if (selectedProject) return selectedProject;
+    if (!canUsePreviewFallback) return undefined;
+    return {
+      id: projectId,
+      name: cwd.split("/").filter(Boolean).pop() ?? "Workspace",
+      path: cwd,
+      badge: "WS",
+      status: "active",
+      branch: "master",
+      aiState: "idle",
+      terminals: 0,
+      changes: 0,
+    };
+  }, [canUsePreviewFallback, cwd, projectId, selectedProject]);
   const [terminalProjects, setTerminalProjects] = useState<WorkspaceProject[]>(() =>
     fallbackProject ? [fallbackProject] : [],
   );
@@ -138,6 +138,7 @@ export function Workspace({ mainView, selectedProject, onSessionChange, terminal
               projectId={project.id}
               projectName={project.name}
               visible={visible}
+              acceptsWorkspaceCommands={project.id === projectId}
               focusRequest={terminalFocusRequest}
               onSessionChange={onSessionChange}
             />
@@ -159,6 +160,7 @@ function TerminalMode({
   projectId,
   projectName,
   visible,
+  acceptsWorkspaceCommands,
   focusRequest: externalFocusRequest,
   onSessionChange,
 }: {
@@ -166,6 +168,7 @@ function TerminalMode({
   projectId: string;
   projectName?: string;
   visible: boolean;
+  acceptsWorkspaceCommands: boolean;
   focusRequest: number;
   onSessionChange: (session: TerminalSession | null) => void;
 }) {
@@ -198,10 +201,7 @@ function TerminalMode({
   );
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const topGridRef = useRef<HTMLDivElement | null>(null);
-  const visibleTopPanes = useMemo(
-    () => topPanes.filter((pane) => !pane.detached),
-    [topPanes],
-  );
+  const visibleTopPanes = useMemo(() => topPanes.filter((pane) => !pane.detached), [topPanes]);
   const layoutRef = useRef<TerminalLayoutState>({
     tabs,
     activeTabId,
@@ -213,11 +213,7 @@ function TerminalMode({
   });
 
   const activeTerminalSessionId = useMemo(
-    () =>
-      activeTerminalId ||
-      topPanes[0]?.terminalId ||
-      tabs.find((tab) => tab.id === activeTabId)?.terminalId ||
-      null,
+    () => activeTerminalId || topPanes[0]?.terminalId || tabs.find((tab) => tab.id === activeTabId)?.terminalId || null,
     [activeTabId, activeTerminalId, tabs, topPanes],
   );
 
@@ -298,16 +294,7 @@ function TerminalMode({
     } else {
       terminalLayoutStore.set(projectId, snapshot);
     }
-  }, [
-    activeTabId,
-    activeTerminalId,
-    bottomRatio,
-    isLayoutHydrated,
-    projectId,
-    tabs,
-    topPanes,
-    topRatios,
-  ]);
+  }, [activeTabId, activeTerminalId, bottomRatio, isLayoutHydrated, projectId, tabs, topPanes, topRatios]);
 
   useEffect(() => {
     return () => {
@@ -320,77 +307,95 @@ function TerminalMode({
     };
   }, [isLayoutHydrated, projectId]);
 
-  const closeTopPane = useCallback((id: string) => {
-    setTopPanes((current) => {
-      const pane = current.find((item) => item.id === id);
-      if (pane) {
-        void terminalRuntime.close(pane.terminalId);
-      }
-      const next = current.filter((item) => item.id !== id);
-      setTopRatios(equalRatios(next.length || 1));
-      if (pane?.terminalId === activeTerminalId) {
-        activateTerminal(next[0]?.terminalId ?? tabs.find((tab) => tab.id === activeTabId)?.terminalId ?? "");
-      }
-      return next;
-    });
-  }, [activateTerminal, activeTabId, activeTerminalId, tabs]);
+  const closeTopPane = useCallback(
+    (id: string) => {
+      setTopPanes((current) => {
+        const pane = current.find((item) => item.id === id);
+        if (pane) {
+          void terminalRuntime.close(pane.terminalId);
+        }
+        const next = current.filter((item) => item.id !== id);
+        setTopRatios(equalRatios(next.length || 1));
+        if (pane?.terminalId === activeTerminalId) {
+          activateTerminal(next[0]?.terminalId ?? tabs.find((tab) => tab.id === activeTabId)?.terminalId ?? "");
+        }
+        return next;
+      });
+    },
+    [activateTerminal, activeTabId, activeTerminalId, tabs],
+  );
 
-  const detachTopPane = useCallback((paneId: string) => {
-    const pane = topPanes.find((item) => item.id === paneId);
-    if (!pane || pane.detached) return;
-    setTopPanes((current) =>
-      current.map((item) => (item.id === paneId ? { ...item, detached: true } : item)),
-    );
-    if (activeTerminalId === pane.terminalId) {
-      const nextPane = topPanes.find((item) => item.id !== paneId && !item.detached);
-      activateTerminal(nextPane?.terminalId ?? tabs.find((tab) => tab.id === activeTabId)?.terminalId ?? "");
-    }
-    void openTerminalWindow(pane.terminalId, pane.id);
-  }, [activateTerminal, activeTabId, activeTerminalId, tabs, topPanes]);
-
-  const addTopPane = useCallback((launch?: TerminalLaunchOptions) => {
-    setTopPanes((current) => {
-      if (countTopSplits({ topPanes: current }) >= MAX_TERMINAL_SPLITS) {
-        return current;
+  const detachTopPane = useCallback(
+    (paneId: string) => {
+      const pane = topPanes.find((item) => item.id === paneId);
+      if (!pane || pane.detached) return;
+      setTopPanes((current) => current.map((item) => (item.id === paneId ? { ...item, detached: true } : item)));
+      if (activeTerminalId === pane.terminalId) {
+        const nextPane = topPanes.find((item) => item.id !== paneId && !item.detached);
+        activateTerminal(nextPane?.terminalId ?? tabs.find((tab) => tab.id === activeTabId)?.terminalId ?? "");
       }
-      const id = nextTerminalPaneId("top", current.map((pane) => pane.id));
-      const title = launch?.title ?? formatI18n(tm("workspace.split_format", "Split %@"), current.length + 1);
-      const terminalId = ensureTerminal(id, title, launch).id;
-      setTopRatios(equalRatios(current.length + 1));
-      activateTerminal(terminalId);
-      return [
-        ...current,
-        {
-          id,
-          title,
-          terminalId,
-        },
-      ];
-    });
-  }, [activateTerminal, ensureTerminal]);
+      void openTerminalWindow(pane.terminalId, pane.id);
+    },
+    [activateTerminal, activeTabId, activeTerminalId, tabs, topPanes],
+  );
 
-  const addBottomTab = useCallback((launch?: TerminalLaunchOptions) => {
-    setTabs((current) => {
-      const id = nextTerminalPaneId("bottom", current.map((tab) => tab.id));
-      const label = launch?.label ?? formatI18n(tm("workspace.tab_format", "Tab %@"), current.length + 1);
-      setActiveTabId(id);
-      const terminalId = ensureTerminal(id, label, launch).id;
-      activateTerminal(terminalId);
-      return [
-        ...current,
-        {
-          id,
-          label,
-          terminalId,
-        },
-      ];
-    });
-  }, [activateTerminal, ensureTerminal]);
+  const addTopPane = useCallback(
+    (launch?: TerminalLaunchOptions) => {
+      setTopPanes((current) => {
+        if (countTopSplits({ topPanes: current }) >= MAX_TERMINAL_SPLITS) {
+          return current;
+        }
+        const id = nextTerminalPaneId(
+          "top",
+          current.map((pane) => pane.id),
+        );
+        const title = launch?.title ?? formatI18n(tm("workspace.split_format", "Split %@"), current.length + 1);
+        const terminalId = ensureTerminal(id, title, launch).id;
+        setTopRatios(equalRatios(current.length + 1));
+        activateTerminal(terminalId);
+        window.requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+        return [
+          ...current,
+          {
+            id,
+            title,
+            terminalId,
+          },
+        ];
+      });
+    },
+    [activateTerminal, ensureTerminal],
+  );
+
+  const addBottomTab = useCallback(
+    (launch?: TerminalLaunchOptions) => {
+      setTabs((current) => {
+        const id = nextTerminalPaneId(
+          "bottom",
+          current.map((tab) => tab.id),
+        );
+        const label = launch?.label ?? formatI18n(tm("workspace.tab_format", "Tab %@"), current.length + 1);
+        setActiveTabId(id);
+        const terminalId = ensureTerminal(id, label, launch).id;
+        activateTerminal(terminalId);
+        return [
+          ...current,
+          {
+            id,
+            label,
+            terminalId,
+          },
+        ];
+      });
+    },
+    [activateTerminal, ensureTerminal],
+  );
 
   useEffect(
     () =>
       listenWorkspaceCommand((command) => {
         if (command.type === "add-top-terminal-split") {
+          if (!acceptsWorkspaceCommands && command.projectId !== projectId) return;
           addTopPane({
             title: command.title,
             command: command.command,
@@ -398,8 +403,10 @@ function TerminalMode({
           });
         }
         if (command.type === "add-bottom-terminal-tab") {
+          if (!acceptsWorkspaceCommands && command.projectId !== projectId) return;
           addBottomTab({
             label: command.label,
+            title: command.label,
             command: command.command,
             tool: command.command ? "manual" : undefined,
           });
@@ -428,7 +435,7 @@ function TerminalMode({
           );
         }
       }),
-    [activateTerminal, activeTabId, activeTerminalId, addBottomTab, addTopPane, tabs, topPanes],
+    [acceptsWorkspaceCommands, activateTerminal, activeTabId, activeTerminalId, addBottomTab, addTopPane, projectId, tabs, topPanes],
   );
 
   useEffect(() => {
@@ -458,37 +465,40 @@ function TerminalMode({
     );
     if (!terminalId) return;
     activateTerminal(terminalId, { focus: true });
-  }, [
-    activateTerminal,
-    activeTabId,
-    activeTerminalId,
-    externalFocusRequest,
-    tabs,
-    topPanes,
-    visible,
-  ]);
+  }, [activateTerminal, activeTabId, activeTerminalId, externalFocusRequest, tabs, topPanes, visible]);
 
-  const closeBottomTab = useCallback((id: string) => {
-    setTabs((current) => {
-      const tab = current.find((item) => item.id === id);
-      if (tab) {
-        void terminalRuntime.close(tab.terminalId);
-      }
-      const next = current.filter((tab) => tab.id !== id);
-      if (activeTabId === id) {
-        setActiveTabId(next[next.length - 1]?.id ?? "");
-      }
-      if (tab?.terminalId === activeTerminalId) {
-        const nextTerminalId = next[next.length - 1]?.terminalId ?? visibleTopPanes[0]?.terminalId ?? "";
-        if (nextTerminalId) {
-          activateTerminal(nextTerminalId);
-        } else {
-          setActiveTerminalId("");
+  const closeBottomTab = useCallback(
+    (id: string) => {
+      setTabs((current) => {
+        const tab = current.find((item) => item.id === id);
+        if (tab) {
+          void terminalRuntime.close(tab.terminalId);
         }
-      }
-      return next;
-    });
-  }, [activateTerminal, activeTabId, activeTerminalId, visibleTopPanes]);
+        const next = current.filter((tab) => tab.id !== id);
+        if (activeTabId === id) {
+          setActiveTabId(next[next.length - 1]?.id ?? "");
+        }
+        if (tab?.terminalId === activeTerminalId) {
+          const nextTerminalId = next[next.length - 1]?.terminalId ?? visibleTopPanes[0]?.terminalId ?? "";
+          if (nextTerminalId) {
+            activateTerminal(nextTerminalId);
+          } else {
+            setActiveTerminalId("");
+          }
+        }
+        return next;
+      });
+    },
+    [activateTerminal, activeTabId, activeTerminalId, visibleTopPanes],
+  );
+
+  const renameBottomTab = useCallback((id: string, label: string) => {
+    setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, label } : tab)));
+  }, []);
+
+  const reorderBottomTab = useCallback((sourceId: string, targetId: string) => {
+    setTabs((current) => reorderById(current, sourceId, targetId));
+  }, []);
 
   const closeActiveTerminal = useCallback(() => {
     const activeTopPane = visibleTopPanes.find((pane) => pane.terminalId === activeTerminalId);
@@ -546,29 +556,30 @@ function TerminalMode({
     [closeActiveTerminal, visible],
   );
 
-  const adjustTopRatio = useCallback((dividerIndex: number, clientX: number) => {
-    const container = topGridRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    if (rect.width <= 0) return;
+  const adjustTopRatio = useCallback(
+    (dividerIndex: number, clientX: number) => {
+      const container = topGridRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0) return;
 
-    setTopRatios((current) => {
-      const ratios = normalizeRatios(current, topPanes.length);
-      const previousSum = ratios
-        .slice(0, dividerIndex)
-        .reduce((sum, value) => sum + value, 0);
-      const pairSum = ratios[dividerIndex] + ratios[dividerIndex + 1];
-      const pointerRatio = clamp((clientX - rect.left) / rect.width, 0, 1);
-      const nextLeft = clamp(
-        pointerRatio - previousSum,
-        Math.min(MIN_TOP_PANE_RATIO, pairSum / 2),
-        Math.max(MIN_TOP_PANE_RATIO, pairSum - MIN_TOP_PANE_RATIO),
-      );
-      ratios[dividerIndex] = nextLeft;
-      ratios[dividerIndex + 1] = pairSum - nextLeft;
-      return normalizeRatios(ratios, topPanes.length);
-    });
-  }, [topPanes.length]);
+      setTopRatios((current) => {
+        const ratios = normalizeRatios(current, topPanes.length);
+        const previousSum = ratios.slice(0, dividerIndex).reduce((sum, value) => sum + value, 0);
+        const pairSum = ratios[dividerIndex] + ratios[dividerIndex + 1];
+        const pointerRatio = clamp((clientX - rect.left) / rect.width, 0, 1);
+        const nextLeft = clamp(
+          pointerRatio - previousSum,
+          Math.min(MIN_TOP_PANE_RATIO, pairSum / 2),
+          Math.max(MIN_TOP_PANE_RATIO, pairSum - MIN_TOP_PANE_RATIO),
+        );
+        ratios[dividerIndex] = nextLeft;
+        ratios[dividerIndex + 1] = pairSum - nextLeft;
+        return normalizeRatios(ratios, topPanes.length);
+      });
+    },
+    [topPanes.length],
+  );
 
   const adjustBottomRatio = useCallback((clientY: number) => {
     const container = workspaceRef.current;
@@ -585,11 +596,7 @@ function TerminalMode({
       className="terminal-workspace h-full grid"
       style={workspaceGridStyle(bottomRatio, tabs.length > 0)}
     >
-      <div
-        ref={topGridRef}
-        className="terminal-split-grid"
-        style={topGridStyle(visibleTopPanes.length, topRatios)}
-      >
+      <div ref={topGridRef} className="terminal-split-grid" style={topGridStyle(visibleTopPanes.length, topRatios)}>
         {visibleTopPanes.map((pane, index) => (
           <TerminalPaneGroup key={pane.id}>
             {index > 0 && (
@@ -599,7 +606,6 @@ function TerminalMode({
               />
             )}
             <TerminalPane
-              title={pane.title}
               terminalId={pane.terminalId}
               detached={Boolean(pane.detached)}
               active={visible && pane.terminalId === activeTerminalId}
@@ -637,6 +643,8 @@ function TerminalMode({
           }}
           onClose={closeBottomTab}
           onAdd={addBottomTab}
+          onRename={renameBottomTab}
+          onReorder={reorderBottomTab}
         />
         {tabs.length > 0 &&
           tabs.map((tab) => (
@@ -697,6 +705,16 @@ function nextTerminalPaneId(prefix: string, existingIds: string[]) {
   return `${prefix}-${Date.now()}`;
 }
 
+function reorderById<T extends { id: string }>(items: T[], sourceId: string, targetId: string) {
+  const sourceIndex = items.findIndex((item) => item.id === sourceId);
+  const targetIndex = items.findIndex((item) => item.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return items;
+  const next = [...items];
+  const [moved] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex, 0, moved);
+  return next;
+}
+
 function workspaceGridStyle(bottomRatio: number, hasBottomTabs: boolean): CSSProperties {
   if (!hasBottomTabs) {
     return {
@@ -718,9 +736,7 @@ function topGridStyle(count: number, ratios: number[]): CSSProperties {
   const normalized = normalizeRatios(ratios, count);
   return {
     gridTemplateColumns: Array.from({ length: count }, (_, index) =>
-      index === 0
-        ? `minmax(180px, ${normalized[index]}fr)`
-        : `1px minmax(180px, ${normalized[index]}fr)`,
+      index === 0 ? `minmax(180px, ${normalized[index]}fr)` : `1px minmax(180px, ${normalized[index]}fr)`,
     ).join(" "),
   };
 }
@@ -776,7 +792,6 @@ function TerminalSplitDivider({
 }
 
 function TerminalPane({
-  title,
   terminalId,
   detached,
   active,
@@ -787,7 +802,6 @@ function TerminalPane({
   onClose,
   onDetach,
 }: {
-  title: string;
   terminalId: string;
   detached: boolean;
   active: boolean;
@@ -812,11 +826,7 @@ function TerminalPane({
       onPointerDown={activatePane}
       onFocusCapture={onFocusActivate}
     >
-      <div
-        className="absolute z-20 top-2 right-2 flex items-center gap-1 text-xs text-ink-faint"
-        data-terminal-control
-      >
-        <span className="text-ink-mute mr-1">{title}</span>
+      <div className="absolute z-20 top-2 right-2 flex items-center gap-1 text-xs text-ink-faint" data-terminal-control>
         <Tooltip label={tm("terminal.detach", "Open in Separate Window")} placement="bottom">
           <Button
             isIconOnly
@@ -850,12 +860,7 @@ function TerminalPane({
           {tm("terminal.detached.message", "This terminal is open in a separate window.")}
         </div>
       ) : (
-        <TerminalView
-          terminalId={terminalId}
-          chrome={false}
-          active={active}
-          focusRequest={focusRequest}
-        />
+        <TerminalView terminalId={terminalId} chrome={false} active={active} focusRequest={focusRequest} />
       )}
       {!active && <div className="terminal-pane-dim" aria-hidden="true" />}
     </section>
@@ -899,7 +904,11 @@ function fileChangeTouchesTab(event: FileChangeEvent, tab: OpenFileTab) {
   const tabPath = normalizeFileEventPath(tab.path);
   const rootPath = normalizeFileEventPath(tab.rootPath);
   const eventProject = normalizeFileEventPath(event.projectPath);
-  if (eventProject !== rootPath && !tabPath.startsWith(`${eventProject}/`) && !eventProject.startsWith(`${rootPath}/`)) {
+  if (
+    eventProject !== rootPath &&
+    !tabPath.startsWith(`${eventProject}/`) &&
+    !eventProject.startsWith(`${rootPath}/`)
+  ) {
     return false;
   }
   return event.changedPaths.some((path) => normalizeFileEventPath(path) === tabPath);
@@ -939,16 +948,19 @@ function FilesMode({ project }: { project?: WorkspaceProject }) {
     filesModeStateByProject.set(projectStateKey, { tabs, activePath });
   }, [activePath, projectStateKey, tabs]);
 
-  const replaceTabWithReadResult = useCallback((item: OpenFileTab, result: FileReadResult) => ({
-    ...item,
-    ...result,
-    language: languageForPath(result.path),
-    savedContent: result.content,
-    dirty: false,
-    version: item.version + 1,
-    externalModifiedAt: undefined,
-    externalSize: undefined,
-  }), []);
+  const replaceTabWithReadResult = useCallback(
+    (item: OpenFileTab, result: FileReadResult) => ({
+      ...item,
+      ...result,
+      language: languageForPath(result.path),
+      savedContent: result.content,
+      dirty: false,
+      version: item.version + 1,
+      externalModifiedAt: undefined,
+      externalSize: undefined,
+    }),
+    [],
+  );
 
   const openFileInEditor = useCallback(async (rootPath: string, path: string) => {
     setError(null);
@@ -984,35 +996,47 @@ function FilesMode({ project }: { project?: WorkspaceProject }) {
     }
   }, []);
 
-  const closeTab = useCallback(async (path: string) => {
-    const tab = tabsRef.current.find((item) => item.path === path);
-    if (
-      tab?.dirty &&
-      !(await systemConfirm(tm("files.preview.discard_changes.message", "This preview has edits that have not been saved to the original file."), {
-        title: tm("files.preview.discard_changes.title", "Discard unsaved changes?"),
-        kind: "warning",
-        okLabel: tm("files.preview.discard_changes.discard", "Discard Changes"),
-        cancelLabel: tm("common.cancel", "Cancel"),
-      }))
-    ) {
-      return;
-    }
-    setTabs((current) => {
-      const next = current.filter((item) => item.path !== path);
-      if (activePath === path) {
-        setActivePath(next[next.length - 1]?.path ?? "");
+  const closeTab = useCallback(
+    async (path: string) => {
+      const tab = tabsRef.current.find((item) => item.path === path);
+      if (
+        tab?.dirty &&
+        !(await systemConfirm(
+          tm(
+            "files.preview.discard_changes.message",
+            "This preview has edits that have not been saved to the original file.",
+          ),
+          {
+            title: tm("files.preview.discard_changes.title", "Discard unsaved changes?"),
+            kind: "warning",
+            okLabel: tm("files.preview.discard_changes.discard", "Discard Changes"),
+            cancelLabel: tm("common.cancel", "Cancel"),
+          },
+        ))
+      ) {
+        return;
       }
-      return next;
-    });
-  }, [activePath]);
+      setTabs((current) => {
+        const next = current.filter((item) => item.path !== path);
+        if (activePath === path) {
+          setActivePath(next[next.length - 1]?.path ?? "");
+        }
+        return next;
+      });
+    },
+    [activePath],
+  );
 
-  const updateActiveContent = useCallback((content: string) => {
-    setTabs((current) =>
-      current.map((tab) =>
-        tab.path === activePath ? { ...tab, content, dirty: content !== tab.savedContent } : tab,
-      ),
-    );
-  }, [activePath]);
+  const updateActiveContent = useCallback(
+    (content: string) => {
+      setTabs((current) =>
+        current.map((tab) =>
+          tab.path === activePath ? { ...tab, content, dirty: content !== tab.savedContent } : tab,
+        ),
+      );
+    },
+    [activePath],
+  );
 
   const saveActive = useCallback(async () => {
     const tab = tabsRef.current.find((item) => item.path === activePath);
@@ -1025,7 +1049,13 @@ function FilesMode({ project }: { project?: WorkspaceProject }) {
         const diskChanged = currentDisk.modifiedAt !== tab.modifiedAt || currentDisk.size !== tab.size;
         if (diskChanged) {
           const overwrite = await systemConfirm(
-            formatI18n(tm("files.preview.external_save.message_format", "\"%@\" was changed outside the app. Saving now will overwrite the newer disk version."), tab.name),
+            formatI18n(
+              tm(
+                "files.preview.external_save.message_format",
+                '"%@" was changed outside the app. Saving now will overwrite the newer disk version.',
+              ),
+              tab.name,
+            ),
             {
               title: tm("files.preview.external_save.title", "Overwrite External Changes"),
               kind: "warning",
@@ -1051,11 +1081,7 @@ function FilesMode({ project }: { project?: WorkspaceProject }) {
       }
       const saved = await writeFile(tab.rootPath, tab.path, tab.content);
       setTabs((current) =>
-        current.map((item) =>
-          item.path === tab.path
-            ? replaceTabWithReadResult(item, saved)
-            : item,
-        ),
+        current.map((item) => (item.path === tab.path ? replaceTabWithReadResult(item, saved) : item)),
       );
     } catch (nextError) {
       setError(displayableFileError(nextError));
@@ -1069,12 +1095,18 @@ function FilesMode({ project }: { project?: WorkspaceProject }) {
     if (!tab) return;
     if (
       tab.dirty &&
-      !(await systemConfirm(tm("files.preview.discard_changes.message", "This preview has edits that have not been saved to the original file."), {
-        title: tm("files.preview.discard_changes.title", "Discard unsaved changes?"),
-        kind: "warning",
-        okLabel: tm("files.preview.reload", "Reload"),
-        cancelLabel: tm("common.cancel", "Cancel"),
-      }))
+      !(await systemConfirm(
+        tm(
+          "files.preview.discard_changes.message",
+          "This preview has edits that have not been saved to the original file.",
+        ),
+        {
+          title: tm("files.preview.discard_changes.title", "Discard unsaved changes?"),
+          kind: "warning",
+          okLabel: tm("files.preview.reload", "Reload"),
+          cancelLabel: tm("common.cancel", "Cancel"),
+        },
+      ))
     ) {
       return;
     }
@@ -1083,11 +1115,7 @@ function FilesMode({ project }: { project?: WorkspaceProject }) {
     try {
       const result = await readFile(tab.rootPath, tab.path);
       setTabs((current) =>
-        current.map((item) =>
-          item.path === tab.path
-            ? replaceTabWithReadResult(item, result)
-            : item,
-        ),
+        current.map((item) => (item.path === tab.path ? replaceTabWithReadResult(item, result) : item)),
       );
     } catch (nextError) {
       setError(displayableFileError(nextError));
@@ -1096,80 +1124,81 @@ function FilesMode({ project }: { project?: WorkspaceProject }) {
     }
   }, [activePath, replaceTabWithReadResult]);
 
-  const checkFileForExternalChanges = useCallback(async (path: string) => {
-    const tab = tabsRef.current.find((item) => item.path === path);
-    if (!tab || tab.readOnly || !window.__TAURI_INTERNALS__) return;
-    try {
-      const result = await readFile(tab.rootPath, tab.path);
-      const changed = result.modifiedAt !== tab.modifiedAt || result.size !== tab.size;
-      if (!changed) return;
-      if (result.content === tab.content && result.isBinary === tab.isBinary) {
-        setTabs((current) =>
-          current.map((item) =>
-            item.path === tab.path
-              ? {
-                  ...item,
-                  ...result,
-                  language: languageForPath(result.path),
-                  savedContent: result.content,
-                  dirty: false,
-                  externalModifiedAt: undefined,
-                  externalSize: undefined,
-                }
-              : item,
-          ),
-        );
-        return;
-      }
-      if (!tab.dirty) {
-        setTabs((current) =>
-          current.map((item) =>
-            item.path === tab.path ? replaceTabWithReadResult(item, result) : item,
-          ),
-        );
-        return;
-      }
-      if (
-        tab.dirty &&
-        tab.externalModifiedAt === result.modifiedAt &&
-        tab.externalSize === result.size
-      ) {
-        return;
-      }
+  const checkFileForExternalChanges = useCallback(
+    async (path: string) => {
+      const tab = tabsRef.current.find((item) => item.path === path);
+      if (!tab || tab.readOnly || !window.__TAURI_INTERNALS__) return;
+      try {
+        const result = await readFile(tab.rootPath, tab.path);
+        const changed = result.modifiedAt !== tab.modifiedAt || result.size !== tab.size;
+        if (!changed) return;
+        if (result.content === tab.content && result.isBinary === tab.isBinary) {
+          setTabs((current) =>
+            current.map((item) =>
+              item.path === tab.path
+                ? {
+                    ...item,
+                    ...result,
+                    language: languageForPath(result.path),
+                    savedContent: result.content,
+                    dirty: false,
+                    externalModifiedAt: undefined,
+                    externalSize: undefined,
+                  }
+                : item,
+            ),
+          );
+          return;
+        }
+        if (!tab.dirty) {
+          setTabs((current) =>
+            current.map((item) => (item.path === tab.path ? replaceTabWithReadResult(item, result) : item)),
+          );
+          return;
+        }
+        if (tab.dirty && tab.externalModifiedAt === result.modifiedAt && tab.externalSize === result.size) {
+          return;
+        }
 
-      if (tab.dirty) {
-        setTabs((current) =>
-          current.map((item) =>
-            item.path === tab.path
-              ? {
-                  ...item,
-                  externalModifiedAt: result.modifiedAt,
-                  externalSize: result.size,
-                }
-              : item,
-          ),
-        );
-        const reload = await systemConfirm(
-          formatI18n(tm("files.preview.external_reload.message_format", "\"%@\" was changed outside the app. Reload the version on disk?"), tab.name),
-          {
-            title: tm("files.preview.external_reload.title", "File Changed on Disk"),
-            kind: "warning",
-            okLabel: tm("files.preview.reload", "Reload"),
-            cancelLabel: tm("files.preview.external_reload.keep", "Keep Current Content"),
-          },
-        );
-        if (!reload) return;
-      }
+        if (tab.dirty) {
+          setTabs((current) =>
+            current.map((item) =>
+              item.path === tab.path
+                ? {
+                    ...item,
+                    externalModifiedAt: result.modifiedAt,
+                    externalSize: result.size,
+                  }
+                : item,
+            ),
+          );
+          const reload = await systemConfirm(
+            formatI18n(
+              tm(
+                "files.preview.external_reload.message_format",
+                '"%@" was changed outside the app. Reload the version on disk?',
+              ),
+              tab.name,
+            ),
+            {
+              title: tm("files.preview.external_reload.title", "File Changed on Disk"),
+              kind: "warning",
+              okLabel: tm("files.preview.reload", "Reload"),
+              cancelLabel: tm("files.preview.external_reload.keep", "Keep Current Content"),
+            },
+          );
+          if (!reload) return;
+        }
 
-      setTabs((current) =>
-        current.map((item) =>
-          item.path === tab.path ? replaceTabWithReadResult(item, result) : item,
-        ),
-      );
-    } catch (nextError) {
-      setError(displayableFileError(nextError));
-    }
-  }, [replaceTabWithReadResult]);
+        setTabs((current) =>
+          current.map((item) => (item.path === tab.path ? replaceTabWithReadResult(item, result) : item)),
+        );
+      } catch (nextError) {
+        setError(displayableFileError(nextError));
+      }
+    },
+    [replaceTabWithReadResult],
+  );
 
   useEffect(
     () =>
@@ -1346,9 +1375,7 @@ function FilesMode({ project }: { project?: WorkspaceProject }) {
           onScrollChange={(scrollTop) => {
             setTabs((current) =>
               current.map((tab) =>
-                tab.path === active.path && tab.rootPath === active.rootPath
-                  ? { ...tab, scrollTop }
-                  : tab,
+                tab.path === active.path && tab.rootPath === active.rootPath ? { ...tab, scrollTop } : tab,
               ),
             );
           }}
@@ -1390,7 +1417,8 @@ function FileEditor({
   onReveal: () => void;
   onCopyPath: () => void;
 }) {
-  const blockedMessage = tab.message || (tab.isBinary ? tm("files.preview.binary", "Binary files cannot be previewed here.") : "");
+  const blockedMessage =
+    tab.message || (tab.isBinary ? tm("files.preview.binary", "Binary files cannot be previewed here.") : "");
   const hasExternalChange = tab.externalModifiedAt != null || tab.externalSize != null;
   const parentDirectory = relativeParentDirectory(tab.relativePath || tab.path, tab.name) || "/";
   const [scrollInfo, setScrollInfo] = useState<CodeEditorScrollInfo>({
@@ -1399,6 +1427,27 @@ function FileEditor({
     scrollHeight: 0,
     clientHeight: 0,
   });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<CodeEditorSearchQuery>(DEFAULT_EDITOR_SEARCH_QUERY);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const updateSearchQuery = useCallback(
+    (patch: Partial<CodeEditorSearchQuery>) => {
+      setSearchQuery((current) => {
+        const next = { ...current, ...patch };
+        editorRef.current?.setSearchQuery(next);
+        return next;
+      });
+    },
+    [editorRef],
+  );
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, []);
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    editorRef.current?.focus();
+  }, [editorRef]);
   useEffect(() => {
     setScrollInfo({
       ratio: 0,
@@ -1407,10 +1456,13 @@ function FileEditor({
       clientHeight: 0,
     });
   }, [tab.path, tab.version]);
+  useEffect(() => {
+    editorRef.current?.setSearchQuery(searchQuery);
+  }, [editorRef, searchQuery, tab.path, tab.version]);
   const readOnlyMessage = !tab.isBinary && blockedMessage ? blockedMessage : "";
   return (
-    <div className="relative h-full min-h-0 overflow-hidden">
-      <div className="h-[56px] flex items-center justify-between gap-4 px-[18px] border-b border-line">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="h-[56px] flex flex-shrink-0 items-center justify-between gap-4 px-[18px] border-b border-line">
         <div className="leading-tight min-w-0">
           <div className="text-sm font-semibold truncate">
             {tab.name}
@@ -1419,26 +1471,69 @@ function FileEditor({
           <div className="text-xs text-ink-faint truncate">{parentDirectory}</div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <EditorBtn icon={CheckCircle2} tooltip={tm("files.preview.save", "Save")} onPress={onSave} disabled={!tab.dirty || tab.readOnly || isBusy} />
-          <EditorBtn icon={Undo2} tooltip={tm("files.preview.undo", "Undo")} onPress={() => editorRef.current?.undo()} disabled={tab.readOnly} />
-          <EditorBtn icon={Redo2} tooltip={tm("files.preview.redo", "Redo")} onPress={() => editorRef.current?.redo()} disabled={tab.readOnly} />
-          <EditorBtn icon={Search} tooltip={tm("files.preview.find", "Find")} onPress={() => editorRef.current?.openSearch()} />
+          <EditorBtn
+            icon={CheckCircle2}
+            tooltip={tm("files.preview.save", "Save")}
+            onPress={onSave}
+            tone={tab.dirty && !tab.readOnly && !isBusy ? "success" : "default"}
+            disabled={!tab.dirty || tab.readOnly || isBusy}
+          />
+          <EditorBtn
+            icon={Undo2}
+            tooltip={tm("files.preview.undo", "Undo")}
+            onPress={() => editorRef.current?.undo()}
+            disabled={tab.readOnly}
+          />
+          <EditorBtn
+            icon={Redo2}
+            tooltip={tm("files.preview.redo", "Redo")}
+            onPress={() => editorRef.current?.redo()}
+            disabled={tab.readOnly}
+          />
+          <EditorBtn
+            icon={Search}
+            tooltip={tm("files.preview.find", "Find")}
+            onPress={openSearch}
+          />
           <EditorBtn icon={Copy} tooltip={tm("files.preview.copy_path", "Copy Path")} onPress={onCopyPath} />
-          <EditorBtn icon={RotateCcw} tooltip={tm("files.preview.reload", "Reload")} onPress={onReload} disabled={isBusy} />
+          <EditorBtn
+            icon={RotateCcw}
+            tooltip={tm("files.preview.reload", "Reload")}
+            onPress={onReload}
+            disabled={isBusy}
+          />
           <EditorBtn icon={Folder} tooltip={tm("files.preview.reveal_finder", "Reveal in Finder")} onPress={onReveal} />
         </div>
       </div>
 
+      {searchOpen && (
+        <EditorSearchBar
+          query={searchQuery}
+          inputRef={searchInputRef}
+          readOnly={tab.readOnly}
+          onChange={updateSearchQuery}
+          onClose={closeSearch}
+          onFindNext={() => editorRef.current?.findNext()}
+          onFindPrevious={() => editorRef.current?.findPrevious()}
+          onSelectAll={() => editorRef.current?.selectMatches()}
+          onReplace={() => editorRef.current?.replaceNext()}
+          onReplaceAll={() => editorRef.current?.replaceAll()}
+        />
+      )}
+
       {error && (
-        <div className="absolute z-30 top-[64px] left-4 right-4 rounded-md border border-brand-red/30 bg-brand-red/12 px-3 py-2 text-xs text-brand-red">
+        <div className="absolute z-30 top-[calc(100%-8px)] left-4 right-4 rounded-md border border-brand-red/30 bg-brand-red/12 px-3 py-2 text-xs text-brand-red">
           {error}
         </div>
       )}
 
       {hasExternalChange && !error && (
-        <div className="absolute z-20 top-[64px] left-4 right-4 flex items-center justify-between gap-3 rounded-md border border-brand-amber/35 bg-brand-amber/12 px-3 py-2 text-xs text-ink-soft shadow-pop">
+        <div className="absolute z-20 top-[calc(100%-8px)] left-4 right-4 flex items-center justify-between gap-3 rounded-md border border-brand-amber/35 bg-brand-amber/12 px-3 py-2 text-xs text-ink-soft shadow-pop">
           <span className="min-w-0 truncate">
-            {tm("files.preview.external_kept", "This file changed on disk. Current editor content is being kept until you reload or save.")}
+            {tm(
+              "files.preview.external_kept",
+              "This file changed on disk. Current editor content is being kept until you reload or save.",
+            )}
           </span>
           <PressableButton
             className="flex-shrink-0 rounded px-2 py-1 font-semibold text-brand-amber hover:bg-brand-amber/12"
@@ -1450,14 +1545,18 @@ function FileEditor({
       )}
 
       {readOnlyMessage && !error && !hasExternalChange && (
-        <div className="absolute z-20 top-[64px] left-4 right-4 rounded-md border border-line bg-surface-panel/95 px-3 py-2 text-xs text-ink-mute shadow-pop">
+        <div className="absolute z-20 top-[calc(100%-8px)] left-4 right-4 rounded-md border border-line bg-surface-panel/95 px-3 py-2 text-xs text-ink-mute shadow-pop">
           {readOnlyMessage}
         </div>
       )}
 
-      <div className="grid grid-cols-[minmax(0,1fr)_84px] h-[calc(100%-56px)] min-h-0">
+      <div className="relative grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_84px]">
         {tab.isBinary ? (
-          <EditorEmptyState title={tm("files.preview.read_error", "Could not read this file.")} description={blockedMessage} compact />
+          <EditorEmptyState
+            title={tm("files.preview.read_error", "Could not read this file.")}
+            description={blockedMessage}
+            compact
+          />
         ) : (
           <CodeEditor
             ref={editorRef}
@@ -1466,6 +1565,8 @@ function FileEditor({
             language={tab.language}
             readOnly={tab.readOnly}
             onChange={onChange}
+            onSave={onSave}
+            onSearchOpen={openSearch}
             initialScrollTop={tab.scrollTop ?? 0}
             onScrollInfoChange={(info) => {
               setScrollInfo(info);
@@ -1489,11 +1590,13 @@ function EditorBtn({
   tooltip,
   onPress,
   disabled,
+  tone = "default",
 }: {
   icon: typeof Search;
   tooltip: string;
   onPress?: () => void;
   disabled?: boolean;
+  tone?: "default" | "success";
 }) {
   return (
     <Tooltip label={tooltip} placement="bottom">
@@ -1502,7 +1605,9 @@ function EditorBtn({
         size="sm"
         variant="ghost"
         aria-label={tooltip}
-        className="h-[28px] w-[28px] min-w-[28px] text-ink-mute"
+        className={`h-[28px] w-[28px] min-w-[28px] ${
+          tone === "success" && !disabled ? "text-brand-green" : "text-ink-mute"
+        }`}
         onPress={onPress}
         disabled={disabled}
       >
@@ -1512,15 +1617,152 @@ function EditorBtn({
   );
 }
 
-function EditorEmptyState({
-  title,
-  description,
-  compact,
+function EditorSearchBar({
+  query,
+  inputRef,
+  readOnly,
+  onChange,
+  onClose,
+  onFindNext,
+  onFindPrevious,
+  onSelectAll,
+  onReplace,
+  onReplaceAll,
 }: {
-  title: string;
-  description: string;
-  compact?: boolean;
+  query: CodeEditorSearchQuery;
+  inputRef: MutableRefObject<HTMLInputElement | null>;
+  readOnly: boolean;
+  onChange: (patch: Partial<CodeEditorSearchQuery>) => void;
+  onClose: () => void;
+  onFindNext: () => void;
+  onFindPrevious: () => void;
+  onSelectAll: () => void;
+  onReplace: () => void;
+  onReplaceAll: () => void;
 }) {
+  const canSearch = query.search.trim().length > 0;
+  const canReplace = canSearch && !readOnly;
+
+  return (
+    <div className="flex-shrink-0 border-b border-line bg-surface-chrome/75 px-[18px] py-2">
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canSearch) onFindNext();
+        }}
+      >
+        <div className="flex min-h-[28px] items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            <TextInput
+              ref={inputRef}
+              className="h-[26px] min-h-0 w-full max-w-[320px] flex-none px-2 py-0 text-sm leading-none"
+              value={query.search}
+              placeholder={tm("files.preview.search.find", "Find")}
+              onChange={(event) => onChange({ search: event.currentTarget.value })}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+                event.preventDefault();
+                if (canSearch) onFindNext();
+              }}
+            />
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="secondary" disabled={!canSearch} onPress={onFindNext}>
+                {tm("files.preview.search.find", "Find")}
+              </Button>
+              <EditorSearchIconButton
+                icon={ChevronDown}
+                label={tm("files.preview.search.next", "Next")}
+                disabled={!canSearch}
+                onPress={onFindNext}
+              />
+              <EditorSearchIconButton
+                icon={ChevronRight}
+                label={tm("files.preview.search.previous", "Previous")}
+                disabled={!canSearch}
+                onPress={onFindPrevious}
+                className="-rotate-90"
+              />
+              <EditorSearchIconButton
+                icon={Star}
+                label={tm("files.preview.search.all", "All")}
+                disabled={!canSearch}
+                onPress={onSelectAll}
+              />
+            </div>
+          </div>
+          <EditorSearchIconButton icon={X} label={tm("files.preview.search.close", "Close")} onPress={onClose} />
+        </div>
+        <div className="flex min-h-[28px] flex-wrap items-center gap-1.5">
+          <TextInput
+            className="h-[26px] min-h-0 w-full max-w-[320px] flex-none px-2 py-0 text-sm leading-none"
+            value={query.replace}
+            placeholder={tm("files.preview.search.replace", "Replace")}
+            onChange={(event) => onChange({ replace: event.currentTarget.value })}
+            disabled={readOnly}
+          />
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-soft">
+            <Checkbox
+              checked={query.caseSensitive}
+              onChange={(caseSensitive) => onChange({ caseSensitive })}
+              label={tm("files.preview.search.match_case", "Match case")}
+            />
+            <Checkbox
+              checked={query.regexp}
+              onChange={(regexp) => onChange({ regexp })}
+              label={tm("files.preview.search.regexp", "Regex")}
+            />
+            <Checkbox
+              checked={query.wholeWord}
+              onChange={(wholeWord) => onChange({ wholeWord })}
+              label={tm("files.preview.search.by_word", "Whole word")}
+            />
+          </div>
+          <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
+            <Button size="sm" variant="secondary" disabled={!canReplace} onPress={onReplace}>
+              {tm("files.preview.search.replace_action", "Replace")}
+            </Button>
+            <Button size="sm" variant="secondary" disabled={!canReplace} onPress={onReplaceAll}>
+              {tm("files.preview.search.replace_all", "Replace all")}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function EditorSearchIconButton({
+  icon: Icon,
+  label,
+  disabled,
+  className,
+  onPress,
+}: {
+  icon: typeof Search;
+  label: string;
+  disabled?: boolean;
+  className?: string;
+  onPress: () => void;
+}) {
+  return (
+    <Tooltip label={label} placement="bottom">
+      <Button
+        isIconOnly
+        size="sm"
+        variant="ghost"
+        aria-label={label}
+        className={`h-[28px] w-[28px] min-w-[28px] text-ink-soft ${className ?? ""}`}
+        disabled={disabled}
+        onPress={onPress}
+      >
+        <Icon size={14} strokeWidth={2} />
+      </Button>
+    </Tooltip>
+  );
+}
+
+function EditorEmptyState({ title, description, compact }: { title: string; description: string; compact?: boolean }) {
   return (
     <div className={`${compact ? "h-full" : "h-full"} grid place-items-center bg-surface-editor text-center px-6`}>
       <div>
@@ -1549,9 +1791,7 @@ function EditorMinimap({
   const lines = useMemo(() => minimapLines(content), [content]);
   const canScroll = !disabled && scrollInfo.scrollHeight > scrollInfo.clientHeight + 1;
   const viewportRatio =
-    scrollInfo.scrollHeight > 0
-      ? Math.min(1, scrollInfo.clientHeight / scrollInfo.scrollHeight)
-      : 1;
+    scrollInfo.scrollHeight > 0 ? Math.min(1, scrollInfo.clientHeight / scrollInfo.scrollHeight) : 1;
   const thumbHeight = canScroll ? Math.max(12, Math.min(62, viewportRatio * 100)) : 0;
   const thumbTop = Math.max(0, Math.min(100 - thumbHeight, scrollInfo.ratio * (100 - thumbHeight)));
   const jump = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1642,13 +1882,14 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
     if (snapshot.files.length === 0) return undefined;
     return snapshot.files.find((file) => file.path === selectedPath) ?? snapshot.files[0];
   }, [selectedPath, snapshot.files]);
-  const title = snapshot.mode === "taskBranch"
-    ? tm("worktree.review.title", "Worktree Review")
-    : tm("worktree.review.audit_title", "Uncommitted Audit");
+  const title =
+    snapshot.mode === "taskBranch"
+      ? tm("worktree.review.title", "Worktree Review")
+      : tm("worktree.review.audit_title", "Uncommitted Audit");
   const subtitle =
     snapshot.mode === "taskBranch" && snapshot.baseBranch
       ? `${project?.branch ?? "HEAD"} ← ${snapshot.baseBranch}`
-      : project?.path ?? tm("worktree.review.audit_working_tree", "Working Tree");
+      : (project?.path ?? tm("worktree.review.audit_working_tree", "Working Tree"));
   const totalAdditions = snapshot.files.reduce((sum, file) => sum + file.additions, 0);
   const totalDeletions = snapshot.files.reduce((sum, file) => sum + file.deletions, 0);
   const language = languageForPath(selectedFile?.path ?? "");
@@ -1740,17 +1981,23 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
         </div>
         <div className="hidden md:flex items-center gap-2 text-xs text-ink-faint">
           <ReviewMetric label={tm("worktree.review.changed_files", "Changed Files")} value={snapshot.files.length} />
-          <ReviewMetric label={tm("worktree.review.added_lines", "Added Lines")} value={totalAdditions} tone="green" prefix="+" />
-          <ReviewMetric label={tm("worktree.review.deleted_lines", "Deleted Lines")} value={totalDeletions} tone="red" prefix="-" />
-          <Button
-            variant="primary"
-            size="sm"
+          <ReviewMetric
+            label={tm("worktree.review.added_lines", "Added Lines")}
+            value={totalAdditions}
+            tone="green"
+            prefix="+"
+          />
+          <ReviewMetric
+            label={tm("worktree.review.deleted_lines", "Deleted Lines")}
+            value={totalDeletions}
+            tone="red"
+            prefix="-"
+          />
+          <ReviewActionButton
+            label={tm("worktree.review.open_git_panel", "Git Panel")}
             disabled={!snapshot.isRepository}
-            className="ml-2 h-9 rounded-[8px] px-3 text-sm font-semibold"
             onPress={() => broadcastWorkspaceCommand({ type: "open-right-panel", panel: "git" })}
-          >
-            {tm("worktree.review.open_git_panel", "Git Panel")}
-          </Button>
+          />
         </div>
       </section>
       <div className="min-h-0 grid grid-cols-[280px_minmax(0,1fr)]">
@@ -1782,7 +2029,9 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
             <div className="rounded-md border border-line bg-fill/[0.025] px-3 py-3 text-sm text-ink-faint">
               {!snapshot.isRepository
                 ? tm("worktree.review.no_repository", "No Git repository.")
-                : snapshot.error || review.error || tm("worktree.review.no_changes", "No changes relative to the base branch.")}
+                : snapshot.error ||
+                  review.error ||
+                  tm("worktree.review.no_changes", "No changes relative to the base branch.")}
             </div>
           )}
         </div>
@@ -1812,8 +2061,12 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
               <ReviewCodeColumn
                 id="original"
                 title={tm("worktree.review.column.original", "Original")}
-                subtitle={snapshot.mode === "taskBranch" ? snapshot.baseBranch ?? tm("worktree.task.base_branch", "Base Branch") : "HEAD"}
-                value={snapshot.mode === "taskBranch" ? content?.baseContent ?? "" : content?.headContent ?? ""}
+                subtitle={
+                  snapshot.mode === "taskBranch"
+                    ? (snapshot.baseBranch ?? tm("worktree.task.base_branch", "Base Branch"))
+                    : "HEAD"
+                }
+                value={snapshot.mode === "taskBranch" ? (content?.baseContent ?? "") : (content?.headContent ?? "")}
                 language={language}
                 lineHighlights={deletedReviewLineHighlights}
                 scrollTop={reviewScrollTop}
@@ -1823,7 +2076,11 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
               <ReviewCodeColumn
                 id="new"
                 title={tm("worktree.review.column.new", "New File")}
-                subtitle={content?.indexContent != null ? tm("git.files.staged", "Staged") : tm("worktree.review.audit_working_tree", "Working Tree")}
+                subtitle={
+                  content?.indexContent != null
+                    ? tm("git.files.staged", "Staged")
+                    : tm("worktree.review.audit_working_tree", "Working Tree")
+                }
                 value={content?.indexContent ?? content?.worktreeContent ?? ""}
                 language={language}
                 lineHighlights={addedReviewLineHighlights}
@@ -1858,8 +2115,16 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
             </div>
           ) : (
             <EditorEmptyState
-              title={review.isLoading ? tm("git.diff.loading", "Loading diff...") : tm("git.diff.empty", "No diff to display")}
-              description={selectedFile ? tm("git.diff.empty_description", "This file did not produce diff content.") : tm("worktree.review.select_file", "Select a changed file to compare.")}
+              title={
+                review.isLoading
+                  ? tm("git.diff.loading", "Loading diff...")
+                  : tm("git.diff.empty", "No diff to display")
+              }
+              description={
+                selectedFile
+                  ? tm("git.diff.empty_description", "This file did not produce diff content.")
+                  : tm("worktree.review.select_file", "Select a changed file to compare.")
+              }
               compact
             />
           )}
@@ -1868,7 +2133,8 @@ function ReviewMode({ project }: { project?: WorkspaceProject }) {
       <div className="h-[34px] flex items-center justify-between border-t border-line bg-fill/[0.025] px-3 text-xs text-ink-faint">
         <span className="truncate">{subtitle}</span>
         <span className="tabular-nums">
-          {snapshot.files.length} · <span className="text-brand-green">+{totalAdditions}</span> · <span className="text-brand-red">-{totalDeletions}</span>
+          {snapshot.files.length} · <span className="text-brand-green">+{totalAdditions}</span> ·{" "}
+          <span className="text-brand-red">-{totalDeletions}</span>
         </span>
       </div>
     </div>
@@ -1886,13 +2152,31 @@ function ReviewMetric({
   prefix?: string;
   tone?: "neutral" | "green" | "red";
 }) {
-  const toneClass =
-    tone === "green" ? "text-brand-green" : tone === "red" ? "text-brand-red" : "text-ink-soft";
+  const toneClass = tone === "green" ? "text-brand-green" : tone === "red" ? "text-brand-red" : "text-ink-soft";
   return (
     <div className="h-12 min-w-[92px] rounded-[8px] border border-line bg-fill/[0.035] px-3 py-2 flex flex-col justify-center">
-      <span className={`text-[20px] font-semibold leading-5 tabular-nums ${toneClass}`}>{prefix}{value}</span>
+      <span className={`text-[20px] font-semibold leading-5 tabular-nums ${toneClass}`}>
+        {prefix}
+        {value}
+      </span>
       <span className="mt-1 text-[11px] leading-3 text-ink-faint">{label}</span>
     </div>
+  );
+}
+
+function ReviewActionButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
+  return (
+    <PressableButton
+      disabled={disabled}
+      className={`ml-2 h-12 min-w-[92px] rounded-[8px] border px-3 py-2 text-left text-sm font-semibold leading-4 transition-colors ${
+        disabled
+          ? "border-line bg-fill/[0.035] text-ink-faint opacity-60"
+          : "border-brand-blue/45 bg-brand-blue text-on-brand hover:bg-brand-blue/90 active:bg-brand-blue/80"
+      }`}
+      onPressUp={onPress}
+    >
+      {label}
+    </PressableButton>
   );
 }
 
@@ -2004,18 +2288,19 @@ function ReviewTreeRow({
   return (
     <>
       <ReviewDirectoryRow node={node} depth={depth} expanded={expanded} onToggle={() => onToggleDirectory(node.path)} />
-      {expanded && node.children.map((child) => (
-        <ReviewTreeRow
-          key={`${child.kind}:${child.path}`}
-          node={child}
-          depth={depth + 1}
-          projectPath={projectPath}
-          selectedPath={selectedPath}
-          expandedPaths={expandedPaths}
-          onToggleDirectory={onToggleDirectory}
-          onSelectFile={onSelectFile}
-        />
-      ))}
+      {expanded &&
+        node.children.map((child) => (
+          <ReviewTreeRow
+            key={`${child.kind}:${child.path}`}
+            node={child}
+            depth={depth + 1}
+            projectPath={projectPath}
+            selectedPath={selectedPath}
+            expandedPaths={expandedPaths}
+            onToggleDirectory={onToggleDirectory}
+            onSelectFile={onSelectFile}
+          />
+        ))}
     </>
   );
 }
@@ -2038,7 +2323,11 @@ function ReviewDirectoryRow({
         style={{ paddingLeft: `${8 + depth * 14}px` }}
         onPressUp={onToggle}
       >
-        {expanded ? <ChevronDown size={12} className="text-ink-faint" /> : <ChevronRight size={12} className="text-ink-faint" />}
+        {expanded ? (
+          <ChevronDown size={12} className="text-ink-faint" />
+        ) : (
+          <ChevronRight size={12} className="text-ink-faint" />
+        )}
         <Folder size={13} className="text-brand-blue/85" />
         <span className="min-w-0 truncate text-left text-xs font-medium">{node.name}</span>
         {(node.additions > 0 || node.deletions > 0) && (

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { useRuntimeStore } from "../runtimeStore";
 import type { WorkspaceProject } from "../types";
 
 export interface GitFileStatus {
@@ -92,7 +93,42 @@ const emptySnapshot: GitStatusSnapshot = {
   error: null,
 };
 
-export function sanitizeGitRepositorySnapshot<T extends { isRepository: boolean; error?: string | null }>(snapshot: T): T {
+let gitStatusCacheListenerPromise: Promise<() => void> | null = null;
+
+function optimisticGitSnapshot(project?: WorkspaceProject): GitStatusSnapshot {
+  if (!project?.path) return emptySnapshot;
+  return {
+    ...emptySnapshot,
+    branch: project.branch || "loading",
+    isRepository: true,
+  };
+}
+
+function cacheGitStatusEvent(event: GitStatusEvent) {
+  const key = normalizeGitEventPath(event.projectPath);
+  if (!key) return;
+  const snapshot = sanitizeGitRepositorySnapshot(event.snapshot);
+  useRuntimeStore.getState().setGitStatus(key, {
+    snapshot,
+    error: snapshot.error ?? null,
+    updatedAt: Date.now(),
+  });
+}
+
+export function ensureGitStatusEventCacheSubscription() {
+  if (!window.__TAURI_INTERNALS__ || gitStatusCacheListenerPromise) return;
+  gitStatusCacheListenerPromise = listen<GitStatusEvent>("git:status", (event) => {
+    cacheGitStatusEvent(event.payload);
+  }).catch((error) => {
+    gitStatusCacheListenerPromise = null;
+    console.error("failed to cache git status events", error);
+    return () => {};
+  });
+}
+
+export function sanitizeGitRepositorySnapshot<T extends { isRepository: boolean; error?: string | null }>(
+  snapshot: T,
+): T {
   if (snapshot.isRepository) return snapshot;
   if (!snapshot.error || isGitNotRepositoryError(snapshot.error)) {
     return {
@@ -121,398 +157,440 @@ export function isGitChangeForProject(event: GitRepositoryChangeEvent, projectPa
 }
 
 export function useGitStatusSnapshot(project?: WorkspaceProject) {
-  const [snapshot, setSnapshot] = useState<GitStatusSnapshot>(emptySnapshot);
-  const [isLoading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const projectPathRef = useRef(project?.path);
+  const projectPath = project?.path ?? "";
+  const projectBranch = project?.branch ?? "";
+  const defaultPushRemoteName = project?.gitDefaultPushRemoteName ?? "";
+  const projectCacheKey = projectPath ? normalizeGitEventPath(projectPath) : "";
+  const snapshot =
+    useRuntimeStore((state) => (projectCacheKey ? state.gitStatusByPath[projectCacheKey]?.snapshot : undefined)) ??
+    optimisticGitSnapshot(project);
+  const isLoading = useRuntimeStore((state) =>
+    projectCacheKey ? (state.gitLoadingByPath[projectCacheKey] ?? false) : false,
+  );
+  const error = useRuntimeStore((state) => (projectCacheKey ? (state.gitErrorByPath[projectCacheKey] ?? null) : null));
+  const projectPathRef = useRef(projectPath);
 
   useEffect(() => {
-    projectPathRef.current = project?.path;
-  }, [project?.path]);
+    projectPathRef.current = projectPath;
+  }, [projectPath]);
 
-  useEffect(() => {
-    setSnapshot(
-      project?.path && !window.__TAURI_INTERNALS__
-        ? {
-            ...emptySnapshot,
-            isRepository: true,
-            branch: project.branch,
-          }
-        : emptySnapshot,
-    );
-    setError(null);
-    setLoading(false);
-  }, [project?.branch, project?.path]);
-
-  const refresh = useCallback(async (options?: { silent?: boolean }) => {
-    if (!project?.path) {
-      setSnapshot(emptySnapshot);
-      setError(null);
-      return;
-    }
-    if (!window.__TAURI_INTERNALS__) {
-      setSnapshot({
-        ...emptySnapshot,
-        isRepository: true,
-        branch: project.branch,
-      });
-      return;
-    }
-    const requestPath = project.path;
-    const silent = options?.silent ?? false;
-    if (!silent) setLoading(true);
-    try {
-      const next = await invoke<GitStatusSnapshot>("git_status", {
-        projectPath: requestPath,
-      });
-      if (projectPathRef.current !== requestPath) return;
+  const applySnapshot = useCallback(
+    (next: GitStatusSnapshot) => {
       const normalized = sanitizeGitRepositorySnapshot(next);
-      setSnapshot(normalized);
-      setError(normalized.error ?? null);
-    } catch (nextError) {
-      if (projectPathRef.current !== requestPath) return;
-      const message = nextError instanceof Error ? nextError.message : String(nextError);
-      setError(message);
-      setSnapshot({
-        ...emptySnapshot,
-        error: message,
-      });
-    } finally {
-      if (!silent && projectPathRef.current === requestPath) setLoading(false);
+      if (projectCacheKey) {
+        useRuntimeStore.getState().setGitStatus(projectCacheKey, {
+          snapshot: normalized,
+          error: normalized.error ?? null,
+          updatedAt: Date.now(),
+        });
+      }
+      return normalized;
+    },
+    [projectCacheKey],
+  );
+
+  const refresh = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!projectPath) {
+        return;
+      }
+      if (!window.__TAURI_INTERNALS__) {
+        if (projectCacheKey) {
+          useRuntimeStore.getState().setGitStatus(projectCacheKey, {
+            snapshot: {
+              ...emptySnapshot,
+              isRepository: true,
+              branch: projectBranch,
+            },
+            error: null,
+            updatedAt: Date.now(),
+          });
+        }
+        return;
+      }
+      const requestPath = projectPath;
+      const silent = options?.silent ?? false;
+      if (!silent && projectCacheKey) {
+        useRuntimeStore.getState().setGitLoading(projectCacheKey, true);
+      }
+      try {
+        const next = await invoke<GitStatusSnapshot>("git_status", {
+          projectPath: requestPath,
+        });
+        if (projectPathRef.current !== requestPath) return;
+        applySnapshot(next);
+      } catch (nextError) {
+        if (projectPathRef.current !== requestPath) return;
+        const message = nextError instanceof Error ? nextError.message : String(nextError);
+        if (projectCacheKey) {
+          useRuntimeStore.getState().setGitStatus(projectCacheKey, {
+            snapshot: {
+              ...emptySnapshot,
+              error: message,
+            },
+            error: message,
+            updatedAt: Date.now(),
+          });
+        }
+      } finally {
+        if (!silent && projectPathRef.current === requestPath && projectCacheKey) {
+          useRuntimeStore.getState().setGitLoading(projectCacheKey, false);
+        }
+      }
+    },
+    [applySnapshot, projectBranch, projectPath, projectCacheKey],
+  );
+
+  useEffect(() => {
+    if (!projectPath || !window.__TAURI_INTERNALS__) return;
+    if (useRuntimeStore.getState().gitStatusByPath[projectCacheKey]) {
+      useRuntimeStore.getState().setGitLoading(projectCacheKey, false);
+      return;
     }
-  }, [project?.branch, project?.path]);
+    void refresh({ silent: true });
+  }, [projectCacheKey, projectPath, refresh]);
 
   const runSnapshotAction = useCallback(
     async (command: string, payload: Record<string, unknown>) => {
-      if (!project?.path || !window.__TAURI_INTERNALS__) return snapshot;
-      setLoading(true);
+      if (!projectPath || !window.__TAURI_INTERNALS__) return snapshot;
+      if (projectCacheKey) {
+        useRuntimeStore.getState().setGitLoading(projectCacheKey, true);
+      }
       try {
         const next = await invoke<GitStatusSnapshot>(command, payload);
-        const normalized = sanitizeGitRepositorySnapshot(next);
-        setSnapshot(normalized);
-        setError(normalized.error ?? null);
-        return normalized;
+        return applySnapshot(next);
       } catch (nextError) {
         const message = nextError instanceof Error ? nextError.message : String(nextError);
-        setError(message);
+        if (projectCacheKey) {
+          useRuntimeStore.getState().setGitError(projectCacheKey, message);
+        }
         throw nextError;
       } finally {
-        setLoading(false);
+        if (projectCacheKey) {
+          useRuntimeStore.getState().setGitLoading(projectCacheKey, false);
+        }
       }
     },
-    [project?.path, snapshot],
+    [applySnapshot, projectCacheKey, projectPath, snapshot],
   );
 
   const stage = useCallback(
     (paths: string[]) =>
       runSnapshotAction("git_stage", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           paths,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const unstage = useCallback(
     (paths: string[]) =>
       runSnapshotAction("git_unstage", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           paths,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const commit = useCallback(
     (message: string) =>
       runSnapshotAction("git_commit", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           message,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const commitAction = useCallback(
     (message: string, action: GitCommitAction) =>
       runSnapshotAction("git_commit_action", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           message,
           action,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const amendLastCommitMessage = useCallback(
     (message: string) =>
       runSnapshotAction("git_amend_last_commit_message", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           message,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const lastCommitMessage = useCallback(async () => {
-    if (!project?.path || !window.__TAURI_INTERNALS__) return "";
+    if (!projectPath || !window.__TAURI_INTERNALS__) return "";
     return invoke<string>("git_last_commit_message", {
-      projectPath: project.path,
+      projectPath,
     });
-  }, [project?.path]);
+  }, [projectPath]);
 
   const undoLastCommit = useCallback(
     () =>
       runSnapshotAction("git_undo_last_commit", {
-        projectPath: project?.path ?? "",
+        projectPath: projectPath,
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const headCommitPushed = useCallback(async () => {
-    if (!project?.path || !window.__TAURI_INTERNALS__) return false;
+    if (!projectPath || !window.__TAURI_INTERNALS__) return false;
     return invoke<boolean>("git_head_commit_pushed", {
-      projectPath: project.path,
+      projectPath,
     });
-  }, [project?.path]);
+  }, [projectPath]);
 
   const init = useCallback(
     () =>
       runSnapshotAction("git_init", {
-        projectPath: project?.path ?? "",
+        projectPath: projectPath,
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const cloneRepository = useCallback(
     (remoteUrl: string) =>
       runSnapshotAction("git_clone", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           remoteUrl,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const discard = useCallback(
     (paths: string[]) =>
       runSnapshotAction("git_discard", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           paths,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const checkoutBranch = useCallback(
     (branch: string) =>
       runSnapshotAction("git_checkout_branch", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           branch,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const checkoutRemoteBranch = useCallback(
     (branch: string) =>
       runSnapshotAction("git_checkout_remote_branch", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           branch,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const createBranch = useCallback(
     (branch: string, checkout = true, from?: string) =>
       runSnapshotAction("git_create_branch", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           branch,
           checkout,
           from,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const mergeBranch = useCallback(
     (branch: string) =>
       runSnapshotAction("git_merge_branch", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           branch,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const squashMergeBranch = useCallback(
     (branch: string) =>
       runSnapshotAction("git_squash_merge_branch", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           branch,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const deleteBranch = useCallback(
     (branch: string, force = false) =>
       runSnapshotAction("git_delete_branch", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           branch,
           force,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const pull = useCallback(
     () =>
       runSnapshotAction("git_pull", {
-        projectPath: project?.path ?? "",
+        projectPath: projectPath,
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const fetch = useCallback(
     () =>
       runSnapshotAction("git_fetch", {
-        projectPath: project?.path ?? "",
+        projectPath: projectPath,
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const sync = useCallback(
     () =>
       runSnapshotAction("git_sync", {
-        projectPath: project?.path ?? "",
+        projectPath: projectPath,
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
-  const push = useCallback(
-    () =>
-      runSnapshotAction("git_push", {
-        projectPath: project?.path ?? "",
-      }),
-    [project?.path, runSnapshotAction],
-  );
+  const push = useCallback(() => {
+    const remote = defaultPushRemoteName.trim();
+    if (remote) {
+      return runSnapshotAction("git_push_remote", {
+        request: {
+          projectPath: projectPath,
+          remote,
+        },
+      });
+    }
+    return runSnapshotAction("git_push", {
+      projectPath: projectPath,
+    });
+  }, [defaultPushRemoteName, projectPath, runSnapshotAction]);
 
   const pushRemote = useCallback(
     (remote: string) =>
       runSnapshotAction("git_push_remote", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           remote,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const pushRemoteBranch = useCallback(
     (remoteBranch: string, localBranch?: string) =>
       runSnapshotAction("git_push_remote_branch", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           remoteBranch,
           localBranch,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const forcePush = useCallback(
     () =>
       runSnapshotAction("git_force_push", {
-        projectPath: project?.path ?? "",
+        projectPath: projectPath,
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const checkoutCommit = useCallback(
     (commit: string) =>
       runSnapshotAction("git_checkout_commit", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           commit,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const revertCommit = useCallback(
     (commit: string) =>
       runSnapshotAction("git_revert_commit", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           commit,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const restoreCommit = useCallback(
     (commit: string, forceRemote = false) =>
       runSnapshotAction("git_restore_commit", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           commit,
           forceRemote,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const addRemote = useCallback(
     (name: string, url: string) =>
       runSnapshotAction("git_add_remote", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           name,
           url,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const removeRemote = useCallback(
     (name: string) =>
       runSnapshotAction("git_remove_remote", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           name,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const appendGitignore = useCallback(
     (paths: string[]) =>
       runSnapshotAction("git_append_gitignore", {
         request: {
-          projectPath: project?.path ?? "",
+          projectPath: projectPath,
           paths,
         },
       }),
-    [project?.path, runSnapshotAction],
+    [projectPath, runSnapshotAction],
   );
 
   const branches = useCallback(async () => {
-    if (!project?.path || !window.__TAURI_INTERNALS__) {
+    if (!projectPath || !window.__TAURI_INTERNALS__) {
       return {
         current: snapshot.branch,
         local: [],
@@ -522,13 +600,13 @@ export function useGitStatusSnapshot(project?: WorkspaceProject) {
       } satisfies GitBranchesSnapshot;
     }
     return invoke<GitBranchesSnapshot>("git_branches", {
-      projectPath: project.path,
+      projectPath,
     });
-  }, [project?.path, snapshot.branch, snapshot.isRepository]);
+  }, [projectPath, snapshot.branch, snapshot.isRepository]);
 
   const diffFile = useCallback(
     async (path: string, staged = false) => {
-      if (!project?.path || !window.__TAURI_INTERNALS__) {
+      if (!projectPath || !window.__TAURI_INTERNALS__) {
         return {
           path,
           diff: "",
@@ -538,96 +616,14 @@ export function useGitStatusSnapshot(project?: WorkspaceProject) {
       }
       return invoke<GitDiffSnapshot>("git_diff_file", {
         request: {
-          projectPath: project.path,
+          projectPath,
           path,
           staged,
         },
       });
     },
-    [project?.path, snapshot.isRepository],
+    [projectPath, snapshot.isRepository],
   );
-
-  useEffect(() => {
-    void refresh({ silent: true });
-  }, [refresh]);
-
-  useEffect(() => {
-    if (!project?.path || !window.__TAURI_INTERNALS__) return;
-    const projectPath = project.path;
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void listen<GitStatusEvent>("git:status", (event) => {
-      if (disposed || normalizeGitEventPath(event.payload.projectPath) !== normalizeGitEventPath(projectPath)) return;
-      const normalized = sanitizeGitRepositorySnapshot(event.payload.snapshot);
-      setSnapshot(normalized);
-      setError(normalized.error ?? null);
-      setLoading(false);
-    }).then((nextUnlisten) => {
-      if (disposed) {
-        nextUnlisten();
-        return;
-      }
-      unlisten = nextUnlisten;
-    }).catch((nextError) => {
-      const message = nextError instanceof Error ? nextError.message : String(nextError);
-      setError(message);
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [project?.path]);
-
-  useEffect(() => {
-    if (!project?.path || !window.__TAURI_INTERNALS__) return;
-    const projectPath = project.path;
-    let cancelled = false;
-    let debounceTimer: number | undefined;
-    let unlisten: (() => void) | undefined;
-    let didUnlisten = false;
-    const stopListening = (nextUnlisten: () => void) => {
-      if (didUnlisten) return;
-      didUnlisten = true;
-      nextUnlisten();
-    };
-
-    const unlistenPromise = listen<GitRepositoryChangeEvent>("git:changed", (event) => {
-      if (cancelled || !isGitChangeForProject(event.payload, projectPath)) return;
-      if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
-      debounceTimer = window.setTimeout(() => {
-        void refresh({ silent: true });
-      }, 280);
-    });
-    unlistenPromise
-      .then((nextUnlisten) => {
-        if (cancelled) {
-          stopListening(nextUnlisten);
-          return;
-        }
-        unlisten = () => stopListening(nextUnlisten);
-      })
-      .catch((nextError) => {
-        const message = nextError instanceof Error ? nextError.message : String(nextError);
-        setError(message);
-      });
-
-    void invoke("git_watch", { projectPath }).catch((nextError) => {
-      if (cancelled) return;
-      const message = nextError instanceof Error ? nextError.message : String(nextError);
-      setError(message);
-    });
-
-    return () => {
-      cancelled = true;
-      if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
-      if (unlisten) {
-        unlisten();
-      } else {
-        void unlistenPromise.then((nextUnlisten) => stopListening(nextUnlisten)).catch(() => undefined);
-      }
-      void invoke("git_unwatch", { projectPath }).catch(() => undefined);
-    };
-  }, [project?.path, refresh]);
 
   return {
     snapshot,

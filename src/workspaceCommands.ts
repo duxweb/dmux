@@ -5,11 +5,17 @@ export type WorkspaceCommand =
       type: "add-top-terminal-split";
       title?: string;
       command?: string;
+      projectId?: string;
+      projectPath?: string;
+      projectName?: string;
     }
   | {
       type: "add-bottom-terminal-tab";
       label?: string;
       command?: string;
+      projectId?: string;
+      projectPath?: string;
+      projectName?: string;
     }
   | {
       type: "open-file";

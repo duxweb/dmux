@@ -213,15 +213,51 @@ pub struct AIProviderSettings {
 pub struct RemoteSettings {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default = "default_remote_server_url", alias = "serverUrl")]
     pub relay_url: String,
+    #[serde(default, alias = "hostID")]
+    pub host_id: String,
+    #[serde(default)]
+    pub host_token: String,
+    #[serde(default)]
+    pub host_private_key: String,
+    #[serde(default)]
+    pub host_public_key: String,
+    #[serde(default)]
+    pub cached_devices: Vec<RemoteHostDeviceSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostDeviceSettings {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub host_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub public_key: String,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub last_seen: String,
+    #[serde(default)]
+    pub revoked_at: Option<String>,
+    #[serde(default)]
+    pub online: Option<bool>,
 }
 
 impl Default for RemoteSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            relay_url: String::new(),
+            relay_url: default_remote_server_url(),
+            host_id: String::new(),
+            host_token: String::new(),
+            host_private_key: String::new(),
+            host_public_key: String::new(),
+            cached_devices: Vec::new(),
         }
     }
 }
@@ -532,9 +568,7 @@ fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.ai_background_refresh.trim().is_empty() {
         settings.ai_background_refresh = default_ai_background_refresh();
     }
-    if settings.statistics_mode.trim().is_empty() {
-        settings.statistics_mode = default_statistics_mode();
-    }
+    settings.statistics_mode = sanitize_statistics_mode(&settings.statistics_mode);
     if settings.theme.trim().is_empty() {
         settings.theme = default_theme();
     }
@@ -546,6 +580,20 @@ fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     }
     if settings.icon_style.trim().is_empty() {
         settings.icon_style = default_icon_style();
+    }
+    if settings.remote.relay_url.trim().is_empty() {
+        settings.remote.relay_url = default_remote_server_url();
+    }
+    settings
+        .remote
+        .cached_devices
+        .retain(|device| !device.id.trim().is_empty() && device.revoked_at.is_none());
+    if !settings.remote.host_id.trim().is_empty() {
+        let host_id = settings.remote.host_id.trim().to_string();
+        settings
+            .remote
+            .cached_devices
+            .retain(|device| device.host_id.trim().is_empty() || device.host_id == host_id);
     }
     if settings.developer_refresh.trim().is_empty() {
         settings.developer_refresh = default_developer_refresh();
@@ -880,6 +928,13 @@ fn default_statistics_mode() -> String {
     "normalized".to_string()
 }
 
+fn sanitize_statistics_mode(value: &str) -> String {
+    match value.trim() {
+        "includingCache" => "includingCache".to_string(),
+        _ => default_statistics_mode(),
+    }
+}
+
 fn default_theme() -> String {
     "Auto".to_string()
 }
@@ -894,6 +949,10 @@ fn default_terminal_font_size() -> String {
 
 fn default_icon_style() -> String {
     "default".to_string()
+}
+
+fn default_remote_server_url() -> String {
+    "http://127.0.0.1:8088".to_string()
 }
 
 fn default_developer_refresh() -> String {

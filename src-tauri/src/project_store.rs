@@ -118,6 +118,7 @@ pub struct ProjectSummary {
     pub changes: usize,
     pub badge_symbol: Option<String>,
     pub badge_color_hex: Option<String>,
+    pub git_default_push_remote_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -132,6 +133,14 @@ pub struct ProjectCreateRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectUpdateRequest {
+    pub project_id: String,
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectCloseRequest {
     pub project_id: String,
 }
@@ -141,6 +150,19 @@ pub struct ProjectCloseRequest {
 pub struct ProjectSelectWorktreeRequest {
     pub project_id: String,
     pub worktree_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectReorderRequest {
+    pub project_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDefaultPushRemoteRequest {
+    pub project_id: String,
+    pub remote_name: Option<String>,
 }
 
 pub struct ProjectStore {
@@ -272,6 +294,39 @@ impl ProjectStore {
         }
     }
 
+    pub fn reorder_projects(
+        &self,
+        request: ProjectReorderRequest,
+    ) -> Result<ProjectListSnapshot, String> {
+        let mut snapshot = self
+            .snapshot
+            .lock()
+            .map_err(|_| "Project store lock poisoned.".to_string())?;
+        let ordered_project_ids = request.project_ids;
+        let project_ids = ordered_project_ids.iter().cloned().collect::<HashSet<_>>();
+        if ordered_project_ids.len() != snapshot.projects.len()
+            || project_ids.len() != snapshot.projects.len()
+            || snapshot
+                .projects
+                .iter()
+                .any(|project| !project_ids.contains(&project.id))
+        {
+            return Err("Project order does not match current projects.".to_string());
+        }
+        let mut by_id = snapshot
+            .projects
+            .drain(..)
+            .map(|project| (project.id.clone(), project))
+            .collect::<HashMap<_, _>>();
+        snapshot.projects = ordered_project_ids
+            .iter()
+            .filter_map(|id| by_id.remove(id))
+            .collect::<Vec<_>>();
+        drop(snapshot);
+        self.save()?;
+        Ok(self.list_snapshot())
+    }
+
     pub fn close_project(&self, project_id: String) -> Result<ProjectListSnapshot, String> {
         let mut snapshot = self
             .snapshot
@@ -285,6 +340,49 @@ impl ProjectStore {
         snapshot.projects.remove(index);
         prune_project_state(&mut snapshot, &project_id);
         snapshot.selected_project_id = select_project_after_removal(&snapshot, index);
+        drop(snapshot);
+        self.save()?;
+        Ok(self.list_snapshot())
+    }
+
+    pub fn update_project(
+        &self,
+        request: ProjectUpdateRequest,
+    ) -> Result<ProjectListSnapshot, String> {
+        let path = normalize_path(&request.path);
+        if path.trim().is_empty() {
+            return Err("Project path cannot be empty.".to_string());
+        }
+        if !Path::new(&path).exists() {
+            return Err(format!("Project path does not exist: {path}"));
+        }
+        let name = normalized_string(&request.name).unwrap_or_else(|| {
+            Path::new(&path)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("Project")
+                .to_string()
+        });
+        let mut snapshot = self
+            .snapshot
+            .lock()
+            .map_err(|_| "Project store lock poisoned.".to_string())?;
+        let project = snapshot
+            .projects
+            .iter_mut()
+            .find(|project| project.id == request.project_id)
+            .ok_or_else(|| "Project not found.".to_string())?;
+        project.name = name.clone();
+        project.path = path.clone();
+        for worktree in snapshot
+            .worktrees
+            .iter_mut()
+            .filter(|worktree| worktree.project_id == request.project_id && worktree.is_default)
+        {
+            worktree.name = name.clone();
+            worktree.path = path.clone();
+            worktree.updated_at = chrono::Utc::now().timestamp_millis();
+        }
         drop(snapshot);
         self.save()?;
         Ok(self.list_snapshot())
@@ -324,6 +422,27 @@ impl ProjectStore {
         } else {
             Err("Project not found.".to_string())
         }
+    }
+
+    pub fn set_default_push_remote(
+        &self,
+        request: ProjectDefaultPushRemoteRequest,
+    ) -> Result<ProjectListSnapshot, String> {
+        let mut snapshot = self
+            .snapshot
+            .lock()
+            .map_err(|_| "Project store lock poisoned.".to_string())?;
+        let project = snapshot
+            .projects
+            .iter_mut()
+            .find(|project| project.id == request.project_id)
+            .ok_or_else(|| "Project not found.".to_string())?;
+        project.git_default_push_remote_name = request
+            .remote_name
+            .and_then(|value| normalized_string(&value));
+        drop(snapshot);
+        self.save()?;
+        Ok(self.list_snapshot())
     }
 
     pub fn merge_worktree_snapshot(
@@ -967,6 +1086,7 @@ fn project_summary(project: &ProjectRecord) -> ProjectSummary {
         changes: 0,
         badge_symbol: project.badge_symbol.clone(),
         badge_color_hex: project.badge_color_hex.clone(),
+        git_default_push_remote_name: project.git_default_push_remote_name.clone(),
     }
 }
 
@@ -1336,6 +1456,8 @@ mod tests {
                 changes: 0,
                 incoming: 0,
                 outgoing: 0,
+                additions: 0,
+                deletions: 0,
             },
         }
     }

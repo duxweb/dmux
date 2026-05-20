@@ -46,17 +46,7 @@ export type UpdateInstallResult = {
 };
 
 export async function showAbout() {
-  const about = window.__TAURI_INTERNALS__
-    ? await invoke<AppAboutMetadata>("app_about_metadata")
-    : fallbackAbout();
-  await systemMessage(
-    `${about.name} ${about.version}\n${tm("about.tagline", "AI-Powered Terminal Workspace")}\n\n${about.identifier}\n${about.targetOs}/${about.targetArch} ${about.buildProfile}`,
-    {
-      title: tm("menu.app.about_format", "About %@", undefined).replace("%@", about.name),
-      kind: "info",
-      buttons: { ok: "OK" },
-    },
-  );
+  await openAppWindow("about");
 }
 
 export async function checkForUpdates() {

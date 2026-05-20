@@ -33,22 +33,30 @@ pub struct LocalizedSaveDialogRequest {
 }
 
 #[cfg(target_os = "macos")]
-pub fn localized_open_dialog(request: LocalizedOpenDialogRequest) -> Result<Option<Vec<String>>, String> {
+pub fn localized_open_dialog(
+    request: LocalizedOpenDialogRequest,
+) -> Result<Option<Vec<String>>, String> {
     macos::open_dialog(request)
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn localized_open_dialog(_request: LocalizedOpenDialogRequest) -> Result<Option<Vec<String>>, String> {
+pub fn localized_open_dialog(
+    _request: LocalizedOpenDialogRequest,
+) -> Result<Option<Vec<String>>, String> {
     Err("localized open dialog is only implemented on macOS".to_string())
 }
 
 #[cfg(target_os = "macos")]
-pub fn localized_save_dialog(request: LocalizedSaveDialogRequest) -> Result<Option<String>, String> {
+pub fn localized_save_dialog(
+    request: LocalizedSaveDialogRequest,
+) -> Result<Option<String>, String> {
     macos::save_dialog(request)
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn localized_save_dialog(_request: LocalizedSaveDialogRequest) -> Result<Option<String>, String> {
+pub fn localized_save_dialog(
+    _request: LocalizedSaveDialogRequest,
+) -> Result<Option<String>, String> {
     Err("localized save dialog is only implemented on macOS".to_string())
 }
 
@@ -65,7 +73,15 @@ mod macos {
         run_on_main(move |marker| {
             autoreleasepool(|_| {
                 let panel = NSOpenPanel::openPanel(marker);
-                configure_save_panel(&panel, &request.title, &request.message, &request.prompt, request.default_path.as_deref(), &request.filters, request.can_create_directories);
+                configure_save_panel(
+                    &panel,
+                    &request.title,
+                    &request.message,
+                    &request.prompt,
+                    request.default_path.as_deref(),
+                    &request.filters,
+                    request.can_create_directories,
+                );
                 panel.setCanChooseDirectories(request.directory);
                 panel.setCanChooseFiles(!request.directory);
                 panel.setAllowsMultipleSelection(request.multiple);
@@ -89,7 +105,15 @@ mod macos {
         run_on_main(move |marker| {
             autoreleasepool(|_| {
                 let panel = NSSavePanel::savePanel(marker);
-                configure_save_panel(&panel, &request.title, &request.message, &request.prompt, request.default_path.as_deref(), &request.filters, request.can_create_directories);
+                configure_save_panel(
+                    &panel,
+                    &request.title,
+                    &request.message,
+                    &request.prompt,
+                    request.default_path.as_deref(),
+                    &request.filters,
+                    request.can_create_directories,
+                );
                 let response = panel.runModal();
                 if response != NSModalResponseOK {
                     return Ok(None);
@@ -115,7 +139,9 @@ mod macos {
             let marker = unsafe { MainThreadMarker::new_unchecked() };
             let _ = sender.send(f(marker));
         });
-        receiver.recv().expect("main queue did not return a dialog result")
+        receiver
+            .recv()
+            .expect("main queue did not return a dialog result")
     }
 
     fn configure_save_panel(

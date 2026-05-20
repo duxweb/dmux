@@ -32,6 +32,14 @@
   --color-brand-pink: rgb(226 91 139);
   --color-brand-pink-deep: rgb(181 61 111);
 
+  --accent: var(--color-brand-blue);
+  --accent-hover: color-mix(in oklab, var(--color-brand-blue) 88%, var(--color-fill));
+  --accent-foreground: var(--color-on-brand);
+  --accent-soft: color-mix(in oklab, var(--color-brand-blue) 16%, transparent);
+  --accent-soft-foreground: var(--color-brand-blue);
+  --focus: var(--color-brand-blue);
+  --link: var(--color-brand-blue);
+
   --radius-workspace: 22px;
   --radius-pill: 9px;
   --radius-glyph: 7px;

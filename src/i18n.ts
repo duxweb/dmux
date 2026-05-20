@@ -48,7 +48,7 @@ const fallbackDictionaries: Record<Locale, Partial<Record<LocaleKey, string>>> =
   "zh-Hans": {
     workspace: "工作区",
     projects: "项目",
-    tasks: "任务",
+    tasks: "Worktree",
     split: "分屏",
     memory: "记忆",
     remote: "远程",
@@ -71,7 +71,7 @@ const fallbackDictionaries: Record<Locale, Partial<Record<LocaleKey, string>>> =
   "zh-Hant": {
     workspace: "工作區",
     projects: "專案",
-    tasks: "任務",
+    tasks: "Worktree",
     split: "分割",
     memory: "記憶",
     remote: "遠端",
@@ -94,7 +94,7 @@ const fallbackDictionaries: Record<Locale, Partial<Record<LocaleKey, string>>> =
   en: {
     workspace: "Workspace",
     projects: "Projects",
-    tasks: "Tasks",
+    tasks: "Worktree",
     split: "Split",
     memory: "Memory",
     remote: "Remote",

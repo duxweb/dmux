@@ -205,6 +205,31 @@ pub fn load_indexed_project_history(
     store.indexed_project_snapshot(&conn, project)
 }
 
+pub fn rename_indexed_history_session(
+    project: AIHistoryProjectRequest,
+    session_id: String,
+    title: String,
+) -> Result<Option<AIHistorySnapshot>> {
+    let store = AIUsageStore::default();
+    let conn = store.connect()?;
+    if !store.rename_project_session(&conn, &project.path, &session_id, &title)? {
+        return Ok(None);
+    }
+    store.indexed_project_snapshot(&conn, project)
+}
+
+pub fn remove_indexed_history_session(
+    project: AIHistoryProjectRequest,
+    session_id: String,
+) -> Result<Option<AIHistorySnapshot>> {
+    let store = AIUsageStore::default();
+    let conn = store.connect()?;
+    if !store.remove_project_session(&conn, &project.path, &session_id)? {
+        return Ok(None);
+    }
+    store.indexed_project_snapshot(&conn, project)
+}
+
 pub fn index_global_history_fresh(
     projects: Vec<AIHistoryProjectRequest>,
 ) -> AIGlobalHistorySnapshot {
@@ -1598,14 +1623,10 @@ fn truncate_title(value: &str) -> String {
 
 fn claude_project_log_paths(project_path: &str, home: &Path) -> Vec<PathBuf> {
     let directory_name = project_path.replace('/', "-").replace('.', "-");
-    let direct = directory_files(
+    directory_files(
         &home.join(".claude").join("projects").join(directory_name),
         "jsonl",
-    );
-    if !direct.is_empty() {
-        return direct;
-    }
-    recursive_files(&home.join(".claude").join("projects"), "jsonl")
+    )
 }
 
 fn gemini_session_paths(project_path: &str, home: &Path) -> Vec<PathBuf> {

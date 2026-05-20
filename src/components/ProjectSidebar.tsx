@@ -13,6 +13,7 @@ import {
   Settings,
   TerminalSquare,
 } from "../icons";
+import { invoke } from "@tauri-apps/api/core";
 import {
   checkForUpdates,
   closeAllProjectsFromMenu,
@@ -25,7 +26,7 @@ import {
   toggleDeveloperTools,
 } from "../appActions";
 import { CODUX_GITHUB_URL, CODUX_WEBSITE_URL } from "../appLinks";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   listProjectOpenApplications,
   openProjectInApplication,
@@ -101,6 +102,10 @@ export function ProjectSidebar({
   const width = isExpanded ? 248 : 70;
   const [openApplications, setOpenApplications] = useState<ProjectOpenApplication[]>([]);
   const [openApplicationsLoaded, setOpenApplicationsLoaded] = useState(false);
+  const [orderedProjects, setOrderedProjects] = useState(projects);
+  const [optimisticSelectedProjectId, setOptimisticSelectedProjectId] = useState(selectedProjectId);
+  const optimisticProjectExists = orderedProjects.some((project) => project.id === optimisticSelectedProjectId);
+  const displayedSelectedProjectId = optimisticProjectExists ? optimisticSelectedProjectId : selectedProjectId;
 
   const loadOpenApplications = useCallback(() => {
     if (openApplicationsLoaded) return;
@@ -114,6 +119,43 @@ export function ProjectSidebar({
         console.error("failed to load installed applications", error);
       });
   }, [openApplicationsLoaded]);
+
+  const selectProject = useCallback(
+    (id: string) => {
+      if (displayedSelectedProjectId === id) return;
+      setOptimisticSelectedProjectId(id);
+      onSelect(id);
+    },
+    [displayedSelectedProjectId, onSelect],
+  );
+
+  useEffect(() => {
+    setOptimisticSelectedProjectId(selectedProjectId);
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    setOrderedProjects((current) => mergeProjectOrder(current, projects));
+  }, [projects]);
+
+  const reorderProject = useCallback(
+    (sourceId: string, targetId: string) => {
+      setOrderedProjects((current) => {
+        const next = reorderById(current, sourceId, targetId);
+        if (next === current) return current;
+        if (window.__TAURI_INTERNALS__) {
+          void invoke<ProjectListSnapshot>("project_reorder", {
+            request: {
+              projectIds: next.map((project) => project.id),
+            },
+          })
+            .then((snapshot) => onProjectSnapshot?.(snapshot))
+            .catch((error) => console.error("failed to reorder projects", error));
+        }
+        return next;
+      });
+    },
+    [onProjectSnapshot],
+  );
 
   return (
     <nav
@@ -134,14 +176,15 @@ export function ProjectSidebar({
             isExpanded ? "gap-1 px-3 pt-1 pb-4" : "gap-1 px-3 pt-[18px] pb-4"
           }`}
         >
-          {projects.map((project, index) => (
+          {orderedProjects.map((project, index) => (
             <ProjectRow
               key={project.id}
               project={project}
               colors={project.badgeColorHex ? projectBadgeColors(project.badgeColorHex) : badgePalette[index % badgePalette.length]}
-              isSelected={project.id === selectedProjectId}
+              isSelected={project.id === displayedSelectedProjectId}
               isExpanded={isExpanded}
-              onPress={() => onSelect(project.id)}
+              onPress={() => selectProject(project.id)}
+              onReorder={reorderProject}
               openApplications={openApplications}
               onLoadOpenApplications={loadOpenApplications}
               onCreateWorktree={() => onCreateWorktree?.(project)}
@@ -155,7 +198,7 @@ export function ProjectSidebar({
                   .catch((error) => console.error("failed to close project", error));
               }}
               onCloseAll={() => {
-                void closeAllProjectsFromMenu(projects)
+                void closeAllProjectsFromMenu(orderedProjects)
                   .then((snapshot) => {
                     if (snapshot) onProjectSnapshot?.(snapshot);
                   })
@@ -194,6 +237,29 @@ export function ProjectSidebar({
   );
 }
 
+function mergeProjectOrder(current: WorkspaceProject[], incoming: WorkspaceProject[]) {
+  const incomingById = new Map(incoming.map((project) => [project.id, project]));
+  const ordered = current
+    .map((project) => incomingById.get(project.id))
+    .filter((project): project is WorkspaceProject => Boolean(project));
+  for (const project of incoming) {
+    if (!current.some((item) => item.id === project.id)) {
+      ordered.push(project);
+    }
+  }
+  return ordered;
+}
+
+function reorderById<T extends { id: string }>(items: T[], sourceId: string, targetId: string) {
+  const sourceIndex = items.findIndex((item) => item.id === sourceId);
+  const targetIndex = items.findIndex((item) => item.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return items;
+  const next = [...items];
+  const [moved] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex, 0, moved);
+  return next;
+}
+
 function ProjectRow({
   project,
   colors,
@@ -207,6 +273,7 @@ function ProjectRow({
   onOpenApplication,
   onClose,
   onCloseAll,
+  onReorder,
 }: {
   project: WorkspaceProject;
   colors: { from: string; to: string };
@@ -220,6 +287,7 @@ function ProjectRow({
   onOpenApplication?: (applicationId: string) => void;
   onClose?: () => void;
   onCloseAll?: () => void;
+  onReorder?: (sourceId: string, targetId: string) => void;
 }) {
   const initials = project.badge.slice(0, isExpanded ? 2 : 1).toUpperCase();
   const badgeSize = isExpanded ? 38 : 36;
@@ -235,7 +303,24 @@ function ProjectRow({
           contextMenu.openMenu(event);
         }}
         aria-busy={project.aiState === "running"}
-        className={`w-full rounded-[12px] outline-none focus:outline-none focus-visible:outline-none transition-colors ${
+        draggable={Boolean(onReorder)}
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", project.id);
+        }}
+        onDragOver={(event) => {
+          if (!onReorder) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(event) => {
+          if (!onReorder) return;
+          event.preventDefault();
+          const sourceId = event.dataTransfer.getData("text/plain");
+          if (!sourceId || sourceId === project.id) return;
+          onReorder(sourceId, project.id);
+        }}
+        className={`w-full rounded-[12px] outline-none focus:outline-none focus-visible:outline-none ${
           isSelected ? "bg-fill/[0.085]" : "hover:bg-fill/[0.04]"
         }`}
         style={{ opacity: isSelected ? 1 : 0.82 }}
@@ -339,16 +424,16 @@ function ProjectActivityBadge({ state }: { state: WorkspaceProject["aiState"] })
 
   if (state === "running") {
     return (
-      <span className="absolute -right-1 -top-1 h-4 w-4 rounded-full bg-black/30 shadow-[0_0_0_1px_rgba(255,255,255,0.22)]">
-        <span className="absolute inset-[2.5px] rounded-full border border-white/20" />
-        <span className="absolute inset-[2.5px] rounded-full border-[1.6px] border-transparent border-r-white border-t-white motion-safe:animate-spin" />
+      <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full">
+        <span className="h-2.5 w-2.5 rounded-full bg-brand-amber" />
+        <span className="absolute inset-0 rounded-full border border-brand-amber/20 border-t-brand-amber motion-safe:animate-spin" />
       </span>
     );
   }
 
   return (
     <span
-      className={`absolute -right-1 -top-1 h-3 w-3 rounded-full shadow-[0_0_0_1px_rgba(255,255,255,0.72)] ${
+      className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ${
         state === "review" ? "bg-brand-amber" : "bg-brand-green"
       }`}
     />
@@ -441,7 +526,13 @@ function HelpMenuButton({
       placement={isExpanded ? "top-start" : "right-start"}
       trigger={trigger}
     >
-      <DesktopMenuItem label={tm("menu.app.about_format", "About %@").replace("%@", "Codux")} onSelect={() => void showAbout()}>
+      <DesktopMenuItem
+        label={tm("menu.app.about_format", "About %@").replace("%@", "Codux")}
+        onSelect={() => {
+          setOpen(false);
+          window.setTimeout(() => void showAbout(), 0);
+        }}
+      >
         {tm("menu.app.about_format", "About %@").replace("%@", "Codux")}
       </DesktopMenuItem>
       <DesktopMenuItem label={tm("about.updates", "Check for Updates")} onSelect={() => void checkForUpdates()}>
