@@ -1,9 +1,15 @@
-param(
-  [Parameter(Mandatory = $true, Position = 0)]
-  [string]$Tool,
-  [Parameter(ValueFromRemainingArguments = $true)]
-  [string[]]$ToolArgs
-)
+param([Parameter(ValueFromRemainingArguments = $true)][string[]]$RemainingArgs)
+
+if ($RemainingArgs.Count -lt 1) {
+  Write-Error "Missing tool name."
+  exit 64
+}
+
+$Tool = $RemainingArgs[0]
+$ToolArgs = @()
+if ($RemainingArgs.Count -gt 1) {
+  $ToolArgs = @($RemainingArgs[1..($RemainingArgs.Count - 1)])
+}
 
 $ErrorActionPreference = "SilentlyContinue"
 $wrapperDir = Split-Path -Parent $MyInvocation.MyCommand.Path
