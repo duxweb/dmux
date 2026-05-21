@@ -11,7 +11,7 @@ import {
   useTransitionStyles,
   type Placement,
 } from "@floating-ui/react";
-import { cloneElement, type ReactElement, type ReactNode, type Ref } from "react";
+import { type ReactElement, type ReactNode } from "react";
 
 export type TooltipPlacement = "top" | "bottom" | "left" | "right";
 
@@ -23,11 +23,6 @@ type Props = {
   triggerClassName?: string;
   contentClassName?: string;
   children: ReactElement;
-};
-
-type TriggerProps = Record<string, unknown> & {
-  className?: string;
-  ref?: Ref<Element>;
 };
 
 export function Tooltip({
@@ -64,20 +59,14 @@ export function Tooltip({
     return children;
   }
 
-  const triggerRef = (children as ReactElement & { ref?: Ref<Element> }).ref;
-  const originalProps = children.props as Record<string, unknown>;
   const referenceProps = getReferenceProps({
-    ref: mergeRefs(refs.setReference, triggerRef),
-    className: mergeClassName(
-      typeof originalProps.className === "string" ? originalProps.className : undefined,
-      triggerClassName,
-      "no-drag",
-    ),
-  }) as TriggerProps;
+    ref: refs.setReference,
+    className: mergeClassName(triggerClassName, "no-drag"),
+  });
 
   return (
     <>
-      {cloneElement(children, referenceProps)}
+      <span {...referenceProps}>{children}</span>
       {isMounted && (
         <FloatingPortal preserveTabOrder={false}>
           <div
@@ -96,16 +85,4 @@ export function Tooltip({
 
 function mergeClassName(...items: Array<string | undefined>) {
   return items.filter(Boolean).join(" ");
-}
-
-function mergeRefs<T>(...refs: Array<Ref<T> | undefined>) {
-  return (node: T | null) => {
-    for (const ref of refs) {
-      if (typeof ref === "function") {
-        ref(node);
-      } else if (ref) {
-        ref.current = node;
-      }
-    }
-  };
 }
