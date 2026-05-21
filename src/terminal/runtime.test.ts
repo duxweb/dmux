@@ -159,4 +159,37 @@ describe("terminal runtime", () => {
     expect(runtime.getSession(session.id)?.history).toBe("early prompt");
     expect(runtime.getSession(session.id)?.state).toBe("running");
   });
+
+  it("does not include terminal history in output events", async () => {
+    const runtime = new TerminalRuntime();
+    const session = runtime.ensureTerminal({
+      projectId: "project-a",
+      slotId: "top-1",
+      title: "分屏 1",
+      cwd: "/project",
+    });
+    const events: unknown[] = [];
+    runtime.subscribe(session.id, (event) => {
+      if (event.type === "output") events.push(event);
+    });
+
+    runtime.ensureStarted(session.id);
+    runtime.resize(session.id, 100, 30);
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    eventHandler?.({
+      payload: {
+        kind: "output",
+        sessionId: "backend-1",
+        data: "line 1",
+      },
+    });
+    await Promise.resolve();
+
+    expect(events).toHaveLength(1);
+    expect((events[0] as { session: { history?: string } }).session.history).toBeUndefined();
+    expect(runtime.getSession(session.id)?.history).toBe("line 1");
+  });
 });

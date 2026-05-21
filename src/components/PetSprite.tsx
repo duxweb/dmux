@@ -41,11 +41,12 @@ const animations: Record<PetAnimationState, { row: number; frameDurationsMs: num
   review: { row: 8, frameDurationsMs: [150, 150, 150, 150, 150, 280] },
 };
 
-const petSpriteUrls = import.meta.glob("../assets/pets/*/spritesheet.png", {
-  eager: true,
+const petSpriteLoaders = import.meta.glob("../assets/pets/*/spritesheet.png", {
   query: "?url",
   import: "default",
-}) as Record<string, string>;
+}) as Record<string, () => Promise<string>>;
+
+const loadedPetSpriteUrls = new Map<string, string>();
 
 const speciesFallbacks = new Set([
   "voidcat",
@@ -75,7 +76,9 @@ export const PetSprite = memo(function PetSprite({
   const animation = animations[state] ?? animations.idle;
   const frameDurations = animation.frameDurationsMs;
   const normalizedSpecies = speciesFallbacks.has(species) ? species : "voidcat";
-  const spriteUrl = src || petSpriteUrls[`../assets/pets/${normalizedSpecies}/spritesheet.png`];
+  const spriteKey = `../assets/pets/${normalizedSpecies}/spritesheet.png`;
+  const [loadedSpriteUrl, setLoadedSpriteUrl] = useState(() => loadedPetSpriteUrls.get(spriteKey) ?? "");
+  const spriteUrl = src || loadedSpriteUrl;
   const resolvedStaticMode = staticMode ?? settings?.pet.staticMode ?? false;
   const frameCount = frameDurations.length;
   const scale = size / atlas.cellHeight;
@@ -86,6 +89,36 @@ export const PetSprite = memo(function PetSprite({
     setSettings(readAppSettings());
     return subscribeAppSettings(setSettings);
   }, [staticMode]);
+
+  useEffect(() => {
+    if (src) {
+      setLoadedSpriteUrl("");
+      return;
+    }
+    const cached = loadedPetSpriteUrls.get(spriteKey);
+    if (cached) {
+      setLoadedSpriteUrl(cached);
+      return;
+    }
+    let cancelled = false;
+    const loader = petSpriteLoaders[spriteKey] ?? petSpriteLoaders["../assets/pets/voidcat/spritesheet.png"];
+    if (!loader) {
+      setLoadedSpriteUrl("");
+      return;
+    }
+    setLoadedSpriteUrl("");
+    void loader()
+      .then((url) => {
+        loadedPetSpriteUrls.set(spriteKey, url);
+        if (!cancelled) setLoadedSpriteUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadedSpriteUrl("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [spriteKey, src]);
 
   useEffect(() => {
     const sprite = spriteRef.current;

@@ -15,12 +15,14 @@ export type TerminalRuntimeSession = TerminalSession & {
 };
 
 export type TerminalRuntimeEvent =
-  | { type: "output"; data: string; session: TerminalRuntimeSession }
+  | { type: "output"; data: string; session: TerminalRuntimeSessionSnapshot }
   | { type: "reset"; session: TerminalRuntimeSession }
   | { type: "state"; session: TerminalRuntimeSession }
   | { type: "closed"; sessionId: string };
 
 export type TerminalListener = (event: TerminalRuntimeEvent) => void;
+
+export type TerminalRuntimeSessionSnapshot = Omit<TerminalRuntimeSession, "history">;
 
 type EnsureTerminalOptions = {
   projectId: string;
@@ -455,13 +457,15 @@ export class TerminalRuntime {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
-    const history = `${session.history}${data}`;
-    session.history = history.length > MAX_HISTORY_CHARS ? history.slice(history.length - MAX_HISTORY_CHARS) : history;
+    session.history += data;
+    if (session.history.length > MAX_HISTORY_CHARS) {
+      session.history = session.history.slice(session.history.length - MAX_HISTORY_CHARS);
+    }
     if (session.backendId && session.state === "starting") {
       session.state = "running";
       this.emit(sessionId, { type: "state", session: { ...session } });
     }
-    this.emit(sessionId, { type: "output", data, session: { ...session } });
+    this.emit(sessionId, { type: "output", data, session: sessionSnapshot(session) });
   }
 
   private updateSession(sessionId: string, patch: Partial<Omit<TerminalRuntimeSession, "id" | "key">>) {
@@ -494,6 +498,11 @@ function createTerminalId(sequence: number) {
     return `term-${cryptoApi.randomUUID()}`;
   }
   return `term-${Date.now()}-${sequence}`;
+}
+
+function sessionSnapshot(session: TerminalRuntimeSession): TerminalRuntimeSessionSnapshot {
+  const { history: _history, ...snapshot } = session;
+  return { ...snapshot };
 }
 
 function nextAnimationFrame() {

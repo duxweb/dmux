@@ -90,7 +90,7 @@ function writeDeferredTerminalCommand(terminalId: string, command: string) {
     return;
   }
   const unsubscribe = terminalRuntime.subscribe(terminalId, (event) => {
-    if (event.type === "closed" || event.session.state !== "running") return;
+    if (event.type === "closed" || event.type === "output" || event.session.state !== "running") return;
     unsubscribe();
     writeCommand();
   });
@@ -303,7 +303,7 @@ function TerminalMode({
         onSessionChange(null);
         return;
       }
-      if (event.type === "state" || event.type === "reset" || event.type === "output") {
+      if (event.type === "state" || event.type === "reset") {
         onSessionChange(event.session);
       }
     });

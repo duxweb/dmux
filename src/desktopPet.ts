@@ -1,18 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import voidcatUrl from "./assets/pets/voidcat/spritesheet.png?url";
-import dolphinUrl from "./assets/pets/dolphin/spritesheet.png?url";
-import rusthoundUrl from "./assets/pets/rusthound/spritesheet.png?url";
-import penguinUrl from "./assets/pets/penguin/spritesheet.png?url";
-import sheepUrl from "./assets/pets/sheep/spritesheet.png?url";
-import pandaUrl from "./assets/pets/panda/spritesheet.png?url";
-import phoenixUrl from "./assets/pets/phoenix/spritesheet.png?url";
-import oxUrl from "./assets/pets/ox/spritesheet.png?url";
-import codeUrl from "./assets/pets/code/spritesheet.png?url";
-import dragonUrl from "./assets/pets/dragon/spritesheet.png?url";
-import chaosspriteUrl from "./assets/pets/chaossprite/spritesheet.png?url";
-import gooseUrl from "./assets/pets/goose/spritesheet.png?url";
 import {
   desktopPetActivityLine,
   desktopPetAnimationState,
@@ -57,20 +45,11 @@ type PlacementSnapshot = {
 const atlas = { columns: 8, rows: 9, cellWidth: 192, cellHeight: 208 };
 const spriteSize = 128;
 const visibleWidth = (atlas.cellWidth * spriteSize) / atlas.cellHeight;
-const spriteUrls: Record<string, string> = {
-  voidcat: voidcatUrl,
-  dolphin: dolphinUrl,
-  rusthound: rusthoundUrl,
-  penguin: penguinUrl,
-  sheep: sheepUrl,
-  panda: pandaUrl,
-  phoenix: phoenixUrl,
-  ox: oxUrl,
-  code: codeUrl,
-  dragon: dragonUrl,
-  chaossprite: chaosspriteUrl,
-  goose: gooseUrl,
-};
+const spriteLoaders = import.meta.glob("./assets/pets/*/spritesheet.png", {
+  query: "?url",
+  import: "default",
+}) as Record<string, () => Promise<string>>;
+const spriteUrlCache = new Map<string, string>();
 const animations: Record<DesktopPetAnimationState, { row: number; frameDurationsMs: number[] }> = {
   idle: { row: 0, frameDurationsMs: [280, 110, 110, 140, 140, 320] },
   waving: { row: 3, frameDurationsMs: [140, 140, 140, 280] },
@@ -95,6 +74,8 @@ let frameTimer: number | null = null;
 let activityTimer: number | null = null;
 let currentFrame = 0;
 let currentState: DesktopPetAnimationState = "idle";
+let currentSpriteKey = "";
+let currentSpriteUrl = "";
 let lastBubbleText = "";
 let lastBubbleVisible = false;
 let lastBubbleTone: DesktopPetActivityTone = "normal";
@@ -195,13 +176,45 @@ function applySide() {
 }
 
 function updateSpriteSource() {
-  const source = pet?.customPet?.spritesheetDataUrl || spriteUrls[pet?.species || ""] || voidcatUrl;
   sprite.style.width = `${visibleWidth}px`;
   sprite.style.height = `${spriteSize}px`;
-  sprite.style.backgroundImage = `url("${source}")`;
   sprite.style.backgroundSize = `${atlas.columns * visibleWidth}px ${atlas.rows * spriteSize}px`;
   spriteHotspot.style.width = `${spriteSize}px`;
   spriteHotspot.style.height = `${spriteSize}px`;
+
+  const customSource = pet?.customPet?.spritesheetDataUrl;
+  if (customSource) {
+    applySpriteSource("custom", customSource);
+    return;
+  }
+
+  const species = pet?.species || "voidcat";
+  const key = `./assets/pets/${species}/spritesheet.png`;
+  const fallbackKey = "./assets/pets/voidcat/spritesheet.png";
+  const cached = spriteUrlCache.get(key) || spriteUrlCache.get(fallbackKey);
+  if (cached) {
+    applySpriteSource(key, cached);
+    return;
+  }
+
+  const loader = spriteLoaders[key] ?? spriteLoaders[fallbackKey];
+  if (!loader) return;
+  const requestKey = key;
+  void loader()
+    .then((url) => {
+      spriteUrlCache.set(requestKey, url);
+      if ((pet?.species || "voidcat") === species) {
+        applySpriteSource(requestKey, url);
+      }
+    })
+    .catch(() => undefined);
+}
+
+function applySpriteSource(key: string, source: string) {
+  if (currentSpriteKey === key && currentSpriteUrl === source) return;
+  currentSpriteKey = key;
+  currentSpriteUrl = source;
+  sprite.style.backgroundImage = `url("${source}")`;
 }
 
 function updateSpriteAnimation() {
