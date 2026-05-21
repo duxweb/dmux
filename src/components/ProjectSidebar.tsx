@@ -22,6 +22,7 @@ import {
   openLiveLog,
   openRuntimeLog,
   showAbout,
+  toggleDeveloperTools,
 } from "../appActions";
 import { CODUX_GITHUB_URL, CODUX_WEBSITE_URL } from "../appLinks";
 import { openAppWindow } from "../windowing";
@@ -472,6 +473,14 @@ function HelpMenuButton({
       <DesktopMenuItem label={tm("menu.help.open_live_log", "Open Live Log")} onSelect={() => void openLiveLog()}>
         {tm("menu.help.open_live_log", "Open Live Log")}
       </DesktopMenuItem>
+      {window.__TAURI_INTERNALS__ && (
+        <DesktopMenuItem
+          label={tm("menu.help.developer_tools", "Developer Tools")}
+          onSelect={() => void toggleDeveloperTools()}
+        >
+          {tm("menu.help.developer_tools", "Developer Tools")}
+        </DesktopMenuItem>
+      )}
       <DesktopMenuSeparator />
       <DesktopMenuItem
         label={tm("menu.help.website", "Website")}
