@@ -3081,9 +3081,19 @@ fn managed_codex_hook_trust_states(hooks_path: &Path) -> Result<Vec<CodexHookTru
 }
 
 fn is_codex_managed_hook_command(command: &str, action: &str) -> bool {
-    command.contains("dmux-ai-state.sh")
+    if command.contains("dmux-ai-state.sh")
         && command.contains(&shell_quote(action))
         && command.contains(&shell_quote("codex"))
+    {
+        return true;
+    }
+    is_windows_codex_managed_hook_command(command, action)
+}
+
+fn is_windows_codex_managed_hook_command(command: &str, action: &str) -> bool {
+    command.contains("dmux-ai-state.cmd")
+        && command.contains(&windows_cmd_quote_cross_platform(action))
+        && command.contains(&windows_cmd_quote_cross_platform("codex"))
 }
 
 fn codex_command_hook_trust_hash(
@@ -3430,6 +3440,10 @@ fn hook_command(helper_script: &Path, action: &str, owner: &str, tool: &str) -> 
 
 #[cfg(windows)]
 fn windows_cmd_quote(value: &str) -> String {
+    windows_cmd_quote_cross_platform(value)
+}
+
+fn windows_cmd_quote_cross_platform(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 
@@ -4409,6 +4423,22 @@ model = "gpt-5.5"
                 Some("codux codex live"),
             )
         );
+    }
+
+    #[test]
+    fn codex_managed_hook_command_matches_unix_and_windows_commands() {
+        assert!(is_codex_managed_hook_command(
+            "'/tmp/dmux-ai-state.sh' 'codex-stop' 'codux-tauri' 'codex'",
+            "codex-stop"
+        ));
+        assert!(is_codex_managed_hook_command(
+            r#"cmd /d /c call "C:\Users\dux\AppData\Local\codux-tauri\scripts\wrappers\dmux-ai-state.cmd" "codex-stop" "codux-tauri" "codex""#,
+            "codex-stop"
+        ));
+        assert!(!is_codex_managed_hook_command(
+            r#"cmd /d /c call "C:\Users\dux\AppData\Local\codux-tauri\scripts\wrappers\dmux-ai-state.cmd" "codex-stop" "codux-tauri" "claude""#,
+            "codex-stop"
+        ));
     }
 
     #[test]

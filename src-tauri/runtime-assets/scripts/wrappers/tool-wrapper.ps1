@@ -146,15 +146,6 @@ function Resolve-Memory-Launch-Dir {
   return ""
 }
 
-function Start-State([string]$Name) {
-  $env:DMUX_ACTIVE_AI_TOOL = $Name
-  & (Join-Path $wrapperDir "dmux-ai-state.cmd") "session-start" "codux-tauri" $Name | Out-Null
-}
-
-function Stop-State([string]$Name) {
-  & (Join-Path $wrapperDir "dmux-ai-state.cmd") "stop" "codux-tauri" $Name | Out-Null
-}
-
 function Is-Metadata-Invocation([string[]]$CommandArgs) {
   if ($CommandArgs.Count -eq 0) { return $false }
   foreach ($arg in $CommandArgs) {
@@ -210,7 +201,6 @@ if ([string]::IsNullOrWhiteSpace($searchPath)) {
 $realBin = Find-Real-Binary $Tool $searchPath
 if ([string]::IsNullOrWhiteSpace($realBin)) {
   Write-Error "$Tool is not installed or not available in PATH."
-  Stop-State $Tool
   exit 127
 }
 
