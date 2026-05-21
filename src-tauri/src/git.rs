@@ -3,11 +3,11 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 const REVIEW_UNTRACKED_LINE_COUNT_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
@@ -1950,17 +1950,31 @@ pub(crate) fn git_command_output_permissive(cwd: &Path, args: &[&str]) -> Result
     Ok(String::new())
 }
 
-fn run_git_command(cwd: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+fn run_git_command(cwd: &Path, args: &[&str]) -> Result<Output, String> {
+    const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(8);
     let _guard = GIT_COMMAND_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .map_err(|_| "Git command queue is unavailable.".to_string())?;
-    let output = Command::new("git")
+    let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|error| error.to_string())?;
-    Ok(output)
+    let deadline = Instant::now() + GIT_COMMAND_TIMEOUT;
+    loop {
+        if child.try_wait().map_err(|error| error.to_string())?.is_some() {
+            return child.wait_with_output().map_err(|error| error.to_string());
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("git {:?} timed out", args));
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn repository_root(path: &str) -> Result<String, String> {

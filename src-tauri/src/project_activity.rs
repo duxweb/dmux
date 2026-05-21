@@ -207,6 +207,10 @@ impl ProjectActivityCoordinator {
             project: project.clone(),
         });
         self.git_jobs.submit(GitJob::Refresh {
+            app: app.clone(),
+            project: TrackedProject::from(project.clone()),
+        });
+        self.git_jobs.submit(GitJob::Review {
             app,
             project: TrackedProject::from(project),
         });
@@ -587,7 +591,6 @@ fn run_git_refresh_job(app: AppHandle, project: TrackedProject) {
             },
         );
     }
-    emit_git_review(app, project_id, project_name, project_path);
 }
 
 fn run_git_review_job(app: AppHandle, project: TrackedProject) {
