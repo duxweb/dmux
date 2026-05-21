@@ -27,10 +27,10 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
 
 const RUNNING_STALE_SECONDS: f64 = 90.0;
-const POLL_INTERVAL_SECONDS: u64 = 12;
+const POLL_INTERVAL_SECONDS: u64 = 5;
 const RUNNING_STATE_RENEWAL_SECONDS: f64 = 30.0;
 const CODEX_INTERVAL_POLL_MINIMUM_SECONDS: f64 = 60.0;
-const TRANSCRIPT_MONITOR_INTERVAL_MS: u64 = 750;
+const TRANSCRIPT_MONITOR_INTERVAL_MS: u64 = 2_000;
 const TRANSCRIPT_POLL_MINIMUM_SECONDS: f64 = 5.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1027,7 +1027,13 @@ fn start_ai_runtime_transcript_monitor_loop(
                 TRANSCRIPT_MONITOR_INTERVAL_MS,
             ));
             let changed = match monitors.lock() {
-                Ok(mut monitors) => scan_transcript_monitors(&mut monitors, now_seconds()),
+                Ok(mut monitors) => {
+                    if monitors.is_empty() {
+                        Vec::new()
+                    } else {
+                        scan_transcript_monitors(&mut monitors, now_seconds())
+                    }
+                }
                 Err(_) => Vec::new(),
             };
             if changed.is_empty() {

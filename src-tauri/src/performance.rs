@@ -60,7 +60,21 @@ impl PerformanceMonitor {
 
 fn percent_delta(current: f64, previous: f64, wall_delta: f64) -> f64 {
     let cpu_delta = (current - previous).max(0.0);
-    ((cpu_delta / wall_delta) * 100.0 * 10.0).round() / 10.0
+    ((normalize_cpu_percent((cpu_delta / wall_delta) * 100.0)) * 10.0).round() / 10.0
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_cpu_percent(percent: f64) -> f64 {
+    let logical_processors = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(1)
+        .max(1) as f64;
+    percent / logical_processors
+}
+
+#[cfg(not(target_os = "windows"))]
+fn normalize_cpu_percent(percent: f64) -> f64 {
+    percent
 }
 
 #[cfg(target_os = "macos")]
@@ -312,106 +326,27 @@ fn timeval_seconds(value: libc::timeval) -> f64 {
 
 #[cfg(windows)]
 fn capture_raw_sample() -> Option<RawSample> {
-    use std::collections::{HashMap, HashSet};
     use std::mem;
-    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
+    use windows_sys::Win32::Foundation::{FILETIME, HANDLE};
     use windows_sys::Win32::System::ProcessStatus::{
         GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX2,
     };
     use windows_sys::Win32::System::Threading::{
-        GetCurrentProcessId, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-        PROCESS_VM_READ,
+        GetCurrentProcess, GetProcessTimes,
     };
-
-    #[derive(Clone)]
-    struct ProcessEntry {
-        pid: u32,
-        parent_pid: u32,
-    }
-
-    struct OwnedHandle(HANDLE);
-
-    impl OwnedHandle {
-        fn new(handle: HANDLE) -> Option<Self> {
-            if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-                return None;
-            }
-            Some(Self(handle))
-        }
-    }
-
-    impl Drop for OwnedHandle {
-        fn drop(&mut self) {
-            unsafe {
-                CloseHandle(self.0);
-            }
-        }
-    }
-
-    fn list_processes() -> Vec<ProcessEntry> {
-        let Some(snapshot) = OwnedHandle::new(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }) else {
-            return Vec::new();
-        };
-        let mut entry = unsafe { mem::zeroed::<PROCESSENTRY32W>() };
-        entry.dwSize = mem::size_of::<PROCESSENTRY32W>() as u32;
-        let mut processes = Vec::new();
-        let mut has_entry = unsafe { Process32FirstW(snapshot.0, &mut entry) } != 0;
-        while has_entry {
-            processes.push(ProcessEntry {
-                pid: entry.th32ProcessID,
-                parent_pid: entry.th32ParentProcessID,
-            });
-            has_entry = unsafe { Process32NextW(snapshot.0, &mut entry) } != 0;
-        }
-        processes
-    }
-
-    fn process_descendants(root_pid: u32, processes: &[ProcessEntry]) -> HashSet<u32> {
-        let mut children_by_parent = HashMap::<u32, Vec<u32>>::new();
-        for process in processes {
-            children_by_parent
-                .entry(process.parent_pid)
-                .or_default()
-                .push(process.pid);
-        }
-
-        let mut ids = HashSet::from([root_pid]);
-        let mut stack = vec![root_pid];
-        while let Some(parent_pid) = stack.pop() {
-            let Some(children) = children_by_parent.get(&parent_pid) else {
-                continue;
-            };
-            for child_pid in children {
-                if ids.insert(*child_pid) {
-                    stack.push(*child_pid);
-                }
-            }
-        }
-        ids
-    }
 
     fn filetime_seconds(value: FILETIME) -> f64 {
         let ticks = ((value.dwHighDateTime as u64) << 32) | value.dwLowDateTime as u64;
         ticks as f64 / 10_000_000.0
     }
 
-    fn process_sample(pid: u32) -> Option<(f64, u64)> {
-        let Some(process) = OwnedHandle::new(unsafe {
-            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid)
-        }) else {
-            return None;
-        };
-
+    fn process_sample(process: HANDLE) -> Option<(f64, u64)> {
         let mut creation = unsafe { mem::zeroed::<FILETIME>() };
         let mut exit = unsafe { mem::zeroed::<FILETIME>() };
         let mut kernel = unsafe { mem::zeroed::<FILETIME>() };
         let mut user = unsafe { mem::zeroed::<FILETIME>() };
         let cpu_seconds = if unsafe {
-            GetProcessTimes(process.0, &mut creation, &mut exit, &mut kernel, &mut user)
+            GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user)
         } != 0
         {
             filetime_seconds(kernel) + filetime_seconds(user)
@@ -423,7 +358,7 @@ fn capture_raw_sample() -> Option<RawSample> {
         counters.cb = mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
         let memory_bytes = if unsafe {
             GetProcessMemoryInfo(
-                process.0,
+                process,
                 &mut counters as *mut PROCESS_MEMORY_COUNTERS_EX2 as *mut _,
                 mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32,
             )
@@ -443,19 +378,11 @@ fn capture_raw_sample() -> Option<RawSample> {
     }
 
     let captured_at = Instant::now();
-    let root_pid = unsafe { GetCurrentProcessId() };
-    let processes = list_processes();
-    let process_ids = process_descendants(root_pid, &processes);
-    let mut cpu_seconds = 0.0;
-    let mut memory_bytes = 0_u64;
-
-    for pid in process_ids {
-        let Some((process_cpu_seconds, process_memory_bytes)) = process_sample(pid) else {
-            continue;
-        };
-        cpu_seconds += process_cpu_seconds;
-        memory_bytes = memory_bytes.saturating_add(process_memory_bytes);
+    let process = unsafe { GetCurrentProcess() };
+    if process.is_null() {
+        return None;
     }
+    let (cpu_seconds, memory_bytes) = process_sample(process)?;
 
     Some(RawSample {
         captured_at,
