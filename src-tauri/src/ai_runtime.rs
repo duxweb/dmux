@@ -519,6 +519,16 @@ impl AIRuntimeBridge {
                 .join("tool-wrapper.cmd"),
             false,
         )?;
+        #[cfg(windows)]
+        stage_runtime_asset(
+            "scripts/wrappers/tool-wrapper.ps1",
+            &self
+                .root_dir
+                .join("scripts")
+                .join("wrappers")
+                .join("tool-wrapper.ps1"),
+            false,
+        )?;
         stage_runtime_dir(
             "scripts/wrappers/opencode-config",
             &self
