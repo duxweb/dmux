@@ -6,7 +6,6 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { installDesktopBrowserBehavior } from "./desktopBehavior";
 import { lockRuntimeLocale, syncI18nBundleFromRust } from "./i18n";
 import { readAppSettings, subscribeAppSettings, syncAppSettingsFromRust } from "./settings";
-import { AppIconMark } from "./components/AppIconMark";
 import { preloadRuntimeSnapshots } from "./startupPreload";
 import { applyConfiguredTheme, initSystemTheme } from "./theme";
 import "@xterm/xterm/css/xterm.css";
@@ -89,7 +88,6 @@ const uninstallSettingsThemeSync = subscribeAppSettings((settings) => {
 });
 syncInitialThemeAndLocale();
 const reactRoot = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
-renderStartupShell();
 
 void bootstrapRoot()
   .then((Root) => {
@@ -169,39 +167,6 @@ function StartupWindowReveal() {
   }, []);
 
   return null;
-}
-
-function renderStartupShell() {
-  reactRoot.render(
-    <React.StrictMode>
-      <StartupShell />
-    </React.StrictMode>,
-  );
-}
-
-function StartupShell() {
-  if (isStandalone) {
-    return <StartupWindowReveal />;
-  }
-  return (
-    <main className="app-shell relative grid h-screen w-screen place-items-center overflow-hidden text-ink">
-      <StartupWindowReveal />
-      <div className="relative z-30 grid place-items-center gap-6">
-        <AppIconMark size={132} className="drop-shadow-[0_22px_42px_rgb(0_0_0/0.28)]" />
-        <div className="grid gap-3 text-center">
-          <div className="text-[18px] font-semibold tracking-normal text-ink">
-            {navigator.language.toLowerCase().startsWith("zh") ? "正在启动 Codux" : "Starting Codux"}
-          </div>
-          <div className="mx-auto h-1 w-40 overflow-hidden rounded-full bg-fill/10">
-            <div
-              className="h-full w-16 rounded-full bg-brand-blue"
-              style={{ animation: "codux-startup-progress 1.25s ease-in-out infinite" }}
-            />
-          </div>
-        </div>
-      </div>
-    </main>
-  );
 }
 
 function StartupError() {
