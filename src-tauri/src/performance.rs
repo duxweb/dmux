@@ -326,6 +326,7 @@ fn timeval_seconds(value: libc::timeval) -> f64 {
 
 #[cfg(windows)]
 fn capture_raw_sample() -> Option<RawSample> {
+    use std::collections::{HashMap, HashSet};
     use std::mem;
     use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -336,8 +337,8 @@ fn capture_raw_sample() -> Option<RawSample> {
         GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX2,
     };
     use windows_sys::Win32::System::Threading::{
-        GetCurrentProcess, GetProcessId, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-        PROCESS_VM_READ,
+        GetCurrentProcess, GetProcessId, GetProcessTimes, OpenProcess, PROCESS_QUERY_INFORMATION,
+        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
     };
 
     fn filetime_seconds(value: FILETIME) -> f64 {
@@ -376,12 +377,7 @@ fn capture_raw_sample() -> Option<RawSample> {
             )
         } != 0
         {
-            let private_working_set = counters.PrivateWorkingSetSize as u64;
-            if private_working_set > 0 {
-                private_working_set
-            } else {
-                counters.WorkingSetSize as u64
-            }
+            counters.WorkingSetSize as u64
         } else {
             0
         };
@@ -418,12 +414,42 @@ fn capture_raw_sample() -> Option<RawSample> {
         String::from_utf16_lossy(&value[..len])
     }
 
-    fn is_webview_child(entry: &ProcessEntry, main_pid: u32) -> bool {
-        entry.parent_pid == main_pid && entry.name.to_ascii_lowercase().contains("webview")
+    fn is_webview_process(name: &str) -> bool {
+        let name = name.to_ascii_lowercase();
+        name.contains("webview") || name.contains("msedgewebview")
+    }
+
+    fn collect_webview_descendants(entries: &[ProcessEntry], main_pid: u32) -> HashSet<u32> {
+        let mut by_parent: HashMap<u32, Vec<&ProcessEntry>> = HashMap::new();
+        for entry in entries {
+            by_parent.entry(entry.parent_pid).or_default().push(entry);
+        }
+
+        let mut included = HashSet::new();
+        let mut stack = vec![(main_pid, false)];
+        while let Some((parent_pid, parent_is_webview_tree)) = stack.pop() {
+            let Some(children) = by_parent.get(&parent_pid) else {
+                continue;
+            };
+            for child in children {
+                let is_webview_tree = parent_is_webview_tree || is_webview_process(&child.name);
+                if is_webview_tree {
+                    included.insert(child.pid);
+                }
+                stack.push((child.pid, is_webview_tree));
+            }
+        }
+        included
     }
 
     fn process_sample_by_pid(pid: u32) -> Option<(f64, u64)> {
-        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid) };
+        let process = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                0,
+                pid,
+            )
+        };
         if process.is_null() {
             return None;
         }
@@ -441,11 +467,9 @@ fn capture_raw_sample() -> Option<RawSample> {
     }
     let main_pid = unsafe { GetProcessId(process) };
     let (mut cpu_seconds, mut memory_bytes) = process_sample(process)?;
-    for entry in list_processes() {
-        if !is_webview_child(&entry, main_pid) {
-            continue;
-        }
-        let Some((child_cpu_seconds, child_memory_bytes)) = process_sample_by_pid(entry.pid) else {
+    let entries = list_processes();
+    for child_pid in collect_webview_descendants(&entries, main_pid) {
+        let Some((child_cpu_seconds, child_memory_bytes)) = process_sample_by_pid(child_pid) else {
             continue;
         };
         cpu_seconds += child_cpu_seconds;
