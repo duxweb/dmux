@@ -243,7 +243,7 @@ extension AIUsageStore {
                 badgeColorHex: nil,
                 gitDefaultPushRemoteName: nil
             )
-            let sources = ["claude", "codex", "gemini", "opencode"]
+            let sources = ["claude", "codex", "gemini", "opencode", "kiro"]
             let fileSummaries = sources.flatMap { storedExternalSummaries(source: $0, projectPath: project.path) }
             let summary = aggregator.buildProjectSummary(project: project, fileSummaries: fileSummaries)
             let todayTotal = summary.todayTimeBuckets.reduce(0) { $0 + $1.totalTokens }

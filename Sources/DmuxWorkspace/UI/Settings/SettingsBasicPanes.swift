@@ -276,7 +276,7 @@ struct AISettingsPane: View {
 
     var body: some View {
         Form {
-            ForEach([AppSupportedAITool.codex, .claudeCode, .gemini, .opencode], id: \.id) { tool in
+            ForEach([AppSupportedAITool.codex, .claudeCode, .gemini, .opencode, .kiro], id: \.id) { tool in
                 Section(
                     String(
                         format: String(localized: "settings.ai.tool.configuration_format", defaultValue: "%@ Configuration", bundle: .module),

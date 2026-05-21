@@ -441,6 +441,10 @@ struct MemoryContextService: Sendable {
             return "Claude Code"
         case "gemini":
             return "Gemini"
+        case "opencode":
+            return "OpenCode"
+        case "kiro":
+            return "Kiro"
         default:
             return tool
         }

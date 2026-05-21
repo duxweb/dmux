@@ -1072,11 +1072,12 @@ final class RemoteHostService: ObservableObject {
     if command.contains("codex") { return "codex" }
     if command.contains("gemini") { return "gemini" }
     if command.contains("opencode") { return "opencode" }
+    if command.contains("kiro") { return "kiro" }
     return nil
   }
 
   private func supportsClipboardImagePaste(_ tool: String) -> Bool {
-    ["claude", "codex", "gemini", "opencode"].contains(tool.lowercased())
+    ["claude", "codex", "gemini", "opencode", "kiro"].contains(tool.lowercased())
   }
 
   private func prepareImagePasteboard(url: URL, data: Data, mime: String?) {

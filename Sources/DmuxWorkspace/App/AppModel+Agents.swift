@@ -762,6 +762,8 @@ extension AppModel {
             return normalizedNonEmptyString(appSettings.ai.runtimeTools.claudeCodeModel)
         case .opencode:
             return normalizedNonEmptyString(appSettings.ai.runtimeTools.opencodeModel)
+        case .kiro:
+            return normalizedNonEmptyString(appSettings.ai.runtimeTools.kiroModel)
         }
     }
 
@@ -773,6 +775,8 @@ extension AppModel {
             return appSettings.ai.runtimeTools.claudeCode == .fullAccess
         case .opencode:
             return appSettings.ai.runtimeTools.opencode == .fullAccess
+        case .kiro:
+            return appSettings.ai.runtimeTools.kiro == .fullAccess
         }
     }
 
@@ -780,7 +784,7 @@ extension AppModel {
         switch tool {
         case .codex:
             return appSettings.ai.runtimeTools.codexEffort
-        case .claude, .opencode:
+        case .claude, .opencode, .kiro:
             return nil
         }
     }

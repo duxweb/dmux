@@ -118,6 +118,7 @@ enum AgentTransportKind: String, Codable, Hashable, Sendable {
     case codexAppServerJSONRPC
     case claudeStreamJSON
     case openCodeACP
+    case kiro
 
     var displayName: String {
         switch self {
@@ -127,6 +128,8 @@ enum AgentTransportKind: String, Codable, Hashable, Sendable {
             return "Claude stream-json"
         case .openCodeACP:
             return "OpenCode ACP"
+        case .kiro:
+            return "Kiro"
         }
     }
 }
@@ -384,6 +387,23 @@ struct AgentDriverInvocation: Equatable, Sendable {
             transport: .openCodeACP
         )
     }
+
+    // TODO: update arguments when Kiro agent protocol is confirmed
+    static func kiro(
+        currentDirectory: String,
+        environmentService: AIToolEnvironmentService = AIToolEnvironmentService()
+    ) -> AgentDriverInvocation {
+        var environment = environmentService.mergedEnvironment(includeBundledWrappers: false)
+        environment["TERM_PROGRAM"] = "codux-agent"
+        environment["TERM"] = "dumb"
+        return AgentDriverInvocation(
+            executablePath: "/usr/bin/env",
+            arguments: ["kiro-cli", "--cwd", currentDirectory],
+            currentDirectory: currentDirectory,
+            environment: environment,
+            transport: .kiro
+        )
+    }
 }
 
 private func resolvedExecutablePath(
@@ -471,6 +491,7 @@ struct AgentDriverFactory: Sendable {
         CodexAgentDriver(),
         ClaudeAgentDriver(),
         OpenCodeAgentDriver(),
+        KiroAgentDriver(),
     ]) {
         self.drivers = Dictionary(uniqueKeysWithValues: drivers.map { ($0.tool, $0) })
     }
@@ -595,6 +616,23 @@ struct OpenCodeAgentDriver: AgentDriver {
 
     func invocation(for request: AgentDriverRequest) -> AgentDriverInvocation {
         AgentDriverInvocation.openCodeACP(currentDirectory: request.cwd)
+    }
+}
+
+struct KiroAgentDriver: AgentDriver {
+    let tool: AgentToolKind = .kiro
+    let transport: AgentTransportKind = .kiro
+
+    func run(
+        request: AgentDriverRequest,
+        emit: @Sendable @escaping (AgentDriverEvent) async -> Void
+    ) async throws {
+        // TODO: implement when Kiro agent protocol is confirmed
+        throw AgentDriverError.launchFailed("Kiro agent mode is not yet configured.")
+    }
+
+    func invocation(for request: AgentDriverRequest) -> AgentDriverInvocation {
+        AgentDriverInvocation.kiro(currentDirectory: request.cwd)
     }
 }
 
