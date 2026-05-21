@@ -1,4 +1,5 @@
 use crate::ai_usage_store::AIUsageStore;
+use crate::paths::home_dir;
 use anyhow::Result;
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use rusqlite::Connection;
@@ -1890,14 +1891,6 @@ fn json_i64(value: Option<&Value>) -> i64 {
                 .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
         })
         .unwrap_or(0)
-}
-
-fn home_dir() -> PathBuf {
-    std::env::var("HOME")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 #[cfg(test)]

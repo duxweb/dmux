@@ -42,7 +42,16 @@ pub fn home_dir() -> PathBuf {
 
 #[cfg(target_os = "windows")]
 fn windows_user_profile() -> Option<PathBuf> {
-    std::env::var_os("USERPROFILE").map(PathBuf::from)
+    std::env::var_os("USERPROFILE")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            let drive = std::env::var_os("HOMEDRIVE")?;
+            let path = std::env::var_os("HOMEPATH")?;
+            let mut home = PathBuf::from(drive);
+            home.push(path);
+            Some(home)
+        })
 }
 
 #[cfg(not(target_os = "windows"))]

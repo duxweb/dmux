@@ -2,6 +2,7 @@ use crate::app_settings::{locale_from_language_setting, AppSettingsStore};
 use crate::i18n::translate;
 use crate::memory::MemoryStore;
 use crate::notify_channels::{dispatch_notification_channels, NotificationDispatchRequest};
+use crate::paths::home_dir;
 use crate::project_store::ProjectStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -3399,7 +3400,7 @@ fn hook_command(helper_script: &Path, action: &str, owner: &str, tool: &str) -> 
     #[cfg(windows)]
     {
         return format!(
-            "cmd /d /s /c \"{} {} {} {}\"",
+            "cmd /d /c call {} {} {} {}",
             windows_cmd_quote(&helper_script.with_extension("cmd").display().to_string()),
             windows_cmd_quote(action),
             windows_cmd_quote(owner),
@@ -3424,14 +3425,6 @@ fn windows_cmd_quote(value: &str) -> String {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn home_dir() -> PathBuf {
-    std::env::var("HOME")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn stage_runtime_asset(
