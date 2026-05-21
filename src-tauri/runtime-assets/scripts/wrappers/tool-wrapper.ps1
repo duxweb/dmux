@@ -163,13 +163,14 @@ function Invoke-Real-Binary([string]$Binary, [string[]]$CommandArgs, [string]$Se
       Push-Location -LiteralPath $LaunchDir
       try {
         & $Binary @CommandArgs
-        return $LASTEXITCODE
+        $script:DMUX_WRAPPER_EXIT_CODE = $LASTEXITCODE
+        return
       } finally {
         Pop-Location
       }
     }
     & $Binary @CommandArgs
-    return $LASTEXITCODE
+    $script:DMUX_WRAPPER_EXIT_CODE = $LASTEXITCODE
   } finally {
     $env:PATH = $previousPath
   }
@@ -253,6 +254,7 @@ if ($Tool -eq "opencode") {
 
 Start-State $Tool
 $launchDir = Resolve-Memory-Launch-Dir
-$exitCode = Invoke-Real-Binary $realBin $launchArgs $searchPath $launchDir
+Invoke-Real-Binary $realBin $launchArgs $searchPath $launchDir
+$exitCode = if ($null -eq $script:DMUX_WRAPPER_EXIT_CODE) { 0 } else { $script:DMUX_WRAPPER_EXIT_CODE }
 Stop-State $Tool
 exit $exitCode
