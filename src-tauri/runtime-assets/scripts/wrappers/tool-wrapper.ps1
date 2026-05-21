@@ -155,10 +155,6 @@ function Stop-State([string]$Name) {
   & (Join-Path $wrapperDir "dmux-ai-state.cmd") "stop" "codux-tauri" $Name | Out-Null
 }
 
-function Prompt-State([string]$Name) {
-  & (Join-Path $wrapperDir "dmux-ai-state.cmd") "prompt-submit" "codux-tauri" $Name | Out-Null
-}
-
 function Is-Metadata-Invocation([string[]]$CommandArgs) {
   if ($CommandArgs.Count -eq 0) { return $false }
   foreach ($arg in $CommandArgs) {
@@ -170,6 +166,19 @@ function Is-Metadata-Invocation([string[]]$CommandArgs) {
     }
   }
   return $false
+}
+
+function Codex-Hooks-Feature-Flag([string]$Binary, [string]$SearchPath) {
+  $previousPath = $env:PATH
+  try {
+    $env:PATH = $SearchPath
+    $features = & $Binary features list 2>$null
+    if ($features -match "(?m)^hooks\\s") { return "hooks" }
+    if ($features -match "(?m)^codex_hooks\\s") { return "codex_hooks" }
+  } finally {
+    $env:PATH = $previousPath
+  }
+  return "hooks"
 }
 
 function Invoke-Real-Binary([string]$Binary, [string[]]$CommandArgs, [string]$SearchPath, [string]$LaunchDir) {
@@ -225,6 +234,10 @@ if ($Tool -eq "codex" -and -not [string]::IsNullOrWhiteSpace($codexEffort) -and 
   $launchArgs = @("-c", "model_reasoning_effort=`"$codexEffort`"") + $launchArgs
 }
 
+if ($Tool -eq "codex" -and -not (Is-Metadata-Invocation $launchArgs) -and -not (Has-Arg $launchArgs "--enable")) {
+  $launchArgs = @("--enable", (Codex-Hooks-Feature-Flag $realBin $searchPath)) + $launchArgs
+}
+
 if ($permissionMode -eq "fullAccess") {
   if ($Tool -eq "codex") {
     if (-not (Has-Arg $launchArgs "--dangerously-bypass-approvals-and-sandbox") -and
@@ -269,12 +282,7 @@ if ($Tool -eq "opencode") {
   $env:OPENCODE_CONFIG_DIR = Join-Path $wrapperDir "opencode-config"
 }
 
-Start-State $Tool
-if (-not (Is-Metadata-Invocation $launchArgs)) {
-  Prompt-State $Tool
-}
 $launchDir = Resolve-Memory-Launch-Dir
 Invoke-Real-Binary $realBin $launchArgs $searchPath $launchDir
 $exitCode = if ($null -eq $script:DMUX_WRAPPER_EXIT_CODE) { 0 } else { $script:DMUX_WRAPPER_EXIT_CODE }
-Stop-State $Tool
 exit $exitCode
