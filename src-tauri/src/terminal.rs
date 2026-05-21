@@ -11,8 +11,11 @@ use std::env;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::process::Command;
-use std::sync::{Arc, Mutex, OnceLock};
+#[cfg(not(windows))]
+use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use thiserror::Error;
 use uuid::Uuid;
