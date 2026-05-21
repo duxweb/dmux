@@ -409,6 +409,7 @@ export function TerminalView({
     const current = terminalRuntime.getSession(terminalId);
     sessionRef.current = current;
     setSession(current);
+    terminalRuntime.ensureStarted(terminalId);
   }, [terminalId]);
 
   useEffect(() => {
@@ -446,6 +447,7 @@ export function TerminalView({
     setSession(current);
     adapter.reset(current?.history);
     adapter.setInputEnabled(current?.state === "running");
+    terminalRuntime.ensureStarted(terminalId);
     const unsubscribe = terminalRuntime.subscribe(terminalId, applyEvent);
     const fitFrame = window.requestAnimationFrame(() => {
       fitAndResize();

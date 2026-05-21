@@ -86,6 +86,7 @@ describe("terminal runtime", () => {
     expect(session.slotId).toBe("top-1");
     expect(session.id).toMatch(/^term-/);
 
+    runtime.ensureStarted(session.id);
     runtime.resize(session.id, 100, 30);
     await vi.runAllTimersAsync();
     await Promise.resolve();

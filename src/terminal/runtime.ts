@@ -50,6 +50,8 @@ export class TerminalRuntime {
   private backendToSessionIds = new Map<string, Set<string>>();
   private preferredSizes = new Map<string, { cols: number; rows: number }>();
   private initialSizeResolvers = new Map<string, () => void>();
+  private startOptions = new Map<string, EnsureTerminalOptions>();
+  private startingSessions = new Set<string>();
   private listeners = new Map<string, Set<TerminalListener>>();
   private eventUnlisten?: UnlistenFn;
   private eventListenPromise?: Promise<void>;
@@ -72,13 +74,14 @@ export class TerminalRuntime {
           tool: options.tool,
         });
       }
+      this.startOptions.set(existing.id, options);
       return existing;
     }
 
     const session = this.createRecord({ ...options, key });
     this.sessions.set(session.id, session);
     this.keyToSessionId.set(key, session.id);
-    this.enqueueBackendStart(session.id, options);
+    this.startOptions.set(session.id, options);
     return session;
   }
 
@@ -104,6 +107,24 @@ export class TerminalRuntime {
         this.listeners.delete(sessionId);
       }
     };
+  }
+
+  ensureStarted(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.backendId || session.state !== "starting" || this.startingSessions.has(sessionId)) {
+      return;
+    }
+    const options =
+      this.startOptions.get(sessionId) ?? {
+        projectId: session.projectId,
+        slotId: session.slotId,
+        title: session.title,
+        cwd: session.cwd,
+        projectName: session.projectName,
+        command: session.command,
+        tool: session.tool,
+      };
+    this.enqueueBackendStart(sessionId, options);
   }
 
   write(sessionId: string, data: string) {
@@ -183,6 +204,8 @@ export class TerminalRuntime {
     this.keyToSessionId.delete(session.key);
     this.preferredSizes.delete(sessionId);
     this.initialSizeResolvers.delete(sessionId);
+    this.startOptions.delete(sessionId);
+    this.startingSessions.delete(sessionId);
     if (session.backendId) {
       this.unregisterBackendSession(session.backendId, sessionId);
     }
@@ -245,6 +268,8 @@ export class TerminalRuntime {
     this.keyToSessionId.delete(session.key);
     this.preferredSizes.delete(sessionId);
     this.initialSizeResolvers.delete(sessionId);
+    this.startOptions.delete(sessionId);
+    this.startingSessions.delete(sessionId);
     this.emit(sessionId, { type: "closed", sessionId });
     this.listeners.delete(sessionId);
   }
@@ -268,6 +293,8 @@ export class TerminalRuntime {
   }
 
   private enqueueBackendStart(sessionId: string, options: EnsureTerminalOptions) {
+    if (this.startingSessions.has(sessionId)) return;
+    this.startingSessions.add(sessionId);
     this.backendStartQueue = this.backendStartQueue
       .catch(() => undefined)
       .then(() => nextAnimationFrame())
@@ -275,6 +302,9 @@ export class TerminalRuntime {
       .then(() => {
         const size = this.preferredSizes.get(sessionId);
         return this.startBackend(sessionId, { ...options, ...size });
+      })
+      .finally(() => {
+        this.startingSessions.delete(sessionId);
       });
   }
 
