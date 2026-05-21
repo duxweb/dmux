@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+type GitRepository = git2::Repository;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeSnapshot {
@@ -259,76 +261,55 @@ fn project_worktree(
 }
 
 fn list_worktrees(path: &str) -> Result<Vec<GitWorktreeEntry>, String> {
-    let output = git_output(Path::new(path), &["worktree", "list", "--porcelain"])?;
     let mut entries = Vec::new();
-    let mut current_path: Option<String> = None;
-    let mut current_branch = String::new();
-    let mut current_head = String::new();
-    let mut is_bare = false;
-    let mut is_detached = false;
-
-    let flush = |entries: &mut Vec<GitWorktreeEntry>,
-                 current_path: &mut Option<String>,
-                 current_branch: &mut String,
-                 current_head: &mut String,
-                 is_bare: &mut bool,
-                 is_detached: &mut bool| {
-        if let Some(path) = current_path.take() {
-            entries.push(GitWorktreeEntry {
-                path,
-                branch: std::mem::take(current_branch),
-                head: std::mem::take(current_head),
-                is_bare: *is_bare,
-                is_detached: *is_detached,
-            });
-        }
-        *is_bare = false;
-        *is_detached = false;
-    };
-
-    for raw_line in output.lines().chain(std::iter::once("")) {
-        let line = raw_line.trim();
-        if line.is_empty() {
-            flush(
-                &mut entries,
-                &mut current_path,
-                &mut current_branch,
-                &mut current_head,
-                &mut is_bare,
-                &mut is_detached,
-            );
+    let repo = GitRepository::discover(path).map_err(|error| error.message().to_string())?;
+    let names = repo
+        .worktrees()
+        .map_err(|error| error.message().to_string())?;
+    for name in names.iter().flatten().flatten() {
+        let Ok(worktree) = repo.find_worktree(name) else {
             continue;
-        }
-        if let Some(value) = line.strip_prefix("worktree ") {
-            current_path = Some(value.to_string());
-        } else if let Some(value) = line.strip_prefix("HEAD ") {
-            current_head = value.to_string();
-        } else if let Some(value) = line.strip_prefix("branch ") {
-            current_branch = value
-                .strip_prefix("refs/heads/")
-                .unwrap_or(value)
-                .to_string();
-        } else if line == "bare" {
-            is_bare = true;
-        } else if line == "detached" {
-            is_detached = true;
-        }
+        };
+        let path = normalize_path(&worktree.path().to_string_lossy());
+        let worktree_repo = GitRepository::open(worktree.path()).ok();
+        let branch = worktree_repo
+            .as_ref()
+            .and_then(current_branch_from_repo)
+            .unwrap_or_default();
+        let head = worktree_repo
+            .as_ref()
+            .and_then(head_oid_from_repo)
+            .unwrap_or_default();
+        let is_detached = worktree_repo
+            .as_ref()
+            .map(|repo| repo.head().map(|head| !head.is_branch()).unwrap_or(false))
+            .unwrap_or(false);
+        let is_bare = worktree_repo
+            .as_ref()
+            .map(|repo| repo.is_bare())
+            .unwrap_or(false);
+        entries.push(GitWorktreeEntry {
+            path,
+            branch,
+            head,
+            is_bare,
+            is_detached,
+        });
     }
     Ok(entries)
 }
 
 fn repository_root(path: &str) -> Option<String> {
-    git_output(Path::new(path), &["rev-parse", "--show-toplevel"])
+    GitRepository::discover(path)
         .ok()
-        .map(|value| normalize_path(value.trim()))
-        .filter(|value| !value.is_empty())
+        .and_then(|repo| repo_root(&repo).map(|path| normalize_path(&path.to_string_lossy())))
 }
 
 fn current_branch(path: &str) -> Option<String> {
-    git_output(Path::new(path), &["branch", "--show-current"])
+    GitRepository::discover(path)
         .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+        .as_ref()
+        .and_then(current_branch_from_repo)
 }
 
 fn commit_hash(ref_name: &str, path: &str) -> Option<String> {
@@ -336,40 +317,108 @@ fn commit_hash(ref_name: &str, path: &str) -> Option<String> {
     if ref_name.is_empty() {
         return None;
     }
-    git_output(Path::new(path), &["rev-parse", "--verify", ref_name])
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    GitRepository::discover(path).ok().and_then(|repo| {
+        repo.revparse_single(ref_name)
+            .ok()?
+            .peel_to_commit()
+            .ok()
+            .map(|commit| commit.id().to_string())
+    })
 }
 
 fn worktree_line_stats(path: &str) -> (i64, i64) {
-    let root = Path::new(path);
-    let staged = git_output(root, &["diff", "--cached", "--numstat"]).unwrap_or_default();
-    let unstaged = git_output(root, &["diff", "--numstat"]).unwrap_or_default();
-    merge_numstat(&staged, &unstaged)
+    let Ok(repo) = GitRepository::discover(path) else {
+        return (0, 0);
+    };
+    let mut total = (0, 0);
+    if let Ok(diff) = diff_for_line_stats(&repo, true) {
+        merge_diff_line_stats(&mut total, &diff);
+    }
+    if let Ok(diff) = diff_for_line_stats(&repo, false) {
+        merge_diff_line_stats(&mut total, &diff);
+    }
+    total
 }
 
-fn merge_numstat(left: &str, right: &str) -> (i64, i64) {
+fn diff_for_line_stats(repo: &GitRepository, staged: bool) -> Result<git2::Diff<'_>, git2::Error> {
+    let tree = head_tree(repo).ok();
+    if staged {
+        repo.diff_tree_to_index(tree.as_ref(), None, None)
+    } else {
+        repo.diff_index_to_workdir(None, None)
+    }
+}
+
+fn merge_diff_line_stats(total: &mut (i64, i64), diff: &git2::Diff<'_>) {
+    for index in 0..diff.deltas().len() {
+        let (additions, deletions) = patch_line_stats(diff, index);
+        total.0 += additions;
+        total.1 += deletions;
+    }
+}
+
+fn patch_line_stats(diff: &git2::Diff<'_>, index: usize) -> (i64, i64) {
+    let Ok(Some(patch)) = git2::Patch::from_diff(diff, index) else {
+        return (0, 0);
+    };
     let mut additions = 0;
     let mut deletions = 0;
-    for value in [left, right] {
-        for line in value.lines() {
-            let mut parts = line.split('\t');
-            additions += parts
-                .next()
-                .and_then(|part| part.parse::<i64>().ok())
-                .unwrap_or(0);
-            deletions += parts
-                .next()
-                .and_then(|part| part.parse::<i64>().ok())
-                .unwrap_or(0);
+    for hunk_index in 0..patch.num_hunks() {
+        let Ok((_hunk, line_count)) = patch.hunk(hunk_index) else {
+            continue;
+        };
+        for line_index in 0..line_count {
+            let Ok(line) = patch.line_in_hunk(hunk_index, line_index) else {
+                continue;
+            };
+            match line.origin() {
+                '+' => additions += 1,
+                '-' => deletions += 1,
+                _ => {}
+            }
         }
     }
     (additions, deletions)
 }
 
 fn has_head_commit(path: &str) -> bool {
-    git_output(Path::new(path), &["rev-parse", "--verify", "HEAD^{commit}"]).is_ok()
+    GitRepository::discover(path)
+        .ok()
+        .map(|repo| {
+            repo.head()
+                .ok()
+                .and_then(|head| head.peel_to_commit().ok())
+                .is_some()
+        })
+        .unwrap_or(false)
+}
+
+fn repo_root(repo: &GitRepository) -> Option<&Path> {
+    repo.workdir().or_else(|| repo.path().parent())
+}
+
+fn current_branch_from_repo(repo: &GitRepository) -> Option<String> {
+    repo.head()
+        .ok()
+        .and_then(|head| {
+            if head.is_branch() {
+                head.shorthand().ok().map(str::to_string)
+            } else {
+                None
+            }
+        })
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn head_oid_from_repo(repo: &GitRepository) -> Option<String> {
+    repo.head()
+        .ok()
+        .and_then(|head| head.target())
+        .map(|oid| oid.to_string())
+}
+
+fn head_tree(repo: &GitRepository) -> Result<git2::Tree<'_>, git2::Error> {
+    repo.head()?.peel_to_commit()?.tree()
 }
 
 fn git_output(cwd: &Path, args: &[&str]) -> Result<String, String> {

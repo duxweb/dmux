@@ -14,6 +14,8 @@ const REVIEW_UNTRACKED_LINE_COUNT_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
 const GIT_WATCH_DEBOUNCE_MS: u64 = 250;
 static GIT_COMMAND_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+type GitRepository = git2::Repository;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusSnapshot {
@@ -497,23 +499,9 @@ fn resolve_watch_target(project_path: &str) -> Result<GitWatchTarget, String> {
 
 fn repository_git_dirs(root: &Path) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    for args in [
-        ["rev-parse", "--absolute-git-dir"].as_slice(),
-        ["rev-parse", "--git-common-dir"].as_slice(),
-    ] {
-        if let Ok(value) = git_output(root, args) {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            let path = PathBuf::from(trimmed);
-            let path = if path.is_absolute() {
-                path
-            } else {
-                root.join(path)
-            };
-            push_unique_path(&mut dirs, path);
-        }
+    if let Ok(repo) = GitRepository::discover(root) {
+        push_unique_path(&mut dirs, repo.path().to_path_buf());
+        push_unique_path(&mut dirs, repo.commondir().to_path_buf());
     }
     if dirs.is_empty() {
         dirs.push(root.join(".git"));
@@ -614,12 +602,8 @@ fn is_allowed_git_metadata_path(relative: &str) -> bool {
 }
 
 pub fn git_brief_status(project_path: String) -> GitBriefStatus {
-    let project_path = Path::new(&project_path);
-    let output = match git_output(
-        project_path,
-        &["status", "--porcelain=v1", "--branch", "-z"],
-    ) {
-        Ok(value) => value,
+    let repo = match open_git_repository(&project_path) {
+        Ok(repo) => repo,
         Err(error) => {
             return GitBriefStatus {
                 branch: "uninitialized".to_string(),
@@ -631,13 +615,20 @@ pub fn git_brief_status(project_path: String) -> GitBriefStatus {
             };
         }
     };
-    parse_brief_status(&output)
+    let status = git_status_from_repo(&repo);
+    GitBriefStatus {
+        branch: status.branch,
+        ahead: status.ahead,
+        behind: status.behind,
+        changes: status.staged.len() + status.unstaged.len() + status.untracked.len(),
+        is_repository: true,
+        error: None,
+    }
 }
 
 pub fn git_status(project_path: String) -> GitStatusSnapshot {
-    let project_path = Path::new(&project_path);
-    let root = match git_output(project_path, &["rev-parse", "--show-toplevel"]) {
-        Ok(value) => value.trim().to_string(),
+    let repo = match open_git_repository(&project_path) {
+        Ok(repo) => repo,
         Err(error) => {
             return GitStatusSnapshot {
                 branch: "uninitialized".to_string(),
@@ -656,143 +647,7 @@ pub fn git_status(project_path: String) -> GitStatusSnapshot {
             };
         }
     };
-    let root_path = Path::new(&root);
-    let branch = git_output(root_path, &["branch", "--show-current"])
-        .ok()
-        .and_then(|value| normalized(value.trim()))
-        .or_else(|| {
-            git_output(root_path, &["rev-parse", "--short", "HEAD"])
-                .ok()
-                .and_then(|value| normalized(value.trim()))
-        })
-        .unwrap_or_else(|| "HEAD".to_string());
-    let upstream = git_output(
-        root_path,
-        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-    )
-    .ok()
-    .and_then(|value| normalized(value.trim()));
-    let (ahead, behind) = if upstream.is_some() {
-        git_output(
-            root_path,
-            &["rev-list", "--left-right", "--count", "HEAD...@{u}"],
-        )
-        .ok()
-        .and_then(|value| {
-            let mut parts = value.split_whitespace();
-            let ahead = parts.next()?.parse().ok()?;
-            let behind = parts.next()?.parse().ok()?;
-            Some((ahead, behind))
-        })
-        .unwrap_or((0, 0))
-    } else {
-        (0, 0)
-    };
-    let (staged, unstaged, untracked) = parse_porcelain_status(
-        &git_output(root_path, &["status", "--porcelain=v1", "-z"]).unwrap_or_default(),
-    );
-    let commits = parse_git_log(
-        &git_output(
-            root_path,
-            &[
-                "log",
-                "--graph",
-                "--date=relative",
-                "--decorate=short",
-                "--pretty=format:%x09%H%x1f%D%x1f%cr%x1f%s%x1f%an%x1e",
-                "-n",
-                "20",
-            ],
-        )
-        .unwrap_or_default(),
-    );
-    let branches = local_branches(root_path, &branch);
-    let remote_branches = remote_branch_names(root_path);
-    let remotes = git_remotes(root_path);
-
-    GitStatusSnapshot {
-        branch,
-        upstream,
-        ahead,
-        behind,
-        staged,
-        unstaged,
-        untracked,
-        commits,
-        branches,
-        remote_branches,
-        remotes,
-        is_repository: true,
-        error: None,
-    }
-}
-
-fn parse_brief_status(value: &str) -> GitBriefStatus {
-    let parts = value
-        .split('\0')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-    let branch_line = parts
-        .first()
-        .copied()
-        .filter(|line| line.starts_with("## "))
-        .unwrap_or("## HEAD");
-    let (branch, ahead, behind) = parse_branch_line(branch_line);
-    let mut changes = 0;
-    let mut index = if branch_line.starts_with("## ") { 1 } else { 0 };
-    while index < parts.len() {
-        let item = parts[index];
-        let bytes = item.as_bytes();
-        if bytes.len() >= 4 {
-            changes += 1;
-            let index_status = item[0..1].to_string();
-            if index_status == "R" || index_status == "C" {
-                index += 1;
-            }
-        }
-        index += 1;
-    }
-
-    GitBriefStatus {
-        branch,
-        ahead,
-        behind,
-        changes,
-        is_repository: true,
-        error: None,
-    }
-}
-
-fn parse_branch_line(value: &str) -> (String, i64, i64) {
-    let value = value.trim().strip_prefix("## ").unwrap_or(value.trim());
-    let (head, meta) = value
-        .split_once(" [")
-        .map(|(head, meta)| (head, Some(meta.trim_end_matches(']'))))
-        .unwrap_or((value, None));
-    let branch = if let Some(branch) = head.strip_prefix("No commits yet on ") {
-        branch.to_string()
-    } else if head == "HEAD (no branch)" {
-        "HEAD".to_string()
-    } else {
-        head.split("...").next().unwrap_or(head).trim().to_string()
-    };
-    let mut ahead = 0;
-    let mut behind = 0;
-    if let Some(meta) = meta {
-        for part in meta.split(',') {
-            let part = part.trim();
-            if let Some(value) = part.strip_prefix("ahead ") {
-                ahead = value.parse().unwrap_or(0);
-            } else if let Some(value) = part.strip_prefix("behind ") {
-                behind = value.parse().unwrap_or(0);
-            }
-        }
-    }
-    (
-        normalized(&branch).unwrap_or_else(|| "HEAD".to_string()),
-        ahead,
-        behind,
-    )
+    git_status_from_repo(&repo)
 }
 
 pub fn git_stage(request: GitPathsRequest) -> Result<GitStatusSnapshot, String> {
@@ -874,9 +729,13 @@ pub fn git_amend_last_commit_message(
 }
 
 pub fn git_last_commit_message(project_path: String) -> Result<String, String> {
-    let root = repository_root(&project_path)?;
-    git_output(Path::new(&root), &["log", "-1", "--pretty=%s"])
-        .map(|value| value.trim().to_string())
+    let repo = open_git_repository(&project_path)?;
+    let commit = repo
+        .head()
+        .map_err(|error| error.message().to_string())?
+        .peel_to_commit()
+        .map_err(|error| error.message().to_string())?;
+    Ok(commit.summary().ok().flatten().unwrap_or("").to_string())
 }
 
 pub fn git_undo_last_commit(project_path: String) -> Result<GitStatusSnapshot, String> {
@@ -886,20 +745,24 @@ pub fn git_undo_last_commit(project_path: String) -> Result<GitStatusSnapshot, S
 }
 
 pub fn git_head_commit_pushed(project_path: String) -> Result<bool, String> {
-    let root = repository_root(&project_path)?;
-    let upstream = git_output(
-        Path::new(&root),
-        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-    )
-    .unwrap_or_default()
-    .trim()
-    .to_string();
-    if upstream.is_empty() || upstream.contains("fatal:") {
+    let repo = open_git_repository(&project_path)?;
+    let Some(head) = repo.head().ok().and_then(|head| head.target()) else {
         return Ok(false);
-    }
-    let output =
-        git_output(Path::new(&root), &["branch", "-r", "--contains", "HEAD"]).unwrap_or_default();
-    Ok(output.lines().map(str::trim).any(|line| line == upstream))
+    };
+    let Some(upstream) = upstream_branch_name(&repo) else {
+        return Ok(false);
+    };
+    let upstream_ref = format!("refs/remotes/{upstream}");
+    let Some(upstream_target) = repo
+        .find_reference(&upstream_ref)
+        .ok()
+        .and_then(|reference| reference.target())
+    else {
+        return Ok(false);
+    };
+    Ok(repo
+        .graph_descendant_of(upstream_target, head)
+        .unwrap_or(false))
 }
 
 pub fn git_init(project_path: String) -> Result<GitStatusSnapshot, String> {
@@ -951,8 +814,8 @@ pub fn git_discard(request: GitPathsRequest) -> Result<GitStatusSnapshot, String
 }
 
 pub fn git_branches(project_path: String) -> GitBranchesSnapshot {
-    let root = match repository_root(&project_path) {
-        Ok(root) => root,
+    let repo = match open_git_repository(&project_path) {
+        Ok(repo) => repo,
         Err(error) => {
             return GitBranchesSnapshot {
                 current: String::new(),
@@ -963,40 +826,12 @@ pub fn git_branches(project_path: String) -> GitBranchesSnapshot {
             };
         }
     };
-    let current = git_output(Path::new(&root), &["branch", "--show-current"])
-        .ok()
-        .and_then(|value| normalized(value.trim()))
-        .unwrap_or_else(|| "HEAD".to_string());
-    let local = ensure_current_local_branch(
-        parse_branch_refs(
-            &git_output(
-                Path::new(&root),
-                &[
-                    "for-each-ref",
-                    "--format=%(refname:short)%1f%(upstream:short)%1f%(objectname:short)",
-                    "refs/heads",
-                ],
-            )
-            .unwrap_or_default(),
-            &current,
-        ),
-        &current,
-    );
-    let remote = parse_branch_refs(
-        &git_output(
-            Path::new(&root),
-            &[
-                "for-each-ref",
-                "--format=%(refname:short)%1f%(upstream:short)%1f%(objectname:short)",
-                "refs/remotes",
-            ],
-        )
-        .unwrap_or_default(),
-        &current,
-    )
-    .into_iter()
-    .filter(|branch| !branch.name.ends_with("/HEAD"))
-    .collect();
+    let current = current_branch_name(&repo);
+    let local = git2_branches(&repo, git2::BranchType::Local, &current);
+    let remote = git2_branches(&repo, git2::BranchType::Remote, &current)
+        .into_iter()
+        .filter(|branch| !branch.name.ends_with("/HEAD"))
+        .collect();
     GitBranchesSnapshot {
         current,
         local,
@@ -1202,9 +1037,7 @@ pub fn git_push_remote(request: GitPushRemoteRequest) -> Result<GitStatusSnapsho
         return Err("Remote name cannot be empty.".to_string());
     }
     let root = repository_root(&request.project_path)?;
-    let branch = git_output(Path::new(&root), &["branch", "--show-current"])?
-        .trim()
-        .to_string();
+    let branch = current_local_branch_name(&root)?;
     if branch.is_empty() {
         return Err("Cannot push detached HEAD to a remote.".to_string());
     }
@@ -1230,9 +1063,7 @@ pub fn git_push_remote_branch(
         .filter(|value| !value.is_empty())
     {
         Some(branch) => branch.to_string(),
-        None => git_output(Path::new(&root), &["branch", "--show-current"])?
-            .trim()
-            .to_string(),
+        None => current_local_branch_name(&root)?,
     };
     if local_branch.is_empty() {
         return Err("Cannot push detached HEAD to a remote branch.".to_string());
@@ -1261,8 +1092,8 @@ pub fn git_force_push(project_path: String) -> Result<GitStatusSnapshot, String>
 }
 
 pub fn git_diff_file(request: GitDiffRequest) -> GitDiffSnapshot {
-    let root = match repository_root(&request.project_path) {
-        Ok(root) => root,
+    let repo = match open_git_repository(&request.project_path) {
+        Ok(repo) => repo,
         Err(error) => {
             return GitDiffSnapshot {
                 path: request.path,
@@ -1282,13 +1113,13 @@ pub fn git_diff_file(request: GitDiffRequest) -> GitDiffSnapshot {
         };
     }
     let diff = if request.staged {
-        git_output_permissive(Path::new(&root), &["diff", "--cached", "--", path])
+        git2_diff_to_string(&repo, DiffTarget::Index, Some(path), 3)
     } else {
-        git_output_permissive(Path::new(&root), &["diff", "--", path])
+        git2_diff_to_string(&repo, DiffTarget::Worktree, Some(path), 3)
     }
     .unwrap_or_default();
     let diff = if diff.trim().is_empty() {
-        if !request.staged && is_untracked_path(&root, path) {
+        if !request.staged && is_untracked_path_git2(&repo, path) {
             format!("Untracked file: {path}\n\nStage the file to include it in the next commit.")
         } else {
             diff
@@ -1305,8 +1136,8 @@ pub fn git_diff_file(request: GitDiffRequest) -> GitDiffSnapshot {
 }
 
 pub fn git_review_diff_file(request: GitReviewDiffRequest) -> GitDiffSnapshot {
-    let root = match repository_root(&request.project_path) {
-        Ok(root) => root,
+    let repo = match open_git_repository(&request.project_path) {
+        Ok(repo) => repo,
         Err(error) => {
             return GitDiffSnapshot {
                 path: request.path,
@@ -1332,19 +1163,14 @@ pub fn git_review_diff_file(request: GitReviewDiffRequest) -> GitDiffSnapshot {
         .filter(|value| !value.is_empty() && *value != "current branch");
 
     let diff = if let Some(base) = base {
-        let range = format!("{base}...HEAD");
-        git_output_permissive(Path::new(&root), &["diff", range.as_str(), "--", path])
-            .or_else(|_| {
-                git_output_permissive(Path::new(&root), &["diff", base, "HEAD", "--", path])
-            })
-            .unwrap_or_default()
+        git2_commit_diff_to_string(&repo, base, Some(path), 3).unwrap_or_default()
     } else {
         let unstaged =
-            git_output_permissive(Path::new(&root), &["diff", "--", path]).unwrap_or_default();
-        let staged = git_output_permissive(Path::new(&root), &["diff", "--cached", "--", path])
-            .unwrap_or_default();
+            git2_diff_to_string(&repo, DiffTarget::Worktree, Some(path), 3).unwrap_or_default();
+        let staged =
+            git2_diff_to_string(&repo, DiffTarget::Index, Some(path), 3).unwrap_or_default();
         match (staged.trim().is_empty(), unstaged.trim().is_empty()) {
-            (true, true) if is_untracked_path(&root, path) => {
+            (true, true) if is_untracked_path_git2(&repo, path) => {
                 format!(
                     "Untracked file: {path}\n\nStage the file to include it in the next commit."
                 )
@@ -1364,8 +1190,8 @@ pub fn git_review_diff_file(request: GitReviewDiffRequest) -> GitDiffSnapshot {
 }
 
 pub fn git_review_file_content(request: GitReviewContentRequest) -> GitReviewContentSnapshot {
-    let root = match repository_root(&request.project_path) {
-        Ok(root) => root,
+    let repo = match open_git_repository(&request.project_path) {
+        Ok(repo) => repo,
         Err(error) => {
             return GitReviewContentSnapshot {
                 path: request.path,
@@ -1400,32 +1226,17 @@ pub fn git_review_file_content(request: GitReviewContentRequest) -> GitReviewCon
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty() && *value != "current branch");
-    let head_content = git_blob_or_empty(&root, "HEAD", path);
-    let base_content = base.map(|reference| git_blob_or_empty(&root, reference, path));
-    let index_content = git_blob(&root, ":0", path).ok();
-    let worktree_content = read_worktree_file(Path::new(&root), path).unwrap_or_default();
+    let head_content = git2_blob_or_empty(&repo, "HEAD", path);
+    let base_content = base.map(|reference| git2_blob_or_empty(&repo, reference, path));
+    let index_content = git2_index_blob(&repo, path).ok();
+    let worktree_content = read_worktree_file(repo_root(&repo), path).unwrap_or_default();
     let diff = if let Some(base) = base {
-        let range = format!("{base}...HEAD");
-        git_output_permissive(
-            Path::new(&root),
-            &["diff", "--unified=0", range.as_str(), "--", path],
-        )
-        .or_else(|_| {
-            git_output_permissive(
-                Path::new(&root),
-                &["diff", "--unified=0", base, "HEAD", "--", path],
-            )
-        })
-        .unwrap_or_default()
+        git2_commit_diff_to_string(&repo, base, Some(path), 0).unwrap_or_default()
     } else {
         let unstaged =
-            git_output_permissive(Path::new(&root), &["diff", "--unified=0", "--", path])
-                .unwrap_or_default();
-        let staged = git_output_permissive(
-            Path::new(&root),
-            &["diff", "--unified=0", "--cached", "--", path],
-        )
-        .unwrap_or_default();
+            git2_diff_to_string(&repo, DiffTarget::Worktree, Some(path), 0).unwrap_or_default();
+        let staged =
+            git2_diff_to_string(&repo, DiffTarget::Index, Some(path), 0).unwrap_or_default();
         match (staged.trim().is_empty(), unstaged.trim().is_empty()) {
             (true, _) => unstaged,
             (_, true) => staged,
@@ -1448,8 +1259,8 @@ pub fn git_review_file_content(request: GitReviewContentRequest) -> GitReviewCon
 }
 
 pub fn git_review(project_path: String, base_branch: Option<String>) -> GitReviewSnapshot {
-    let root = match repository_root(&project_path) {
-        Ok(root) => root,
+    let repo = match open_git_repository(&project_path) {
+        Ok(repo) => repo,
         Err(error) => {
             return GitReviewSnapshot {
                 mode: "workingTreeAudit".to_string(),
@@ -1462,6 +1273,7 @@ pub fn git_review(project_path: String, base_branch: Option<String>) -> GitRevie
             };
         }
     };
+    let root = repo_root(&repo);
     let base = base_branch
         .as_deref()
         .map(str::trim)
@@ -1469,78 +1281,31 @@ pub fn git_review(project_path: String, base_branch: Option<String>) -> GitRevie
         .map(str::to_string);
 
     if let Some(base) = base {
-        let range = format!("{base}...HEAD");
-        let name_status = git_output(Path::new(&root), &["diff", "--name-status", range.as_str()])
-            .or_else(|_| {
-                git_output(
-                    Path::new(&root),
-                    &["diff", "--name-status", base.as_str(), "HEAD"],
-                )
-            })
-            .unwrap_or_default();
-        let numstat = git_output(Path::new(&root), &["diff", "--numstat", range.as_str()])
-            .or_else(|_| {
-                git_output(
-                    Path::new(&root),
-                    &["diff", "--numstat", base.as_str(), "HEAD"],
-                )
-            })
-            .unwrap_or_default();
-        let diff_stat = git_output(Path::new(&root), &["diff", "--shortstat", range.as_str()])
-            .or_else(|_| {
-                git_output(
-                    Path::new(&root),
-                    &["diff", "--shortstat", base.as_str(), "HEAD"],
-                )
-            })
-            .unwrap_or_default()
-            .trim()
-            .to_string();
+        let files = git2_commit_review_files(&repo, &base).unwrap_or_default();
+        let diff_stat = review_diff_stat(&files);
         return GitReviewSnapshot {
             mode: "taskBranch".to_string(),
             title: "Worktree Review".to_string(),
             base_branch: Some(base),
             diff_stat,
-            files: merge_review_files(&name_status, &numstat),
+            files,
             is_repository: true,
             error: None,
         };
     }
 
-    let status = git_status(root.clone());
-    let root_path = Path::new(&root);
-    let stats = working_tree_review_stats(root_path);
+    let status = git_status_from_repo(&repo);
+    let stats = working_tree_review_stats_git2(&repo);
     let mut seen_paths = HashSet::new();
     let mut files = Vec::new();
     for file in &status.staged {
-        push_review_file_from_status(
-            &mut files,
-            &mut seen_paths,
-            file,
-            "staged",
-            &stats,
-            root_path,
-        );
+        push_review_file_from_status(&mut files, &mut seen_paths, file, "staged", &stats, root);
     }
     for file in &status.unstaged {
-        push_review_file_from_status(
-            &mut files,
-            &mut seen_paths,
-            file,
-            "modified",
-            &stats,
-            root_path,
-        );
+        push_review_file_from_status(&mut files, &mut seen_paths, file, "modified", &stats, root);
     }
     for file in &status.untracked {
-        push_review_file_from_status(
-            &mut files,
-            &mut seen_paths,
-            file,
-            "added",
-            &stats,
-            root_path,
-        );
+        push_review_file_from_status(&mut files, &mut seen_paths, file, "added", &stats, root);
     }
     GitReviewSnapshot {
         mode: "workingTreeAudit".to_string(),
@@ -1557,17 +1322,556 @@ pub fn git_review(project_path: String, base_branch: Option<String>) -> GitRevie
     }
 }
 
-fn git_blob_or_empty(root: &str, reference: &str, path: &str) -> String {
-    git_blob(root, reference, path).unwrap_or_default()
+fn open_git_repository(path: &str) -> Result<GitRepository, String> {
+    let path = Path::new(path.trim());
+    if path.as_os_str().is_empty() {
+        return Err("Project path cannot be empty.".to_string());
+    }
+    GitRepository::discover(path).map_err(|error| error.message().to_string())
 }
 
-fn git_blob(root: &str, reference: &str, path: &str) -> Result<String, String> {
-    let spec = if reference == ":0" {
-        format!(":0:{path}")
-    } else {
-        format!("{reference}:{path}")
+fn repo_root(repo: &GitRepository) -> &Path {
+    repo.workdir()
+        .or_else(|| repo.path().parent())
+        .unwrap_or_else(|| Path::new(""))
+}
+
+fn git_status_from_repo(repo: &GitRepository) -> GitStatusSnapshot {
+    let branch = current_branch_name(repo);
+    let upstream = upstream_branch_name(repo);
+    let (ahead, behind) = ahead_behind(repo).unwrap_or((0, 0));
+    let (staged, unstaged, untracked) = git2_status_files(repo);
+    let commits = git2_commit_log(repo, 20);
+    let branches = git2_branches(repo, git2::BranchType::Local, &branch);
+    let remote_branches = git2_branches(repo, git2::BranchType::Remote, &branch)
+        .into_iter()
+        .map(|branch| branch.name)
+        .filter(|name| !name.ends_with("/HEAD") && name.contains('/'))
+        .collect();
+    let remotes = git2_remotes(repo);
+    GitStatusSnapshot {
+        branch,
+        upstream,
+        ahead,
+        behind,
+        staged,
+        unstaged,
+        untracked,
+        commits,
+        branches,
+        remote_branches,
+        remotes,
+        is_repository: true,
+        error: None,
+    }
+}
+
+fn current_branch_name(repo: &GitRepository) -> String {
+    repo.head()
+        .ok()
+        .and_then(|head| {
+            if head.is_branch() {
+                head.shorthand().ok().map(str::to_string)
+            } else {
+                head.target().map(|oid| short_oid(oid))
+            }
+        })
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "HEAD".to_string())
+}
+
+fn upstream_branch_name(repo: &GitRepository) -> Option<String> {
+    let head = repo.head().ok()?;
+    if !head.is_branch() {
+        return None;
+    }
+    let name = head.shorthand().ok()?;
+    repo.find_branch(name, git2::BranchType::Local)
+        .ok()
+        .and_then(|branch| branch.upstream().ok())
+        .and_then(|branch| branch.name().ok().flatten().map(str::to_string))
+}
+
+fn ahead_behind(repo: &GitRepository) -> Option<(i64, i64)> {
+    let head = repo.head().ok()?.target()?;
+    let upstream = {
+        let head_ref = repo.head().ok()?;
+        if !head_ref.is_branch() {
+            return Some((0, 0));
+        }
+        let name = head_ref.shorthand().ok()?;
+        repo.find_branch(name, git2::BranchType::Local)
+            .ok()?
+            .upstream()
+            .ok()?
+            .get()
+            .target()?
     };
-    git_output_permissive(Path::new(root), &["show", spec.as_str()])
+    repo.graph_ahead_behind(head, upstream)
+        .ok()
+        .map(|(ahead, behind)| (ahead as i64, behind as i64))
+}
+
+fn git2_status_files(
+    repo: &GitRepository,
+) -> (Vec<GitFileStatus>, Vec<GitFileStatus>, Vec<GitFileStatus>) {
+    let mut options = git2::StatusOptions::new();
+    options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .renames_head_to_index(true)
+        .renames_index_to_workdir(true);
+    let statuses = match repo.statuses(Some(&mut options)) {
+        Ok(statuses) => statuses,
+        Err(_) => return (Vec::new(), Vec::new(), Vec::new()),
+    };
+    let mut staged = Vec::new();
+    let mut unstaged = Vec::new();
+    let mut untracked = Vec::new();
+    for entry in statuses.iter() {
+        let status = entry.status();
+        let Some(path) = entry.path().ok().map(normalize_git_path) else {
+            continue;
+        };
+        let index_status = git2_index_status_code(status);
+        let worktree_status = git2_worktree_status_code(status);
+        let file = GitFileStatus {
+            path,
+            index_status: index_status.clone(),
+            worktree_status: worktree_status.clone(),
+        };
+        if status.contains(git2::Status::WT_NEW) && index_status.trim().is_empty() {
+            untracked.push(file);
+            continue;
+        }
+        if !index_status.trim().is_empty() {
+            staged.push(file.clone());
+        }
+        if !worktree_status.trim().is_empty() {
+            unstaged.push(file);
+        }
+    }
+    (staged, unstaged, untracked)
+}
+
+fn git2_index_status_code(status: git2::Status) -> String {
+    if status.contains(git2::Status::INDEX_NEW) {
+        "A"
+    } else if status.contains(git2::Status::INDEX_MODIFIED) {
+        "M"
+    } else if status.contains(git2::Status::INDEX_DELETED) {
+        "D"
+    } else if status.contains(git2::Status::INDEX_RENAMED) {
+        "R"
+    } else if status.contains(git2::Status::INDEX_TYPECHANGE) {
+        "T"
+    } else {
+        " "
+    }
+    .to_string()
+}
+
+fn git2_worktree_status_code(status: git2::Status) -> String {
+    if status.contains(git2::Status::WT_NEW) {
+        "?"
+    } else if status.contains(git2::Status::WT_MODIFIED) {
+        "M"
+    } else if status.contains(git2::Status::WT_DELETED) {
+        "D"
+    } else if status.contains(git2::Status::WT_RENAMED) {
+        "R"
+    } else if status.contains(git2::Status::WT_TYPECHANGE) {
+        "T"
+    } else {
+        " "
+    }
+    .to_string()
+}
+
+fn git2_commit_log(repo: &GitRepository, limit: usize) -> Vec<GitCommitSummary> {
+    let mut revwalk = match repo.revwalk() {
+        Ok(revwalk) => revwalk,
+        Err(_) => return Vec::new(),
+    };
+    let _ = revwalk.set_sorting(git2::Sort::TIME);
+    if revwalk.push_head().is_err() {
+        return Vec::new();
+    }
+    revwalk
+        .take(limit)
+        .filter_map(Result::ok)
+        .filter_map(|oid| {
+            let commit = repo.find_commit(oid).ok()?;
+            let author = commit.author().name().unwrap_or("").to_string();
+            Some(GitCommitSummary {
+                hash: oid.to_string(),
+                title: commit.summary().ok().flatten().unwrap_or("").to_string(),
+                relative_time: relative_git_time(commit.time().seconds()),
+                decorations: commit_decorations(repo, oid),
+                graph_prefix: String::new(),
+                author,
+            })
+        })
+        .collect()
+}
+
+fn commit_decorations(repo: &GitRepository, oid: git2::Oid) -> Option<String> {
+    let mut labels = Vec::new();
+    if let Ok(head) = repo.head() {
+        if head.target() == Some(oid) {
+            if let Ok(name) = head.shorthand() {
+                labels.push(format!("HEAD -> {name}"));
+            } else {
+                labels.push("HEAD".to_string());
+            }
+        }
+    }
+    if let Ok(mut refs) = repo.references() {
+        while let Some(Ok(reference)) = refs.next() {
+            if reference.target() != Some(oid) {
+                continue;
+            }
+            let Ok(name) = reference.shorthand() else {
+                continue;
+            };
+            if reference.is_tag() {
+                labels.push(format!("tag: {name}"));
+            } else if reference.is_branch() && !labels.iter().any(|item| item.contains(name)) {
+                labels.push(name.to_string());
+            } else if reference.is_remote() {
+                labels.push(name.to_string());
+            }
+        }
+    }
+    (!labels.is_empty()).then(|| labels.join(", "))
+}
+
+fn git2_branches(
+    repo: &GitRepository,
+    branch_type: git2::BranchType,
+    current: &str,
+) -> Vec<GitBranchSummary> {
+    let mut branches = Vec::new();
+    let Ok(iter) = repo.branches(Some(branch_type)) else {
+        return branches;
+    };
+    for item in iter.filter_map(Result::ok) {
+        let branch = item.0;
+        let name = branch
+            .name()
+            .ok()
+            .flatten()
+            .map(str::to_string)
+            .unwrap_or_default();
+        if name.is_empty() {
+            continue;
+        }
+        let upstream = branch
+            .upstream()
+            .ok()
+            .and_then(|branch| branch.name().ok().flatten().map(str::to_string));
+        let hash = branch.get().target().map(short_oid).unwrap_or_default();
+        branches.push(GitBranchSummary {
+            is_current: branch_type == git2::BranchType::Local && name == current,
+            name,
+            upstream,
+            hash,
+        });
+    }
+    branches.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    if branch_type == git2::BranchType::Local {
+        ensure_current_local_branch(branches, current)
+    } else {
+        branches
+    }
+}
+
+fn git2_remotes(repo: &GitRepository) -> Vec<GitRemoteSummary> {
+    let mut remotes = Vec::new();
+    let Ok(names) = repo.remotes() else {
+        return remotes;
+    };
+    for name in names.iter().flatten().flatten() {
+        if let Ok(remote) = repo.find_remote(name) {
+            remotes.push(GitRemoteSummary {
+                name: name.to_string(),
+                url: remote.url().unwrap_or("").to_string(),
+            });
+        }
+    }
+    remotes.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    remotes
+}
+
+#[derive(Clone, Copy)]
+enum DiffTarget {
+    Index,
+    Worktree,
+}
+
+fn git2_diff_to_string(
+    repo: &GitRepository,
+    target: DiffTarget,
+    path: Option<&str>,
+    context_lines: u32,
+) -> Result<String, String> {
+    let tree = head_tree(repo).ok();
+    let mut options = git2_diff_options(path, context_lines);
+    let diff = match target {
+        DiffTarget::Index => repo.diff_tree_to_index(tree.as_ref(), None, Some(&mut options)),
+        DiffTarget::Worktree => repo.diff_index_to_workdir(None, Some(&mut options)),
+    }
+    .map_err(|error| error.message().to_string())?;
+    diff_to_string(&diff)
+}
+
+fn git2_commit_diff_to_string(
+    repo: &GitRepository,
+    base: &str,
+    path: Option<&str>,
+    context_lines: u32,
+) -> Result<String, String> {
+    let base_tree = resolve_commit_tree(repo, base)?;
+    let head_tree = head_tree(repo)?;
+    let mut options = git2_diff_options(path, context_lines);
+    let diff = repo
+        .diff_tree_to_tree(Some(&base_tree), Some(&head_tree), Some(&mut options))
+        .map_err(|error| error.message().to_string())?;
+    diff_to_string(&diff)
+}
+
+fn git2_commit_review_files(
+    repo: &GitRepository,
+    base: &str,
+) -> Result<Vec<GitReviewFile>, String> {
+    let base_tree = resolve_commit_tree(repo, base)?;
+    let head_tree = head_tree(repo)?;
+    let mut diff = repo
+        .diff_tree_to_tree(Some(&base_tree), Some(&head_tree), None)
+        .map_err(|error| error.message().to_string())?;
+    let _ = diff.find_similar(None);
+    review_files_from_diff(&diff)
+}
+
+fn working_tree_review_stats_git2(repo: &GitRepository) -> HashMap<String, (i64, i64)> {
+    let mut stats = HashMap::new();
+    if let Ok(diff) = diff_for_review_stats(repo, DiffTarget::Index) {
+        merge_review_stats_from_diff(&mut stats, &diff);
+    }
+    if let Ok(diff) = diff_for_review_stats(repo, DiffTarget::Worktree) {
+        merge_review_stats_from_diff(&mut stats, &diff);
+    }
+    stats
+}
+
+fn diff_for_review_stats(
+    repo: &GitRepository,
+    target: DiffTarget,
+) -> Result<git2::Diff<'_>, String> {
+    let tree = head_tree(repo).ok();
+    let diff = match target {
+        DiffTarget::Index => repo.diff_tree_to_index(tree.as_ref(), None, None),
+        DiffTarget::Worktree => repo.diff_index_to_workdir(None, None),
+    }
+    .map_err(|error| error.message().to_string())?;
+    Ok(diff)
+}
+
+fn merge_review_stats_from_diff(target: &mut HashMap<String, (i64, i64)>, diff: &git2::Diff<'_>) {
+    for file in review_files_from_diff(diff).unwrap_or_default() {
+        let entry = target.entry(file.path).or_insert((0, 0));
+        entry.0 += file.additions;
+        entry.1 += file.deletions;
+    }
+}
+
+fn review_files_from_diff(diff: &git2::Diff<'_>) -> Result<Vec<GitReviewFile>, String> {
+    let mut files = Vec::new();
+    for index in 0..diff.deltas().len() {
+        let Some(delta) = diff.get_delta(index) else {
+            continue;
+        };
+        let Some(path) = delta
+            .new_file()
+            .path()
+            .or_else(|| delta.old_file().path())
+            .map(normalize_git_path_path)
+        else {
+            continue;
+        };
+        let (additions, deletions) = patch_line_stats(diff, index);
+        files.push(GitReviewFile {
+            path,
+            status: review_status_from_delta(delta.status()),
+            additions,
+            deletions,
+        });
+    }
+    Ok(files)
+}
+
+fn patch_line_stats(diff: &git2::Diff<'_>, index: usize) -> (i64, i64) {
+    let Some(delta) = diff.get_delta(index) else {
+        return (0, 0);
+    };
+    let Ok(Some(patch)) = git2::Patch::from_diff(diff, index) else {
+        return (0, 0);
+    };
+    let mut additions = 0;
+    let mut deletions = 0;
+    for hunk_index in 0..patch.num_hunks() {
+        let Ok((_hunk, line_count)) = patch.hunk(hunk_index) else {
+            continue;
+        };
+        for line_index in 0..line_count {
+            let Ok(line) = patch.line_in_hunk(hunk_index, line_index) else {
+                continue;
+            };
+            match line.origin() {
+                '+' => additions += 1,
+                '-' => deletions += 1,
+                _ => {}
+            }
+        }
+    }
+    if additions == 0 && deletions == 0 {
+        match delta.status() {
+            git2::Delta::Added => additions = 1,
+            git2::Delta::Deleted => deletions = 1,
+            _ => {}
+        }
+    }
+    (additions, deletions)
+}
+
+fn diff_to_string(diff: &git2::Diff<'_>) -> Result<String, String> {
+    let mut output = Vec::new();
+    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+        output.extend_from_slice(line.content());
+        true
+    })
+    .map_err(|error| error.message().to_string())?;
+    Ok(String::from_utf8_lossy(&output).to_string())
+}
+
+fn git2_diff_options(path: Option<&str>, context_lines: u32) -> git2::DiffOptions {
+    let mut options = git2::DiffOptions::new();
+    options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .context_lines(context_lines);
+    if let Some(path) = path.filter(|path| !path.trim().is_empty()) {
+        options.pathspec(path);
+    }
+    options
+}
+
+fn head_tree(repo: &GitRepository) -> Result<git2::Tree<'_>, String> {
+    let head = repo.head().map_err(|error| error.message().to_string())?;
+    let commit = head
+        .peel_to_commit()
+        .map_err(|error| error.message().to_string())?;
+    commit.tree().map_err(|error| error.message().to_string())
+}
+
+fn resolve_commit_tree<'repo>(
+    repo: &'repo GitRepository,
+    reference: &str,
+) -> Result<git2::Tree<'repo>, String> {
+    let object = repo
+        .revparse_single(reference)
+        .map_err(|_| format!("Cannot resolve git reference: {reference}"))?;
+    let commit = object
+        .peel_to_commit()
+        .map_err(|error| error.message().to_string())?;
+    commit.tree().map_err(|error| error.message().to_string())
+}
+
+fn git2_blob_or_empty(repo: &GitRepository, reference: &str, path: &str) -> String {
+    git2_blob(repo, reference, path).unwrap_or_default()
+}
+
+fn git2_blob(repo: &GitRepository, reference: &str, path: &str) -> Result<String, String> {
+    let tree = resolve_commit_tree(repo, reference)?;
+    let entry = tree
+        .get_path(Path::new(path))
+        .map_err(|error| error.message().to_string())?;
+    let blob = repo
+        .find_blob(entry.id())
+        .map_err(|error| error.message().to_string())?;
+    Ok(String::from_utf8_lossy(blob.content()).to_string())
+}
+
+fn git2_index_blob(repo: &GitRepository, path: &str) -> Result<String, String> {
+    let index = repo.index().map_err(|error| error.message().to_string())?;
+    let entry = index
+        .get_path(Path::new(path), 0)
+        .ok_or_else(|| "Index entry not found.".to_string())?;
+    let blob = repo
+        .find_blob(entry.id)
+        .map_err(|error| error.message().to_string())?;
+    Ok(String::from_utf8_lossy(blob.content()).to_string())
+}
+
+fn is_untracked_path_git2(repo: &GitRepository, path: &str) -> bool {
+    let (.., untracked) = git2_status_files(repo);
+    untracked.iter().any(|file| file.path == path)
+}
+
+fn review_status_from_delta(delta: git2::Delta) -> String {
+    match delta {
+        git2::Delta::Added => "added",
+        git2::Delta::Deleted => "deleted",
+        git2::Delta::Renamed => "renamed",
+        git2::Delta::Copied => "copied",
+        git2::Delta::Typechange => "typeChanged",
+        _ => "modified",
+    }
+    .to_string()
+}
+
+fn review_diff_stat(files: &[GitReviewFile]) -> String {
+    if files.is_empty() {
+        return String::new();
+    }
+    let additions: i64 = files.iter().map(|file| file.additions).sum();
+    let deletions: i64 = files.iter().map(|file| file.deletions).sum();
+    format!(
+        "{} changed files, {} insertions(+), {} deletions(-)",
+        files.len(),
+        additions,
+        deletions
+    )
+}
+
+fn short_oid(oid: git2::Oid) -> String {
+    oid.to_string().chars().take(7).collect()
+}
+
+fn relative_git_time(seconds: i64) -> String {
+    let now = chrono::Utc::now().timestamp();
+    let elapsed = now.saturating_sub(seconds).max(0);
+    if elapsed < 60 {
+        "just now".to_string()
+    } else if elapsed < 3_600 {
+        format!("{} minutes ago", elapsed / 60)
+    } else if elapsed < 86_400 {
+        format!("{} hours ago", elapsed / 3_600)
+    } else if elapsed < 2_592_000 {
+        format!("{} days ago", elapsed / 86_400)
+    } else if elapsed < 31_536_000 {
+        format!("{} months ago", elapsed / 2_592_000)
+    } else {
+        format!("{} years ago", elapsed / 31_536_000)
+    }
+}
+
+fn normalize_git_path(value: &str) -> String {
+    value.replace('\\', "/")
+}
+
+fn normalize_git_path_path(path: &Path) -> String {
+    normalize_git_path(&path.to_string_lossy())
 }
 
 fn read_worktree_file(root: &Path, path: &str) -> Result<String, String> {
@@ -1620,93 +1924,6 @@ fn diff_range_lines(range: &str) -> Vec<i64> {
     (start..start + count).collect()
 }
 
-fn parse_porcelain_status(
-    value: &str,
-) -> (Vec<GitFileStatus>, Vec<GitFileStatus>, Vec<GitFileStatus>) {
-    let mut staged = Vec::new();
-    let mut unstaged = Vec::new();
-    let mut untracked = Vec::new();
-    let parts = value
-        .split('\0')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-    let mut index = 0;
-    while index < parts.len() {
-        let item = parts[index];
-        let bytes = item.as_bytes();
-        if bytes.len() < 4 {
-            index += 1;
-            continue;
-        }
-        let index_status = item[0..1].to_string();
-        let worktree_status = item[1..2].to_string();
-        let path = item[3..].to_string();
-        let status = GitFileStatus {
-            path,
-            index_status: index_status.clone(),
-            worktree_status: worktree_status.clone(),
-        };
-        if index_status == "?" && worktree_status == "?" {
-            untracked.push(status);
-        } else {
-            if index_status.trim().is_empty() == false {
-                staged.push(status.clone());
-            }
-            if worktree_status.trim().is_empty() == false {
-                unstaged.push(status);
-            }
-        }
-        if index_status == "R" || index_status == "C" {
-            index += 1;
-        }
-        index += 1;
-    }
-    (staged, unstaged, untracked)
-}
-
-fn parse_git_log(value: &str) -> Vec<GitCommitSummary> {
-    value
-        .split('\u{1e}')
-        .filter_map(|row| {
-            let row = row.trim_matches('\n');
-            if row.is_empty() {
-                return None;
-            }
-            let (graph_prefix, data) = row
-                .split_once('\t')
-                .map(|(graph, data)| (graph.trim_end().to_string(), data))
-                .unwrap_or_else(|| (String::new(), row));
-            let mut parts = data.split('\u{1f}');
-            Some(GitCommitSummary {
-                hash: parts.next()?.trim().to_string(),
-                decorations: normalized(parts.next()?.trim()),
-                relative_time: parts.next()?.trim().to_string(),
-                title: parts.next()?.trim().to_string(),
-                author: parts.next().unwrap_or("").trim().to_string(),
-                graph_prefix,
-            })
-        })
-        .collect()
-}
-
-fn local_branches(root: &Path, current: &str) -> Vec<GitBranchSummary> {
-    ensure_current_local_branch(
-        parse_branch_refs(
-            &git_output(
-                root,
-                &[
-                    "for-each-ref",
-                    "--format=%(refname:short)%1f%(upstream:short)%1f%(objectname:short)",
-                    "refs/heads",
-                ],
-            )
-            .unwrap_or_default(),
-            current,
-        ),
-        current,
-    )
-}
-
 fn ensure_current_local_branch(
     mut branches: Vec<GitBranchSummary>,
     current: &str,
@@ -1719,128 +1936,6 @@ fn ensure_current_local_branch(
         branch.is_current = branch.name == current;
     }
     branches
-}
-
-fn remote_branch_names(root: &Path) -> Vec<String> {
-    git_output(
-        root,
-        &["for-each-ref", "--format=%(refname:short)", "refs/remotes"],
-    )
-    .unwrap_or_default()
-    .lines()
-    .map(str::trim)
-    .filter(|value| !value.is_empty() && !value.ends_with("/HEAD") && value.contains('/'))
-    .map(str::to_string)
-    .collect()
-}
-
-fn git_remotes(root: &Path) -> Vec<GitRemoteSummary> {
-    let mut remotes = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for line in git_output(root, &["remote", "-v"])
-        .unwrap_or_default()
-        .lines()
-    {
-        let parts = line.split_whitespace().collect::<Vec<_>>();
-        let Some(name) = parts.first().copied() else {
-            continue;
-        };
-        let Some(url) = parts.get(1).copied() else {
-            continue;
-        };
-        if !seen.insert(name.to_string()) {
-            continue;
-        }
-        remotes.push(GitRemoteSummary {
-            name: name.to_string(),
-            url: url.to_string(),
-        });
-    }
-    remotes.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
-    remotes
-}
-
-fn parse_branch_refs(value: &str, current: &str) -> Vec<GitBranchSummary> {
-    value
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.split('\u{1f}');
-            let name = parts.next()?.trim().to_string();
-            if name.is_empty() {
-                return None;
-            }
-            let upstream = parts.next().and_then(normalized);
-            let hash = parts.next().unwrap_or("").trim().to_string();
-            Some(GitBranchSummary {
-                is_current: name == current,
-                name,
-                upstream,
-                hash,
-            })
-        })
-        .collect()
-}
-
-fn merge_review_files(name_status: &str, numstat: &str) -> Vec<GitReviewFile> {
-    let stats = parse_numstat(numstat);
-    name_status
-        .lines()
-        .filter_map(|line| {
-            let parts = line.split('\t').collect::<Vec<_>>();
-            let raw_status = parts.first()?.trim();
-            let path = if raw_status.starts_with('R') || raw_status.starts_with('C') {
-                parts.get(2).or_else(|| parts.get(1))?
-            } else {
-                parts.get(1)?
-            }
-            .trim();
-            if path.is_empty() {
-                return None;
-            }
-            let (additions, deletions) = stats.get(path).copied().unwrap_or((0, 0));
-            Some(GitReviewFile {
-                path: path.to_string(),
-                status: review_status(raw_status),
-                additions,
-                deletions,
-            })
-        })
-        .collect()
-}
-
-fn parse_numstat(value: &str) -> std::collections::HashMap<String, (i64, i64)> {
-    value
-        .lines()
-        .filter_map(|line| {
-            let parts = line.split('\t').collect::<Vec<_>>();
-            let additions = parts.first()?.parse().unwrap_or(0);
-            let deletions = parts.get(1)?.parse().unwrap_or(0);
-            let path = if parts.len() >= 4 {
-                parts.get(3)?
-            } else {
-                parts.get(2)?
-            };
-            Some((path.to_string(), (additions, deletions)))
-        })
-        .collect()
-}
-
-fn working_tree_review_stats(root: &Path) -> HashMap<String, (i64, i64)> {
-    let mut stats =
-        parse_numstat(&git_output(root, &["diff", "--cached", "--numstat"]).unwrap_or_default());
-    merge_numstat(
-        &mut stats,
-        &parse_numstat(&git_output(root, &["diff", "--numstat"]).unwrap_or_default()),
-    );
-    stats
-}
-
-fn merge_numstat(target: &mut HashMap<String, (i64, i64)>, source: &HashMap<String, (i64, i64)>) {
-    for (path, (additions, deletions)) in source {
-        let entry = target.entry(path.clone()).or_insert((0, 0));
-        entry.0 += additions;
-        entry.1 += deletions;
-    }
 }
 
 fn push_review_file_from_status(
@@ -1965,7 +2060,11 @@ fn run_git_command(cwd: &Path, args: &[&str]) -> Result<Output, String> {
         .map_err(|error| error.to_string())?;
     let deadline = Instant::now() + GIT_COMMAND_TIMEOUT;
     loop {
-        if child.try_wait().map_err(|error| error.to_string())?.is_some() {
+        if child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
             return child.wait_with_output().map_err(|error| error.to_string());
         }
         if Instant::now() >= deadline {
@@ -1978,26 +2077,24 @@ fn run_git_command(cwd: &Path, args: &[&str]) -> Result<Output, String> {
 }
 
 fn repository_root(path: &str) -> Result<String, String> {
-    git_output(Path::new(path), &["rev-parse", "--show-toplevel"])
-        .map(|value| value.trim().to_string())
+    open_git_repository(path).map(|repo| repo_root(&repo).display().to_string())
+}
+
+fn current_local_branch_name(path: &str) -> Result<String, String> {
+    let repo = open_git_repository(path)?;
+    let head = repo.head().map_err(|error| error.message().to_string())?;
+    if !head.is_branch() {
+        return Ok(String::new());
+    }
+    head.shorthand()
+        .map(str::to_string)
+        .map_err(|error| error.message().to_string())
 }
 
 fn has_resolvable_head(path: &str) -> bool {
-    git_output(Path::new(path), &["rev-parse", "--verify", "HEAD"]).is_ok()
-}
-
-fn is_untracked_path(root: &str, path: &str) -> bool {
-    git_output(
-        Path::new(root),
-        &["ls-files", "--others", "--exclude-standard", "--", path],
-    )
-    .map(|output| output.lines().map(str::trim).any(|line| line == path))
-    .unwrap_or(false)
-}
-
-fn normalized(value: &str) -> Option<String> {
-    let value = value.trim();
-    (!value.is_empty()).then(|| value.to_string())
+    open_git_repository(path)
+        .map(|repo| repo.head().ok().and_then(|head| head.target()).is_some())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -2088,22 +2185,5 @@ mod tests {
 
         assert!(empty);
         assert!(paths.is_empty());
-    }
-
-    #[test]
-    fn parse_git_log_keeps_graph_author_and_decorations() {
-        let log = "* \t0123456789abcdef\u{1f}HEAD -> main, tag: v1\u{1f}2 hours ago\u{1f}Add git watcher\u{1f}Alice\u{1e}";
-        let commits = parse_git_log(log);
-
-        assert_eq!(commits.len(), 1);
-        assert_eq!(commits[0].hash, "0123456789abcdef");
-        assert_eq!(commits[0].graph_prefix, "*");
-        assert_eq!(
-            commits[0].decorations.as_deref(),
-            Some("HEAD -> main, tag: v1")
-        );
-        assert_eq!(commits[0].relative_time, "2 hours ago");
-        assert_eq!(commits[0].title, "Add git watcher");
-        assert_eq!(commits[0].author, "Alice");
     }
 }
